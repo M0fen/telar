@@ -1,0 +1,166 @@
+{
+  "cps": 0.425,
+  "beatsPerCycle": 4,
+  "transpose": 0,
+  "master": {
+    "gain": 1,
+    "filter": 0,
+    "room": 0.12,
+    "drive": 0.06,
+    "delay": 0,
+    "crush": 0,
+    "swing": 0.12,
+    "humanize": 0.08
+  },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 7,
+  "vizHeight": 260,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 20
+      },
+      "data": {
+        "kind": "source",
+        "name": "kick",
+        "code": "arrange([4, s(\"bd ~ ~ ~ bd ~ ~ ~\").bank(\"RolandTR808\").gain(0.95)], [12, s(\"bd ~ ~ ~ bd ~ bd ~\").bank(\"RolandTR808\").gain(1.0)], [12, s(\"bd ~ ~ ~ bd ~ bd ~\").bank(\"RolandTR808\").gain(1.0)])._scope()"
+      }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 140
+      },
+      "data": {
+        "kind": "source",
+        "name": "snare",
+        "code": "arrange([4, silence], [12, s(\"~ ~ ~ ~ sd ~ ~ ~ ~ ~ ~ ~ sd ~ ~ ~\").bank(\"RolandTR808\").gain(0.8).room(0.15)], [12, s(\"~ ~ ~ ~ sd ~ ~ ~ ~ ~ ~ ~ sd ~ ~ ~\").bank(\"RolandTR808\").gain(0.82).room(0.15)])"
+      }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 260
+      },
+      "data": {
+        "kind": "source",
+        "name": "hats",
+        "code": "arrange([4, s(\"hh*8\").bank(\"RolandTR808\").gain(0.2)], [12, s(\"hh*16\").bank(\"RolandTR808\").gain(saw.range(0.1,0.3))], [12, s(\"hh*16\").bank(\"RolandTR808\").gain(saw.range(0.1,0.32))])"
+      }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 380
+      },
+      "data": {
+        "kind": "source",
+        "name": "skank",
+        "code": "arrange([4, silence], [12, note(\"~ [c4,eb4,g4] ~ [c4,eb4,g4]\").s(\"square\").lpf(1500).lpq(4).attack(0.005).decay(0.14).sustain(0).gain(0.4)], [12, note(\"~ [c4,eb4,g4] ~ [bb3,d4,f4]\").s(\"square\").lpf(1600).lpq(4).attack(0.005).decay(0.14).sustain(0).gain(0.42)])._pianoroll()"
+      }
+    },
+    {
+      "id": "fx_4",
+      "type": "fx",
+      "position": {
+        "x": 420,
+        "y": 20
+      },
+      "data": {
+        "kind": "fx",
+        "name": "delay",
+        "opId": "delay",
+        "params": {
+          "amt": 0.25
+        }
+      }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 500
+      },
+      "data": {
+        "kind": "source",
+        "name": "bajo",
+        "code": "arrange([4, silence], [12, note(\"c2 ~ c2 eb2 ~ g1 ~ ~\").s(\"sine\").lpf(650).shape(0.2)], [12, note(\"c2 ~ c2 eb2 ~ g1 ~ bb1\").s(\"sine\").lpf(680).shape(0.22)])._scope()"
+      }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 620
+      },
+      "data": {
+        "kind": "source",
+        "name": "melodia",
+        "code": "arrange([4, silence], [12, silence], [12, note(\"c5 eb5 g5 ~ f5 eb5 ~ c5\").s(\"triangle\").decay(0.22).sustain(0).room(0.3).delay(0.2).gain(0.4)])._pianoroll()"
+      }
+    },
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": {
+        "x": 820,
+        "y": 260
+      },
+      "data": {
+        "kind": "out"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_src_1_out",
+      "source": "src_1",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_2_out",
+      "source": "src_2",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_3_out",
+      "source": "src_3",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_4_fx_4",
+      "source": "src_4",
+      "target": "fx_4"
+    },
+    {
+      "id": "e_fx_4_out",
+      "source": "fx_4",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_5_out",
+      "source": "src_5",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_6_out",
+      "source": "src_6",
+      "target": "out_1"
+    }
+  ]
+}

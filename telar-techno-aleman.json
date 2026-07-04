@@ -1,0 +1,100 @@
+{
+  "cps": 0.6,
+  "master": { "gain": 1, "filter": 0, "room": 0.05 },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 3,
+  "vizHeight": 236,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": { "x": 40, "y": 20 },
+      "data": { "kind": "source", "name": "kick", "code": "arrange([4, s(\"bd*4\").shape(0.3).gain(0.9)], [6, s(\"bd*4\").shape(0.4).gain(1.0)], [14, s(\"bd*4\").shape(0.55).gain(1.15)], [6, s(\"bd*4\").shape(0.3).gain(0.8)])._scope()" }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": { "x": 40, "y": 150 },
+      "data": { "kind": "source", "name": "sub", "code": "arrange([4, note(\"a1\").s(\"sine\").gain(0.5)], [6, note(\"a1\").s(\"sine\").gain(0.55)], [14, note(\"a1 ~ a1 ~\").s(\"sine\").gain(0.8)], [6, note(\"a1\").s(\"sine\").gain(0.4)])" }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": { "x": 40, "y": 270 },
+      "data": { "kind": "source", "name": "acid (slider)", "code": "arrange([4, silence], [6, note(\"a1 ~ ~ a1 ~ ~ a1 ~\").lpf(500).lpq(10)], [14, note(\"a1 a1 ~ a1 ~ a1 a1 ~ a1 ~ a1 a1 ~ c2 ~ a1\").lpf(slider(1000,300,5200)).lpq(15)], [6, note(\"a1 ~ ~ ~ a1 ~ ~ ~\").lpf(500).lpq(8)]).s(\"sawtooth\").attack(0.001).decay(0.05).sustain(0.12).release(0.04).gain(1.0)._scope()" }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": { "x": 40, "y": 440 },
+      "data": { "kind": "source", "name": "stab gótico", "code": "arrange([4, silence], [6, silence], [14, note(\"a3 ~ ~ ~ eb4 ~ ~ ~\").s(\"square\").lpf(2400).lpq(6).gain(0.28)], [6, silence])._pianoroll()" }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": { "x": 380, "y": 20 },
+      "data": { "kind": "source", "name": "hats", "code": "arrange([4, silence], [6, s(\"hh*16\").gain(saw.range(0.04,0.32)).pan(0.62)], [14, s(\"hh*16\").gain(sine.range(0.1,0.4).fast(2)).pan(sine.fast(4))], [6, s(\"hh*8\").gain(0.18)])" }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": { "x": 380, "y": 150 },
+      "data": { "kind": "source", "name": "clap", "code": "arrange([4, silence], [6, s(\"~ cp ~ cp\").gain(0.5)], [14, s(\"~ cp ~ cp\").gain(0.75).shape(0.3)], [6, silence])" }
+    },
+    {
+      "id": "src_7",
+      "type": "source",
+      "position": { "x": 380, "y": 280 },
+      "data": { "kind": "source", "name": "riser (slider)", "code": "arrange([4, s(\"white\").lpf(700).lpq(5).gain(0.08)], [6, s(\"white*2\").lpf(slider(800,300,8000)).lpq(6).gain(0.13)], [14, s(\"white\").lpf(1400).gain(0.06)], [6, s(\"white\").lpf(500).gain(0.07)])._scope()" }
+    },
+
+    {
+      "id": "fx_1",
+      "type": "fx",
+      "position": { "x": 680, "y": 290 },
+      "data": { "kind": "fx", "name": "grit", "opId": "crush", "params": { "bits": 8 } }
+    },
+    {
+      "id": "fx_2",
+      "type": "fx",
+      "position": { "x": 850, "y": 240 },
+      "data": { "kind": "fx", "name": "sidechain", "opId": "sidechain", "params": { "depth": 0.72, "rate": 4 } }
+    },
+    {
+      "id": "fx_3",
+      "type": "fx",
+      "position": { "x": 680, "y": 120 },
+      "data": { "kind": "fx", "name": "verb bus", "opId": "room", "params": { "amt": 0.32 } }
+    },
+    {
+      "id": "fx_4",
+      "type": "fx",
+      "position": { "x": 680, "y": 450 },
+      "data": { "kind": "fx", "name": "echo", "opId": "delay", "params": { "amt": 0.3 } }
+    },
+
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": { "x": 1010, "y": 270 }
+      , "data": { "kind": "out" }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src_1", "target": "out_1" },
+    { "id": "e2", "source": "src_2", "target": "fx_2" },
+    { "id": "e3", "source": "src_3", "target": "fx_1" },
+    { "id": "e3b", "source": "fx_1", "target": "fx_2" },
+    { "id": "e3c", "source": "fx_2", "target": "out_1" },
+    { "id": "e4", "source": "src_4", "target": "fx_4" },
+    { "id": "e4b", "source": "fx_4", "target": "fx_3" },
+    { "id": "e7", "source": "src_7", "target": "fx_3" },
+    { "id": "e3r", "source": "fx_3", "target": "out_1" },
+    { "id": "e5", "source": "src_5", "target": "out_1" },
+    { "id": "e6", "source": "src_6", "target": "out_1" }
+  ]
+}

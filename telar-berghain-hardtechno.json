@@ -1,0 +1,107 @@
+{
+  "cps": 0.625,
+  "master": { "gain": 1, "filter": 0, "room": 0.05, "drive": 0.12, "delay": 0, "crush": 0 },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 7,
+  "vizHeight": 260,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": { "x": 40, "y": 20 },
+      "data": { "kind": "source", "name": "kick", "code": "arrange([4, s(\"bd*4\").shape(0.45).gain(1.05)], [4, s(\"bd*4\").shape(0.5).gain(1.1)], [4, s(\"bd*4\").shape(0.5).gain(1.1)], [4, s(\"bd*4\").shape(0.55).gain(1.1)], [8, s(\"bd*4\").shape(0.62).gain(1.18)], [4, s(\"bd*2\").shape(0.4).gain(0.85)], [4, s(\"bd*4\").shape(0.6).gain(1.15)])._scope()" }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": { "x": 40, "y": 150 },
+      "data": { "kind": "source", "name": "rumble", "code": "arrange([4, silence], [4, s(\"bd*4\").speed(0.5).shape(0.4).lpf(140).room(0.6).gain(0.6)], [4, s(\"bd*4\").speed(0.5).shape(0.4).lpf(150).room(0.6).gain(0.66)], [4, s(\"bd*4\").speed(0.5).shape(0.45).lpf(160).room(0.65).gain(0.7)], [8, s(\"bd*8\").speed(0.5).shape(0.5).lpf(180).room(0.7).gain(0.8)], [4, s(\"bd*2\").speed(0.5).shape(0.3).lpf(120).room(0.85).gain(0.7)], [4, s(\"bd*4\").speed(0.5).shape(0.45).lpf(160).room(0.7).gain(0.75)])._scope()" }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": { "x": 40, "y": 290 },
+      "data": { "kind": "source", "name": "sub bass", "code": "arrange([4, silence], [4, silence], [4, silence], [4, note(\"c1 ~ c1 ~ c1 ~ c1 ~\").s(\"sawtooth\").lpf(200).lpq(5).gain(0.85)], [8, note(\"c1 c1 ~ c1 c1 ~ c1 ~ c1 c1 ~ c1 c1 ~ eb1 ~\").s(\"sawtooth\").lpf(260).lpq(7).shape(0.3).gain(0.95)], [4, silence], [4, note(\"c1 ~ c1 ~ c1 ~ c1 ~\").s(\"sawtooth\").lpf(220).gain(0.85)])._scope()" }
+    },
+    {
+      "id": "src_8",
+      "type": "source",
+      "position": { "x": 40, "y": 440 },
+      "data": { "kind": "source", "name": "stab disonante", "code": "arrange([4, silence], [4, silence], [4, silence], [4, silence], [8, note(\"c3 ~ ~ ~ ~ ~ f#3 ~\").s(\"square\").lpf(2200).lpq(8).shape(0.4).gain(0.3)], [4, note(\"c3 ~ ~ ~\").s(\"sawtooth\").lpf(1600).shape(0.3).gain(0.25).room(0.3)], [4, note(\"[c3,c#3] ~ ~ ~ f#3 ~ ~ ~\").s(\"square\").lpf(2400).lpq(8).shape(0.4).gain(0.3)])._pianoroll()" }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": { "x": 380, "y": 20 },
+      "data": { "kind": "source", "name": "hats", "code": "arrange([4, silence], [4, silence], [4, s(\"hh*16\").gain(saw.range(0.05,0.3)).hpf(7000)], [4, s(\"hh*16\").gain(sine.range(0.1,0.35).fast(2)).hpf(8000).pan(sine.fast(4))], [8, s(\"hh*16\").gain(sine.range(0.12,0.4).fast(2)).hpf(8000).pan(sine.fast(4))], [4, s(\"hh*8\").gain(0.15)], [4, s(\"hh*16\").gain(sine.range(0.12,0.4).fast(2)).hpf(8000).pan(sine.fast(4))])" }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": { "x": 380, "y": 150 },
+      "data": { "kind": "source", "name": "open hat", "code": "arrange([4, silence], [4, silence], [4, silence], [4, silence], [8, s(\"~ hh ~ hh\").gain(0.32).hpf(5000).decay(0.22).sustain(0).release(0.16)], [4, silence], [4, s(\"~ hh ~ hh\").gain(0.3).hpf(5000).decay(0.22).sustain(0).release(0.16)])" }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": { "x": 380, "y": 270 },
+      "data": { "kind": "source", "name": "clap", "code": "arrange([4, silence], [4, silence], [4, silence], [4, s(\"~ cp ~ cp\").gain(0.6).shape(0.2)], [8, s(\"~ cp ~ cp\").gain(0.75).shape(0.3).room(0.15)], [4, silence], [4, s(\"~ cp ~ cp\").gain(0.7).shape(0.3)])" }
+    },
+    {
+      "id": "src_7",
+      "type": "source",
+      "position": { "x": 380, "y": 390 },
+      "data": { "kind": "source", "name": "noise / atmos", "code": "arrange([4, s(\"white\").lpf(500).lpq(4).gain(0.1)], [4, s(\"white\").lpf(700).gain(0.1)], [4, s(\"white*2\").lpf(slider(900,300,9000)).lpq(6).gain(0.12)], [4, s(\"white\").lpf(1200).gain(0.1)], [8, s(\"white\").lpf(2000).gain(0.08)], [4, s(\"white*2\").lpf(slider(600,200,8000)).lpq(8).gain(0.18)], [4, s(\"white\").lpf(800).gain(0.1)])._scope()" }
+    },
+
+    {
+      "id": "fx_1",
+      "type": "fx",
+      "position": { "x": 720, "y": 150 },
+      "data": { "kind": "fx", "name": "grit", "opId": "crush", "params": { "bits": 7 } }
+    },
+    {
+      "id": "fx_2",
+      "type": "fx",
+      "position": { "x": 880, "y": 220 },
+      "data": { "kind": "fx", "name": "sidechain", "opId": "sidechain", "params": { "depth": 0.75, "rate": 4 } }
+    },
+    {
+      "id": "fx_3",
+      "type": "fx",
+      "position": { "x": 720, "y": 380 },
+      "data": { "kind": "fx", "name": "cavern", "opId": "room", "params": { "amt": 0.45 } }
+    },
+    {
+      "id": "fx_4",
+      "type": "fx",
+      "position": { "x": 560, "y": 460 },
+      "data": { "kind": "fx", "name": "echo", "opId": "delay", "params": { "amt": 0.3 } }
+    },
+
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": { "x": 1060, "y": 220 },
+      "data": { "kind": "out" }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src_1", "target": "out_1" },
+    { "id": "e2", "source": "src_2", "target": "fx_1" },
+    { "id": "e2b", "source": "fx_1", "target": "fx_2" },
+    { "id": "e3", "source": "src_3", "target": "fx_2" },
+    { "id": "e2c", "source": "fx_2", "target": "out_1" },
+    { "id": "e4", "source": "src_4", "target": "out_1" },
+    { "id": "e5", "source": "src_5", "target": "out_1" },
+    { "id": "e6", "source": "src_6", "target": "out_1" },
+    { "id": "e7", "source": "src_7", "target": "fx_3" },
+    { "id": "e8", "source": "src_8", "target": "fx_4" },
+    { "id": "e8b", "source": "fx_4", "target": "fx_3" },
+    { "id": "e3r", "source": "fx_3", "target": "out_1" }
+  ]
+}

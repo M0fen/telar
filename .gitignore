@@ -1,0 +1,19 @@
+# dependencias / build
+node_modules
+dist
+*.tsbuildinfo
+
+# entorno / secretos (NUNCA subir)
+.env*
+*.local
+.vercel
+
+# SO
+.DS_Store
+Thumbs.db
+
+# binarios / herramientas grandes
+bin/
+
+# audio descargado en dev (rips de YouTube) — no va al repo
+public/samples/yt/

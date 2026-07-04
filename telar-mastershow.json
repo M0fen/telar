@@ -1,0 +1,208 @@
+{
+  "cps": 0.5583,
+  "beatsPerCycle": 4,
+  "transpose": 0,
+  "master": {
+    "gain": 1,
+    "filter": 0,
+    "room": 0.06,
+    "drive": 0,
+    "delay": 0,
+    "crush": 0,
+    "swing": 0.04,
+    "humanize": 0.05,
+    "limit": 0.4,
+    "eqLow": 1.5,
+    "eqMid": -1,
+    "eqHigh": 1
+  },
+  "mode": "standard",
+  "djOrientation": "h",
+  "vizMode": "milk",
+  "vizHeight": 236,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": { "x": 40, "y": 20 },
+      "data": {
+        "kind": "source",
+        "name": "kick",
+        "code": "arrange([5, s(\"bd*4\").bank(\"RolandTR909\").lpf(200).shape(0.15).gain(0.7)], [5, s(\"bd*4\").bank(\"RolandTR909\").shape(0.28).gain(0.92)], [4, s(\"bd*4\").bank(\"RolandTR909\").shape(0.12).lpf(sine.range(250,700).slow(4)).gain(0.5)], [10, s(\"bd*4\").bank(\"RolandTR909\").shape(0.32).gain(1)], [4, s(\"bd*4\").bank(\"RolandTR909\").lpf(350).shape(0.15).gain(0.56)])",
+        "eq": { "on": true, "low": 2, "mid": -2, "high": 0, "midFreq": 520 }
+      }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": { "x": 40, "y": 112 },
+      "data": {
+        "kind": "source",
+        "name": "rumble",
+        "code": "arrange([5, s(\"bd*2\").bank(\"RolandTR909\").speed(0.55).lpf(160).room(0.85).roomsize(8).gain(0.3)], [5, s(\"bd*4\").bank(\"RolandTR909\").speed(0.55).lpf(200).room(0.85).roomsize(8).shape(0.2).gain(0.4)], [4, s(\"bd*2\").bank(\"RolandTR909\").speed(0.55).lpf(140).room(0.9).roomsize(9).gain(0.34)], [10, s(\"bd*8\").bank(\"RolandTR909\").speed(0.5).lpf(220).room(0.88).roomsize(9).shape(0.3).gain(0.5)], [4, s(\"bd*2\").bank(\"RolandTR909\").speed(0.55).lpf(140).room(0.9).gain(0.3)])"
+      }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": { "x": 40, "y": 204 },
+      "data": {
+        "kind": "source",
+        "name": "sub",
+        "code": "arrange([5, silence], [5, silence], [4, silence], [10, note(\"c1*2\").s(\"sine\").lpf(115).gain(0.62)], [4, silence])"
+      }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": { "x": 40, "y": 296 },
+      "data": {
+        "kind": "source",
+        "name": "acid 303",
+        "code": "arrange([5, silence], [5, note(\"c2 eb2 c2 g2 c2 c3 bb1 c2\").gain(0.3)], [4, silence], [10, note(\"c2 eb2 c2 g2 c2 c3 bb1 c2 c2 eb2 g2 c2 f2 c2 bb1 g1\").gain(0.4)], [4, silence])",
+        "synthOn": true,
+        "synth": {
+          "wave": "sawtooth",
+          "cutoff": 520,
+          "lpq": 13,
+          "lpenv": 4,
+          "lpa": 0.01,
+          "lpd": 0.13,
+          "attack": 0.005,
+          "decay": 0.1,
+          "sustain": 0.3,
+          "release": 0.14,
+          "hcutoff": 110,
+          "drive": 0.45,
+          "coarse": 1,
+          "pan": 0.5
+        }
+      }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": { "x": 40, "y": 388 },
+      "data": {
+        "kind": "source",
+        "name": "ride",
+        "code": "arrange([5, silence], [5, s(\"hh*16\").bank(\"RolandTR909\").gain(0.22).pan(sine.range(0.4,0.6).fast(2))], [4, s(\"hh*16\").bank(\"RolandTR909\").gain(saw.range(0.05,0.26))], [10, s(\"hh*16\").bank(\"RolandTR909\").gain(0.24).pan(sine.range(0.4,0.6).fast(2))], [4, silence])"
+      }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": { "x": 40, "y": 480 },
+      "data": {
+        "kind": "source",
+        "name": "metal perc",
+        "code": "arrange([5, silence], [5, s(\"metal\").euclid(5,16).speed(1.4).hpf(1600).shape(0.15).room(0.3).gain(0.26)], [4, s(\"metal\").euclid(7,16).speed(1.5).hpf(1800).room(0.35).gain(0.24)], [10, s(\"metal\").euclidRot(7,16,2).speed(1.4).hpf(1600).shape(0.15).room(0.3).gain(0.28)], [4, silence])"
+      }
+    },
+    {
+      "id": "src_7",
+      "type": "source",
+      "position": { "x": 40, "y": 572 },
+      "data": {
+        "kind": "source",
+        "name": "clap",
+        "code": "arrange([5, silence], [5, silence], [4, s(\"~ cp ~ cp\").bank(\"RolandTR909\").room(0.4).shape(0.2).gain(0.42)], [10, s(\"~ cp ~ cp\").bank(\"RolandTR909\").room(0.35).shape(0.2).gain(0.5)], [4, silence])"
+      }
+    },
+    {
+      "id": "src_8",
+      "type": "source",
+      "position": { "x": 40, "y": 664 },
+      "data": {
+        "kind": "source",
+        "name": "stab",
+        "code": "arrange([5, silence], [5, silence], [4, silence], [10, note(\"[c3,gb3] ~ ~ ~ [c3,gb3] ~ eb3 ~\").s(\"supersaw\").unison(3).detune(0.3).lpf(1500).lpq(6).shape(0.2).delay(0.4).delayfeedback(0.5).room(0.3).gain(0.3)], [4, silence])"
+      }
+    },
+    {
+      "id": "src_9",
+      "type": "source",
+      "position": { "x": 40, "y": 756 },
+      "data": {
+        "kind": "source",
+        "name": "drone",
+        "code": "arrange([5, note(\"[c2,g2]\").s(\"sawtooth\").attack(2).release(4).lpf(480).room(0.85).roomsize(9).gain(0.26)], [5, note(\"[c2,g2,ab2]\").s(\"sawtooth\").attack(1.5).release(3).lpf(560).room(0.8).gain(0.26)], [4, note(\"[c2,gb2,g2]\").s(\"sawtooth\").attack(1).release(3).lpf(600).room(0.85).gain(0.3)], [10, note(\"[c2,g2]\").s(\"sawtooth\").attack(2).release(4).lpf(700).room(0.5).gain(0.2)], [4, note(\"[c2,g2]\").s(\"sawtooth\").attack(2).release(5).lpf(420).room(0.9).gain(0.26)])"
+      }
+    },
+    {
+      "id": "src_10",
+      "type": "source",
+      "position": { "x": 40, "y": 848 },
+      "data": {
+        "kind": "source",
+        "name": "riser",
+        "code": "arrange([5, silence], [5, silence], [4, s(\"white\").slow(4).lpf(saw.range(300,9000).slow(4)).gain(0.16).room(0.4)], [10, silence], [4, silence])"
+      }
+    },
+    {
+      "id": "src_11",
+      "type": "source",
+      "position": { "x": 40, "y": 940 },
+      "data": {
+        "kind": "source",
+        "name": "voz IA",
+        "code": "arrange([5, silence], [5, silence], [4, s(\"voxmaster\").slow(4)], [10, silence], [4, silence])",
+        "begin": 0,
+        "end": 0.4,
+        "eq": { "on": true, "low": -3, "mid": -1, "high": 4, "midFreq": 3200 },
+        "voice": {
+          "position": 0,
+          "grain": 8,
+          "speed": 1,
+          "shape": 0.08,
+          "spread": 0.3,
+          "gain": 1.2,
+          "vowel": "",
+          "loop": 1,
+          "granular": false,
+          "tempo": false,
+          "tempoCycles": 1,
+          "pitchShift": 0,
+          "melody": "",
+          "scale": "",
+          "room": 0.45,
+          "delay": 0.25,
+          "polish": true
+        }
+      }
+    },
+    {
+      "id": "fx_1",
+      "type": "fx",
+      "position": { "x": 470, "y": 300 },
+      "data": {
+        "kind": "fx",
+        "opId": "sidechain",
+        "params": { "mode": "duck", "trigger": "src_1", "depth": 0.6, "attack": 0.08, "rate": 4 }
+      }
+    },
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": { "x": 820, "y": 300 },
+      "data": { "kind": "out" }
+    }
+  ],
+  "edges": [
+    { "id": "e_src_1", "source": "src_1", "target": "out_1" },
+    { "id": "e_src_4", "source": "src_4", "target": "out_1" },
+    { "id": "e_src_5", "source": "src_5", "target": "out_1" },
+    { "id": "e_src_6", "source": "src_6", "target": "out_1" },
+    { "id": "e_src_7", "source": "src_7", "target": "out_1" },
+    { "id": "e_src_8", "source": "src_8", "target": "out_1" },
+    { "id": "e_src_10", "source": "src_10", "target": "out_1" },
+    { "id": "e_src_11", "source": "src_11", "target": "out_1" },
+    { "id": "e_rumble_sc", "source": "src_2", "target": "fx_1" },
+    { "id": "e_sub_sc", "source": "src_3", "target": "fx_1" },
+    { "id": "e_drone_sc", "source": "src_9", "target": "fx_1" },
+    { "id": "e_sc_out", "source": "fx_1", "target": "out_1" }
+  ]
+}

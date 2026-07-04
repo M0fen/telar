@@ -1,0 +1,30 @@
+{
+  "cps": 0.383,
+  "beatsPerCycle": 4,
+  "transpose": 0,
+  "master": { "gain": 1, "filter": 0, "room": 0.06, "drive": 0, "delay": 0, "crush": 0, "swing": 0.03, "humanize": 0.06, "limit": 0.36, "eqLow": 1.5, "eqMid": -0.5, "eqHigh": 1.5 },
+  "mode": "standard",
+  "djOrientation": "h",
+  "vizMode": "milk",
+  "vizHeight": 236,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    { "id": "src_1", "type": "source", "position": { "x": 40, "y": 20 }, "data": { "kind": "source", "name": "kick 808", "code": "arrange([4, s(\"bd ~ ~ bd ~ ~ bd ~\").bank(\"RolandTR808\").gain(0.88)], [8, s(\"bd ~ ~ bd ~ ~ bd ~\").bank(\"RolandTR808\").gain(0.96)], [8, s(\"bd ~ ~ bd ~ ~ bd ~\").bank(\"RolandTR808\").gain(0.96)], [4, s(\"bd ~ ~ bd ~ ~ bd ~\").bank(\"RolandTR808\").lpf(600).gain(0.7)])" } },
+    { "id": "src_2", "type": "source", "position": { "x": 40, "y": 112 }, "data": { "kind": "source", "name": "dembow snare", "code": "arrange([4, s(\"~ ~ sd ~ ~ ~ sd ~\").bank(\"RolandTR808\").room(0.12).gain(0.72)], [8, s(\"~ ~ sd ~ ~ ~ sd ~\").bank(\"RolandTR808\").room(0.14).gain(0.8)], [8, s(\"~ ~ sd ~ ~ ~ [sd cp] ~\").bank(\"RolandTR808\").room(0.14).gain(0.8)], [4, s(\"~ ~ sd ~ ~ ~ sd ~\").bank(\"RolandTR808\").gain(0.6)])" } },
+    { "id": "src_3", "type": "source", "position": { "x": 40, "y": 204 }, "data": { "kind": "source", "name": "hats + perc", "code": "arrange([4, s(\"hh*8\").bank(\"RolandTR808\").gain(0.18)], [8, stack(s(\"hh*8\").bank(\"RolandTR808\").gain(0.22), s(\"~ crate_conga ~ ~ ~ crate_conga crate_conga ~\").gain(0.3))], [8, stack(s(\"hh*8\").bank(\"RolandTR808\").gain(0.22), s(\"~ oh ~ oh\").bank(\"RolandTR808\").gain(0.16))], [4, s(\"hh*8\").bank(\"RolandTR808\").gain(0.12)])" } },
+    { "id": "src_4", "type": "source", "position": { "x": 40, "y": 296 }, "data": { "kind": "source", "name": "808 bass", "code": "arrange([4, silence], [8, note(\"<c1 ab0 eb1 bb0>\").struct(\"x ~ ~ x ~ ~ x ~\").s(\"sine\").decay(0.32).sustain(0.35).release(0.2).slide(0.1).shape(0.12).lpf(230).gain(0.64)], [8, note(\"<c1 ab0 eb1 bb0>\").struct(\"x ~ ~ x ~ ~ x ~\").s(\"sine\").decay(0.32).sustain(0.35).release(0.2).slide(0.1).shape(0.12).lpf(230).gain(0.64)], [4, silence])", "eq": { "on": true, "low": 3, "mid": -1, "high": 0, "midFreq": 480 } } },
+    { "id": "src_5", "type": "source", "position": { "x": 40, "y": 388 }, "data": { "kind": "source", "name": "piano hook", "code": "arrange([4, note(\"<[c4,eb4,g4] [ab3,c4,eb4] [eb4,g4,bb4] [bb3,d4,f4]>\").struct(\"~ x ~ x ~ x ~ x\").s(\"piano\").room(0.18).gain(0.4)], [8, note(\"<[c4,eb4,g4] [ab3,c4,eb4] [eb4,g4,bb4] [bb3,d4,f4]>\").struct(\"~ x ~ x ~ x ~ x\").s(\"piano\").room(0.18).delay(0.15).delayfeedback(0.28).gain(0.42)], [8, note(\"<[c4,eb4,g4] [ab3,c4,eb4] [eb4,g4,bb4] [bb3,d4,f4]>\").struct(\"~ x ~ x ~ x ~ x\").s(\"piano\").room(0.18).delay(0.15).gain(0.42)], [4, note(\"<[c4,eb4,g4] [bb3,d4,f4]>\").s(\"piano\").room(0.3).gain(0.34)])" } },
+    { "id": "src_6", "type": "source", "position": { "x": 40, "y": 480 }, "data": { "kind": "source", "name": "pad", "code": "arrange([4, note(\"<[c3,g3] [ab2,eb3] [eb3,bb3] [bb2,f3]>\").s(\"swpad\").attack(1).release(2.5).room(0.4).gain(0.28)], [8, note(\"<[c3,g3] [ab2,eb3] [eb3,bb3] [bb2,f3]>\").s(\"swpad\").attack(0.8).release(2).room(0.35).gain(0.24)], [8, note(\"<[c3,g3] [ab2,eb3] [eb3,bb3] [bb2,f3]>\").s(\"swpad\").attack(0.8).release(2).room(0.35).gain(0.24)], [4, note(\"[c3,g3]\").s(\"swpad\").attack(1.5).release(3).room(0.5).gain(0.24)])" } },
+    { "id": "out_1", "type": "out", "position": { "x": 820, "y": 300 }, "data": { "kind": "out" } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src_1", "target": "out_1" },
+    { "id": "e2", "source": "src_2", "target": "out_1" },
+    { "id": "e3", "source": "src_3", "target": "out_1" },
+    { "id": "e4", "source": "src_4", "target": "out_1" },
+    { "id": "e5", "source": "src_5", "target": "out_1" },
+    { "id": "e6", "source": "src_6", "target": "out_1" }
+  ]
+}

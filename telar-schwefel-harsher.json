@@ -1,0 +1,141 @@
+{
+  "cps": 0.52,
+  "master": { "gain": 1, "filter": 0, "room": 0.05 },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 3,
+  "vizHeight": 236,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": { "x": 40, "y": 20 },
+      "data": { "kind": "source", "name": "kick", "code": "s(\"bd*4\").shape(0.4).gain(1.15)._scope()" }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": { "x": 40, "y": 150 },
+      "data": { "kind": "source", "name": "sub", "code": "note(\"f1 ~ ab1 ~ c1 ~ f1 ~\").s(\"sine\").gain(0.7)" }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": { "x": 40, "y": 270 },
+      "data": {
+        "kind": "source",
+        "name": "bass ebm",
+        "code": "note(\"f1 f1 f1 c2 f1 f1 ab1 f1 f1 f1 c2 f1 f1 ab1 db2 c2\")._scope()",
+        "showSynth": true,
+        "synth": { "wave": "sawtooth", "attack": 0.001, "decay": 0.07, "sustain": 0.2, "release": 0.05, "cutoff": 900, "lpq": 11 }
+      }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": { "x": 40, "y": 470 },
+      "data": {
+        "kind": "source",
+        "name": "lead (slider)",
+        "code": "note(\"f4 ab4 c5 f5 eb5 c5 ab4 g4\").s(\"sawtooth\").lpf(slider(1100,300,7000)).lpq(14).gain(0.34).room(0.15)._pianoroll()"
+      }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": { "x": 40, "y": 640 },
+      "data": {
+        "kind": "source",
+        "name": "stab",
+        "code": "note(\"~ [f3,ab3,c4] ~ [eb3,g3,bb3]\")",
+        "showSynth": true,
+        "synth": { "wave": "square", "attack": 0.004, "decay": 0.18, "sustain": 0, "release": 0.12, "cutoff": 1600, "lpq": 4 }
+      }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": { "x": 380, "y": 20 },
+      "data": {
+        "kind": "source",
+        "name": "pad",
+        "code": "note(\"<[f2,ab2,c3,eb3] [db2,f2,ab2,c3]>\").s(\"sawtooth\").attack(0.8).release(1.6).lpf(700).gain(0.3).slow(2)._pianoroll()"
+      }
+    },
+    {
+      "id": "src_7",
+      "type": "source",
+      "position": { "x": 380, "y": 200 },
+      "data": { "kind": "source", "name": "clap", "code": "s(\"~ cp ~ cp\").gain(0.85)" }
+    },
+    {
+      "id": "src_8",
+      "type": "source",
+      "position": { "x": 380, "y": 320 },
+      "data": { "kind": "source", "name": "hats", "code": "s(\"hh*16\").gain(sine.range(0.12,0.5).fast(2)).pan(sine.fast(4))" }
+    },
+    {
+      "id": "src_9",
+      "type": "source",
+      "position": { "x": 380, "y": 440 },
+      "data": { "kind": "source", "name": "snare roll", "code": "s(\"sd*8\").gain(saw.range(0.08,0.45))" }
+    },
+    {
+      "id": "src_10",
+      "type": "source",
+      "position": { "x": 380, "y": 580 },
+      "data": { "kind": "source", "name": "atmos (slider)", "code": "s(\"white*2\").lpf(slider(900,200,9000)).lpq(7).gain(0.11).room(0.5)._scope()" }
+    },
+
+    {
+      "id": "fx_1",
+      "type": "fx",
+      "position": { "x": 700, "y": 300 },
+      "data": { "kind": "fx", "name": "grit", "opId": "crush", "params": { "bits": 8 } }
+    },
+    {
+      "id": "fx_2",
+      "type": "fx",
+      "position": { "x": 700, "y": 470 },
+      "data": { "kind": "fx", "name": "echo", "opId": "delay", "params": { "amt": 0.4 } }
+    },
+    {
+      "id": "fx_3",
+      "type": "fx",
+      "position": { "x": 700, "y": 120 },
+      "data": { "kind": "fx", "name": "verb bus", "opId": "room", "params": { "amt": 0.42 } }
+    },
+    {
+      "id": "fx_4",
+      "type": "transform",
+      "position": { "x": 700, "y": 600 },
+      "data": { "kind": "transform", "name": "stutter", "opId": "degradeBy", "params": { "n": 0.45 } }
+    },
+
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": { "x": 980, "y": 340 },
+      "data": { "kind": "out" }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src_1", "target": "out_1" },
+    { "id": "e2", "source": "src_2", "target": "out_1" },
+    { "id": "e3", "source": "src_3", "target": "fx_1" },
+    { "id": "e3b", "source": "fx_1", "target": "out_1" },
+    { "id": "e4", "source": "src_4", "target": "fx_2" },
+    { "id": "e4b", "source": "fx_2", "target": "out_1" },
+    { "id": "e5", "source": "src_5", "target": "fx_3" },
+    { "id": "e6", "source": "src_6", "target": "fx_3" },
+    { "id": "e7", "source": "src_7", "target": "fx_3" },
+    { "id": "e7b", "source": "fx_3", "target": "out_1" },
+    { "id": "e8", "source": "src_8", "target": "out_1" },
+    { "id": "e9", "source": "src_9", "target": "fx_4" },
+    { "id": "e9b", "source": "fx_4", "target": "out_1" },
+    { "id": "e10", "source": "src_10", "target": "out_1" }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "cps": 0.5,
+  "master": { "gain": 1, "filter": 0, "room": 0.06 },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 0,
+  "vizHeight": 236,
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": { "x": 80, "y": 40 },
+      "data": {
+        "kind": "source",
+        "name": "kick",
+        "code": "s(\"bd*4\").shape(0.2).gain(1.1)._scope()"
+      }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": { "x": 80, "y": 180 },
+      "data": {
+        "kind": "source",
+        "name": "bajo ebm",
+        "code": "note(\"c2 c2 eb2 c2 g1 g1 ab1 bb1\")._scope()",
+        "showSynth": true,
+        "synth": {
+          "wave": "sawtooth",
+          "attack": 0.005,
+          "decay": 0.09,
+          "sustain": 0.35,
+          "release": 0.07,
+          "cutoff": 650,
+          "lpq": 9
+        }
+      }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": { "x": 80, "y": 360 },
+      "data": {
+        "kind": "source",
+        "name": "lead (slider)",
+        "code": "note(\"c4 eb4 g4 c5 bb4 g4 eb4 d4\").s(\"sawtooth\").lpf(slider(1200,250,6000)).lpq(13).gain(0.42).room(0.2).delay(0.3)._pianoroll()"
+      }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": { "x": 80, "y": 520 },
+      "data": {
+        "kind": "source",
+        "name": "pad",
+        "code": "note(\"<[c3,eb3,g3,bb3] [ab2,c3,eb3] [eb3,g3,bb3,d4] [g2,bb2,d3,f3]>\").s(\"sawtooth\").attack(0.5).release(1.2).lpf(800).gain(0.38).room(0.5).slow(2)._pianoroll()"
+      }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": { "x": 420, "y": 60 },
+      "data": {
+        "kind": "source",
+        "name": "hats",
+        "code": "s(\"hh*16\").gain(sine.range(0.2,0.55).fast(2)).pan(sine.fast(3))"
+      }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": { "x": 420, "y": 200 },
+      "data": {
+        "kind": "source",
+        "name": "clap",
+        "code": "s(\"~ cp ~ cp\").room(0.35).gain(0.85)"
+      }
+    },
+    {
+      "id": "src_7",
+      "type": "source",
+      "position": { "x": 420, "y": 340 },
+      "data": {
+        "kind": "source",
+        "name": "atmos (slider)",
+        "code": "s(\"white*2\").lpf(slider(600,200,6000)).lpq(4).gain(0.1).room(0.5)"
+      }
+    },
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": { "x": 760, "y": 300 },
+      "data": { "kind": "out" }
+    }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src_1", "target": "out_1" },
+    { "id": "e2", "source": "src_2", "target": "out_1" },
+    { "id": "e3", "source": "src_3", "target": "out_1" },
+    { "id": "e4", "source": "src_4", "target": "out_1" },
+    { "id": "e5", "source": "src_5", "target": "out_1" },
+    { "id": "e6", "source": "src_6", "target": "out_1" },
+    { "id": "e7", "source": "src_7", "target": "out_1" }
+  ]
+}

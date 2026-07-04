@@ -1,0 +1,189 @@
+{
+  "cps": 0.5333333333333333,
+  "beatsPerCycle": 4,
+  "transpose": 0,
+  "master": {
+    "gain": 1,
+    "filter": 0,
+    "room": 0.1,
+    "drive": 0.05,
+    "delay": 0,
+    "crush": 0,
+    "swing": 0,
+    "humanize": 0
+  },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 7,
+  "vizHeight": 260,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 20
+      },
+      "data": {
+        "kind": "source",
+        "name": "bombo",
+        "code": "arrange([8, silence], [16, s(\"bd*4\").bank(\"RolandTR909\").gain(0.96)], [8, s(\"bd ~ bd ~\").bank(\"RolandTR909\").gain(0.6)], [8, s(\"bd*4\").bank(\"RolandTR909\").gain(0.98)])._scope()"
+      }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 140
+      },
+      "data": {
+        "kind": "source",
+        "name": "clap",
+        "code": "arrange([8, silence], [16, s(\"~ cp ~ cp\").bank(\"RolandTR909\").gain(0.7).room(0.2)], [8, silence], [8, s(\"~ cp ~ cp\").bank(\"RolandTR909\").gain(0.72).room(0.2)])"
+      }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 260
+      },
+      "data": {
+        "kind": "source",
+        "name": "hats",
+        "code": "arrange([8, s(\"hh*8\").bank(\"RolandTR909\").gain(saw.range(0.04,0.28))], [16, s(\"hh*8\").bank(\"RolandTR909\").gain(saw.range(0.1,0.34))], [8, s(\"hh*4\").bank(\"RolandTR909\").gain(0.18)], [8, s(\"hh*8\").bank(\"RolandTR909\").gain(saw.range(0.12,0.38))])"
+      }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 380
+      },
+      "data": {
+        "kind": "source",
+        "name": "riser",
+        "code": "arrange([8, s(\"white*16\").hpf(saw.range(300,9000).slow(8)).gain(saw.range(0.03,0.4).slow(8))], [16, silence], [8, s(\"white*8\").hpf(5000).gain(saw.range(0.02,0.3).slow(8))], [8, silence])"
+      }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 500
+      },
+      "data": {
+        "kind": "source",
+        "name": "sub",
+        "code": "arrange([8, silence], [16, note(\"f1 db1 ab0 eb1\").s(\"sine\").lpf(500).shape(0.2)], [8, silence], [8, note(\"f1 db1 ab0 eb1\").s(\"sine\").lpf(520).shape(0.22)])._scope()"
+      }
+    },
+    {
+      "id": "fx_5",
+      "type": "fx",
+      "position": {
+        "x": 420,
+        "y": 20
+      },
+      "data": {
+        "kind": "fx",
+        "name": "sidechain",
+        "opId": "sidechain",
+        "params": {
+          "depth": 0.75,
+          "rate": 4
+        }
+      }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 620
+      },
+      "data": {
+        "kind": "source",
+        "name": "pluck",
+        "code": "arrange([8, note(\"<[f3,ab3,c4] [db3,f3,ab3] [ab3,c4,eb4] [eb3,g3,bb3]>\").struct(\"x*4\").s(\"supersaw\").unison(5).detune(0.18).attack(0.002).decay(0.2).sustain(0).lpf(900).room(0.35).gain(0.4)], [16, note(\"<[f3,ab3,c4] [db3,f3,ab3] [ab3,c4,eb4] [eb3,g3,bb3]>\").struct(\"x*8\").s(\"supersaw\").unison(7).detune(0.2).spread(0.75).attack(0.001).decay(0.16).sustain(0).lpf(4800).room(0.22).gain(0.5)], [8, note(\"<[f3,ab3,c4] [ab3,c4,eb4]>\").struct(\"x*4\").s(\"supersaw\").unison(5).lpf(1400).room(0.4).gain(0.4)], [8, note(\"<[f3,ab3,c4] [db3,f3,ab3] [ab3,c4,eb4] [eb3,g3,bb3]>\").struct(\"x*8\").s(\"supersaw\").unison(7).detune(0.2).spread(0.8).attack(0.001).decay(0.16).sustain(0).lpf(5200).room(0.22).gain(0.52)])._pianoroll()"
+      }
+    },
+    {
+      "id": "fx_6",
+      "type": "fx",
+      "position": {
+        "x": 420,
+        "y": 140
+      },
+      "data": {
+        "kind": "fx",
+        "name": "sidechain",
+        "opId": "sidechain",
+        "params": {
+          "depth": 0.5,
+          "rate": 4
+        }
+      }
+    },
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": {
+        "x": 820,
+        "y": 260
+      },
+      "data": {
+        "kind": "out"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_src_1_out",
+      "source": "src_1",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_2_out",
+      "source": "src_2",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_3_out",
+      "source": "src_3",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_4_out",
+      "source": "src_4",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_5_fx_5",
+      "source": "src_5",
+      "target": "fx_5"
+    },
+    {
+      "id": "e_fx_5_out",
+      "source": "fx_5",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_6_fx_6",
+      "source": "src_6",
+      "target": "fx_6"
+    },
+    {
+      "id": "e_fx_6_out",
+      "source": "fx_6",
+      "target": "out_1"
+    }
+  ]
+}

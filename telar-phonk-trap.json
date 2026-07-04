@@ -1,0 +1,30 @@
+{
+  "cps": 0.583,
+  "beatsPerCycle": 4,
+  "transpose": 0,
+  "master": { "gain": 1, "filter": 0, "room": 0.05, "drive": 0, "delay": 0, "crush": 0, "swing": 0.02, "humanize": 0.05, "limit": 0.4, "eqLow": 2, "eqMid": -1, "eqHigh": 1 },
+  "mode": "standard",
+  "djOrientation": "h",
+  "vizMode": "milk",
+  "vizHeight": 236,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    { "id": "src_1", "type": "source", "position": { "x": 40, "y": 20 }, "data": { "kind": "source", "name": "cencerro", "code": "arrange([4, note(\"c4 eb4 c4 g4 c4 bb3 c4 g4\").s(\"cb\").bank(\"RolandTR808\").shape(0.35).lpf(2600).gain(0.42)], [8, note(\"c4 eb4 c4 g4 c4 bb3 c4 g4\").s(\"cb\").bank(\"RolandTR808\").shape(0.4).lpf(2600).delay(0.15).delayfeedback(0.3).gain(0.46)], [8, note(\"c4 eb4 g4 eb4 c4 bb3 ab3 g3\").s(\"cb\").bank(\"RolandTR808\").shape(0.4).lpf(2600).delay(0.15).gain(0.46)], [4, note(\"c4 eb4 c4 g4 c4 bb3 c4 g4\").s(\"cb\").bank(\"RolandTR808\").shape(0.3).lpf(1800).gain(0.34)])" } },
+    { "id": "src_2", "type": "source", "position": { "x": 40, "y": 112 }, "data": { "kind": "source", "name": "kick", "code": "arrange([4, s(\"bd ~ ~ ~ ~ ~ bd ~ ~ ~ ~ ~ bd ~ ~ ~\").bank(\"RolandTR808\").shape(0.18).gain(0.95)], [8, s(\"bd ~ ~ ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ ~ ~\").bank(\"RolandTR808\").shape(0.18).gain(1)], [8, s(\"bd ~ ~ ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ ~ ~\").bank(\"RolandTR808\").shape(0.18).gain(1)], [4, s(\"bd ~ ~ ~ ~ ~ bd ~ ~ ~ ~ ~ bd ~ ~ ~\").bank(\"RolandTR808\").lpf(600).gain(0.7)])" } },
+    { "id": "src_3", "type": "source", "position": { "x": 40, "y": 204 }, "data": { "kind": "source", "name": "snare lofi", "code": "arrange([4, s(\"~ ~ ~ ~ crate_rim ~ ~ ~ ~ ~ ~ ~ crate_rim ~ ~ ~\").gain(0.5)], [8, s(\"~ ~ ~ ~ crate_sd ~ ~ ~ ~ ~ ~ ~ crate_sd ~ ~ ~\").room(0.14).gain(0.56)], [8, s(\"~ ~ ~ ~ crate_sd ~ ~ ~ ~ ~ ~ ~ crate_sd ~ ~ crate_sd\").room(0.14).gain(0.56)], [4, s(\"~ ~ ~ ~ crate_sd ~ ~ ~ ~ ~ ~ ~ crate_sd ~ ~ ~\").gain(0.44)])" } },
+    { "id": "src_4", "type": "source", "position": { "x": 40, "y": 296 }, "data": { "kind": "source", "name": "hats trap", "code": "arrange([4, s(\"hh*8\").bank(\"RolandTR808\").gain(0.22)], [8, s(\"hh*16\").bank(\"RolandTR808\").gain(0.24)], [8, s(\"hh*16 , ~ ~ [hh hh hh] ~ ~ ~ [hh hh hh] ~\").bank(\"RolandTR808\").gain(0.22)], [4, s(\"hh*8\").bank(\"RolandTR808\").gain(0.14)])" } },
+    { "id": "src_5", "type": "source", "position": { "x": 40, "y": 388 }, "data": { "kind": "source", "name": "808 distorsion", "code": "arrange([4, silence], [8, note(\"<c1 c1 ab0 g0>\").struct(\"x ~ ~ ~ ~ ~ x ~ ~ ~ x ~ ~ ~ ~ ~\").s(\"sine\").slide(0.12).shape(0.4).distort(0.5).lpf(2200).gain(0.6)], [8, note(\"<c1 c1 ab0 g0>\").struct(\"x ~ ~ ~ ~ ~ x ~ ~ ~ x ~ ~ ~ ~ ~\").s(\"sine\").slide(0.12).shape(0.4).distort(0.5).lpf(2200).gain(0.6)], [4, silence])", "eq": { "on": true, "low": 3, "mid": 0, "high": -1, "midFreq": 700 } } },
+    { "id": "src_6", "type": "source", "position": { "x": 40, "y": 480 }, "data": { "kind": "source", "name": "vinilo lofi", "code": "arrange([4, s(\"white*4\").gain(0.04).hpf(3200)], [8, s(\"white*4\").gain(0.05).hpf(3200)], [8, s(\"white*4\").gain(0.05).hpf(3200)], [4, s(\"white*4\").gain(0.04).hpf(3200)])" } },
+    { "id": "out_1", "type": "out", "position": { "x": 820, "y": 300 }, "data": { "kind": "out" } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src_1", "target": "out_1" },
+    { "id": "e2", "source": "src_2", "target": "out_1" },
+    { "id": "e3", "source": "src_3", "target": "out_1" },
+    { "id": "e4", "source": "src_4", "target": "out_1" },
+    { "id": "e5", "source": "src_5", "target": "out_1" },
+    { "id": "e6", "source": "src_6", "target": "out_1" }
+  ]
+}

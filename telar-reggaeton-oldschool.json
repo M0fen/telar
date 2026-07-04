@@ -1,0 +1,188 @@
+{
+  "cps": 0.38333333333333336,
+  "beatsPerCycle": 4,
+  "transpose": 0,
+  "master": {
+    "gain": 1,
+    "filter": 0,
+    "room": 0.08,
+    "drive": 0.08,
+    "delay": 0,
+    "crush": 0.05,
+    "swing": 0.06,
+    "humanize": 0.06
+  },
+  "mode": "standard",
+  "djOrientation": "vertical",
+  "vizMode": 7,
+  "vizHeight": 260,
+  "vizVisible": true,
+  "vizHeadless": false,
+  "vizMilkStyle": "telar",
+  "nodes": [
+    {
+      "id": "src_1",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 20
+      },
+      "data": {
+        "kind": "source",
+        "name": "kick",
+        "code": "arrange([4, s(\"bd ~ ~ ~ bd ~ ~ ~\").bank(\"RolandTR909\").gain(0.95)], [12, s(\"bd ~ ~ ~ bd ~ ~ ~\").bank(\"RolandTR909\").gain(1.0)], [12, s(\"bd ~ ~ ~ bd ~ ~ ~\").bank(\"RolandTR909\").gain(1.0)])._scope()"
+      }
+    },
+    {
+      "id": "src_2",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 140
+      },
+      "data": {
+        "kind": "source",
+        "name": "dembow",
+        "code": "arrange([4, silence], [12, s(\"sd\").struct(\"~ ~ ~ x ~ ~ x ~ ~ ~ ~ x ~ ~ x ~\").bank(\"RolandTR909\").gain(0.85)], [12, s(\"sd\").struct(\"~ ~ ~ x ~ ~ x ~ ~ ~ ~ x ~ ~ x ~\").bank(\"RolandTR909\").gain(0.88)])"
+      }
+    },
+    {
+      "id": "src_3",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 260
+      },
+      "data": {
+        "kind": "source",
+        "name": "hats",
+        "code": "arrange([4, s(\"hh*8\").bank(\"RolandTR909\").gain(0.22)], [12, s(\"hh*8\").bank(\"RolandTR909\").gain(saw.range(0.12,0.32))], [12, s(\"hh*8 oh\").bank(\"RolandTR909\").gain(saw.range(0.12,0.34))])"
+      }
+    },
+    {
+      "id": "src_4",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 380
+      },
+      "data": {
+        "kind": "source",
+        "name": "perc",
+        "code": "arrange([4, silence], [12, s(\"~ ~ cp ~\").bank(\"RolandTR808\").gain(0.4).room(0.2)], [12, s(\"~ cp ~ cp\").bank(\"RolandTR808\").gain(0.4).room(0.2)])"
+      }
+    },
+    {
+      "id": "src_5",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 500
+      },
+      "data": {
+        "kind": "source",
+        "name": "bajo808",
+        "code": "arrange([4, silence], [12, note(\"c1 ~ ~ c1 ~ ~ g0 ~\").s(\"sine\").lpf(500).shape(0.3)], [12, note(\"c1 ~ ~ c1 ~ ~ bb0 ~\").s(\"sine\").lpf(520).shape(0.32)])._scope()"
+      }
+    },
+    {
+      "id": "fx_5",
+      "type": "fx",
+      "position": {
+        "x": 420,
+        "y": 20
+      },
+      "data": {
+        "kind": "fx",
+        "name": "sidechain",
+        "opId": "sidechain",
+        "params": {
+          "depth": 0.55,
+          "rate": 4
+        }
+      }
+    },
+    {
+      "id": "src_6",
+      "type": "source",
+      "position": {
+        "x": 40,
+        "y": 620
+      },
+      "data": {
+        "kind": "source",
+        "name": "lead",
+        "code": "arrange([4, silence], [12, note(\"c4 eb4 g4 f4 eb4 c4 ~ ~\").s(\"sawtooth\").lpf(1600).lpq(3).decay(0.25).sustain(0.15).release(0.1).gain(0.4)], [12, note(\"c4 eb4 g4 f4 g4 bb4 g4 eb4\").s(\"sawtooth\").lpf(1800).lpq(3).decay(0.25).sustain(0.15).gain(0.42)])._pianoroll()"
+      }
+    },
+    {
+      "id": "fx_6",
+      "type": "fx",
+      "position": {
+        "x": 420,
+        "y": 140
+      },
+      "data": {
+        "kind": "fx",
+        "name": "delay",
+        "opId": "delay",
+        "params": {
+          "amt": 0.2
+        }
+      }
+    },
+    {
+      "id": "out_1",
+      "type": "out",
+      "position": {
+        "x": 820,
+        "y": 260
+      },
+      "data": {
+        "kind": "out"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_src_1_out",
+      "source": "src_1",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_2_out",
+      "source": "src_2",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_3_out",
+      "source": "src_3",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_4_out",
+      "source": "src_4",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_5_fx_5",
+      "source": "src_5",
+      "target": "fx_5"
+    },
+    {
+      "id": "e_fx_5_out",
+      "source": "fx_5",
+      "target": "out_1"
+    },
+    {
+      "id": "e_src_6_fx_6",
+      "source": "src_6",
+      "target": "fx_6"
+    },
+    {
+      "id": "e_fx_6_out",
+      "source": "fx_6",
+      "target": "out_1"
+    }
+  ]
+}
