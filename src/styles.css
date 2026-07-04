@@ -717,6 +717,9 @@ body {
 .seqs-pfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: 0.38; pointer-events: none; }
 .seqs-pcell:hover .seqs-pfill { opacity: 0.62; }
 .seqs-pname { position: relative; z-index: 1; font-size: 8px; color: var(--fg); pointer-events: none; padding-bottom: 1px; text-shadow: 0 0 2px #000, 0 0 2px #000; }
+/* A3 — badge de roll/ratchet en la celda */
+.seqs-cell { position: relative; display: flex; align-items: center; justify-content: center; }
+.seqs-ratch { font-size: 8px; font-weight: 700; line-height: 1; color: #02110e; pointer-events: none; }
 .seqs-add { display: flex; flex-direction: column; gap: 5px; }
 .seqs-addbtn { align-self: flex-start; background: rgba(10,16,22,0.6); border: 1px dashed var(--line); color: var(--dim); cursor: pointer; font-size: 10px; padding: 4px 10px; border-radius: 3px; }
 .seqs-addbtn:hover { color: var(--accent); border-color: var(--accent-dim); }

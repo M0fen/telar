@@ -39,7 +39,7 @@ const PALETTE: { s: string; label: string }[] = [
   { s: 'cb', label: 'cowbell' }, { s: 'cr', label: 'crash' }, { s: 'rd', label: 'ride' },
 ];
 
-interface Lane { sound: string; steps: number[]; notes: (string | null)[] } // steps[i] = 0 (off) | gain · notes[i] = nota o null
+interface Lane { sound: string; steps: number[]; notes: (string | null)[]; ratchet: number[] } // steps[i]=0(off)|gain · notes[i]=nota|null · ratchet[i]=1|2|3|4 (roll/tresillo)
 interface Parsed { bank: string; tail: string; lanes: Lane[]; steps: number; complex: boolean }
 
 function splitTop(s: string, sep: string): string[] {
@@ -90,6 +90,7 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notes
   }
   const laneMap = new Map<string, number[]>();
   const noteMap = new Map<string, (string | null)[]>();
+  const ratchMap = new Map<string, number[]>();
   if (!complex) {
     toks.forEach((t, si) => {
       const gains = gainsPerSub[si];
@@ -99,13 +100,14 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notes
         if (!tk || tk === '~') continue;
         const snd = soundOf(tk);
         if (!snd) continue;
-        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); }
+        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); }
         laneMap.get(snd)![i] = gains && isFinite(gains[i]) ? gains[i] : NORMAL;
         if (notes && notes[i]) noteMap.get(snd)![i] = notes[i];
+        const rm = /\*(\d+)$/.exec(tk); if (rm) ratchMap.get(snd)![i] = Math.max(1, Math.min(8, Number(rm[1]))); // roll por paso
       }
     });
   }
-  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)! }));
+  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)! }));
   return { lanes, steps, complex };
 }
 
@@ -135,8 +137,8 @@ function parseStackForm(code: string): Parsed | null {
       const sM = /\.s(?:ound)?\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)/.exec(seg);
       if (!sM) return null;
       const nt = expand(noteM[1]);
-      toks.push(nt.map((t) => (t === '~' ? '~' : sM[1])));
-      notes.push(nt.map((t) => (t === '~' ? null : t)));
+      toks.push(nt.map((t) => (t === '~' ? '~' : sM[1] + (/\*\d+$/.exec(t)?.[0] ?? '')))); // conserva *N (roll) en la presencia
+      notes.push(nt.map((t) => (t === '~' ? null : t.replace(/\*\d+$/, ''))));
       gains.push(gain);
     } else {
       const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
@@ -180,11 +182,12 @@ export function parseSeq(code: string): Parsed | null {
 function lanePitched(l: Lane, steps: number): boolean {
   return l.steps.slice(0, steps).some((v, i) => v > 0 && !!l.notes[i]);
 }
+const ratchSfx = (l: Lane, i: number) => (l.ratchet[i] > 1 ? `*${l.ratchet[i]}` : ''); // roll: hh*3
 function laneBody(l: Lane, steps: number): string {
-  return l.steps.slice(0, steps).map((v) => (v > 0 ? l.sound : '~')).join(' ');
+  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? l.sound + ratchSfx(l, i) : '~')).join(' ');
 }
 function laneNotesBody(l: Lane, steps: number): string {
-  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) : '~')).join(' ');
+  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + ratchSfx(l, i) : '~')).join(' ');
 }
 export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const active = lanes.filter((l) => l.steps.slice(0, steps).some((v) => v > 0));
@@ -259,7 +262,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     return (
       <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
         <p className="seqs-none">patrón avanzado (usa [ ] &lt; &gt; …). Empieza una rejilla nueva para editarlo aquí:</p>
-        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null) }], 8) }); }}>empezar rejilla de 8 pasos</button>
+        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1) }], 8) }); }}>empezar rejilla de 8 pasos</button>
       </div>
     );
   }
@@ -279,10 +282,20 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     setLanes(nl); commit(nl);
     void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9 * nv);
   };
+  // shift+clic en celda encendida: cicla el RATCHET (roll/tresillo) 1→2→3→4 → hh*n.
+  const cycleRatchet = (li: number, si: number) => {
+    if (lanes[li].steps[si] <= 0) return;
+    const cur = lanes[li].ratchet[si] || 1;
+    const RATCHETS = [1, 2, 3, 4];
+    const nv = RATCHETS[(RATCHETS.indexOf(cur) + 1) % RATCHETS.length] ?? 1;
+    const nl = lanes.map((l, i) => (i === li ? { ...l, ratchet: l.ratchet.map((v, j) => (j === si ? nv : v)) } : l));
+    setLanes(nl); commit(nl);
+    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.85);
+  };
   const addLane = (snd: string) => {
     setAdding(false);
     if (lanes.some((l) => l.sound === snd)) return;
-    const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0), notes: Array(steps).fill(null) }];
+    const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0), notes: Array(steps).fill(null), ratchet: Array(steps).fill(1) }];
     setLanes(nl);
     void playDrumHit(snd, bank);
   };
@@ -292,7 +305,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const nl = lanes.map((l) => {
       const s = l.steps.slice(0, c); while (s.length < c) s.push(0);
       const nt = l.notes.slice(0, c); while (nt.length < c) nt.push(null);
-      return { ...l, steps: s, notes: nt };
+      const rt = l.ratchet.slice(0, c); while (rt.length < c) rt.push(1);
+      return { ...l, steps: s, notes: nt, ratchet: rt };
     });
     setLanes(nl); setSteps(c); commit(nl, c);
   };
@@ -353,11 +367,13 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                     <button
                       key={si}
                       className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${si % 4 === 0 ? ' beat' : ''}`}
-                      onPointerDown={() => { const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
+                      onPointerDown={(e) => { if (e.shiftKey && v > 0) { cycleRatchet(li, si); return; } const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
                       onPointerEnter={() => { if (drawing.current != null) paint(li, si, drawing.current); }}
                       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); cycleLevel(li, si); }}
-                      title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'} (clic der. cambia)` : ''}`}
-                    />
+                      title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'}${l.ratchet[si] > 1 ? ` · roll x${l.ratchet[si]}` : ''} (clic der. = vel · shift+clic = roll)` : ''}`}
+                    >
+                      {v > 0 && l.ratchet[si] > 1 && <span className="seqs-ratch">{l.ratchet[si]}</span>}
+                    </button>
                   ))}
                 </div>
                 {open && (
@@ -397,7 +413,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           </div>
         )}
       </div>
-      <p className="seqs-hint">clic = golpe (arrastra) · clic derecho = acento/ghost · ♪ = afinar la pista por paso (808/cowbell melódico) · «+ añadir sonido» · ▶/espacio = escuchar aislado</p>
+      <p className="seqs-hint">clic = golpe (arrastra) · clic der. = acento/ghost · shift+clic = roll/tresillo (×2/3/4) · ♪ = afinar por paso · «+ añadir sonido» · ▶/espacio = escuchar</p>
     </div>
   );
 }
