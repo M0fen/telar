@@ -19,14 +19,18 @@ import { StepSeq } from './StepSeq';
 import { MelodicSeq } from './MelodicSeq';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 
-// ¿source melódico (note/n) editable en el piano roll inline?
+// ¿source melódico (note/n) editable en el piano roll inline? Una rejilla de batería
+// `stack(...)` NO es melódica aunque tenga pistas AFINADAS (note-form) → se queda en la
+// rejilla (StepSeq), no salta al piano roll (arregla quedar atrapado al afinar por paso).
 function isMelodicSeq(code: string): boolean {
+  if (/^\s*stack\s*\(/.test(code)) return false;
   return /\bnote\(\s*["'`]|\bn\(\s*["'`]/.test(code) && !/\.loopAt\(/.test(code) && !code.includes('arrange');
 }
 // ¿el source es editable en el secuenciador de rejilla? Melódico (note/n) o percusivo
 // (varios pasos o *N). Excluye loops de sample y arrange multi-sección.
 function isSeqable(code: string): boolean {
   if (/\.loopAt\(/.test(code) || code.includes('arrange')) return false;
+  if (/^\s*stack\s*\(/.test(code)) return true; // rejilla con acentos o pistas afinadas
   if (isMelodicSeq(code)) return true;
   const m = /\b(?:s|sound)\(\s*["'`]([^"'`]*)/.exec(code);
   if (!m || /\bnote\(|\bn\(/.test(code)) return false;
