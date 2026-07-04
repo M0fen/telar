@@ -369,6 +369,14 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     setLanes(nl); commit(nl);
     setPitchOpen((o) => ({ ...o, [l.sound]: !pitched }));
   };
+  // "afinar todo": iguala TODOS los pasos activos de la pista a una MISMA nota (la del
+  // primer paso afinado, o c3). Rápido para un bajo/instrumento a un solo tono.
+  const tuneAll = (li: number) => {
+    const l = lanes[li];
+    const ref = l.notes.find((v, j) => l.steps[j] > 0 && !!v) || DEFAULT_NOTE;
+    const nl = lanes.map((x, i) => (i === li ? { ...x, notes: x.steps.map((v) => (v > 0 ? ref : null)) } : x));
+    setLanes(nl); commit(nl);
+  };
   // afinar por paso: CLIC + ARRASTRE VERTICAL relativo (tipo perilla). Con captura de
   // puntero se arrastra libremente arriba/abajo y el pitch sube/baja fluido. scale-lock engancha.
   const setNoteAt = (li: number, si: number, nn: string) => {
@@ -444,7 +452,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                 </div>
                 {open && (
                   <>
-                  <div className="seqs-pitch-h"><span>↕ afinar cada paso</span><button className="seqs-pitch-x" onClick={() => togglePitch(li)} title="salir del afinador (volver a percusión)">✕ salir</button></div>
+                  <div className="seqs-pitch-h"><span>↕ afinar cada paso</span><span className="seqs-pitch-btns"><button className="seqs-pitch-x" onClick={() => tuneAll(li)} title="afinar TODO el instrumento en la misma nota (la del primer paso afinado)">afinar todo</button><button className="seqs-pitch-x" onClick={() => togglePitch(li)} title="salir del afinador (volver a percusión)">✕ salir</button></span></div>
                   <div className="seqs-pitch" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
                     {l.steps.slice(0, steps).map((v, si) => {
                       const on = v > 0;
