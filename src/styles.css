@@ -710,9 +710,9 @@ body {
 .seqs-pitchtog { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 13px; padding: 0 3px; border: 1px solid var(--line); border-radius: 2px; color: var(--faint); font-size: 9px; cursor: pointer; }
 .seqs-pitchtog:hover { color: var(--accent); border-color: var(--accent-dim); }
 .seqs-pitchtog.on { color: #02110e; background: var(--accent); border-color: var(--accent); }
-.seqs-pitch-h { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 8px; color: var(--faint); padding: 1px 0; }
-.seqs-pitch-x { background: none; border: 1px solid var(--line); color: var(--dim); font-size: 8px; padding: 1px 6px; border-radius: 2px; cursor: pointer; }
-.seqs-pitch-x:hover { color: var(--accent); border-color: var(--accent-dim); }
+.seqs-pitch-h { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 9px; color: var(--accent); background: rgba(61,240,208,0.08); border: 1px solid var(--accent-dim); border-radius: 3px; padding: 3px 7px; }
+.seqs-pitch-x { background: var(--accent); border: none; color: #02110e; font-size: 9px; font-weight: 700; padding: 2px 9px; border-radius: 3px; cursor: pointer; white-space: nowrap; }
+.seqs-pitch-x:hover { filter: brightness(1.12); }
 .seqs-slide { display: flex; align-items: center; flex: 0 0 auto; }
 .seqs-pitch { display: grid; gap: 2px; }
 .seqs-pcell { position: relative; height: 30px; display: flex; align-items: flex-end; justify-content: center; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 2px; cursor: ns-resize; overflow: hidden; }
