@@ -45,6 +45,32 @@ function snapToScale(midi: number, root: number, name: string): number {
   }
   return midi;
 }
+// ACORDES por paso: cada nota afinada puede sonar como acorde (stabs/pads de EBM/post-punk).
+const CHORDS = ['nota', '5ª', 'octava', 'tríada'];
+function chordRoot(tok: string): string {
+  const t = (tok || '').replace(/^\[/, '');
+  return (t.split(',')[0] || '').replace(/\].*$/, '').trim();
+}
+// sube `steps` GRADOS de la escala desde midi (para tríadas diatónicas: 3ª = 2, 5ª = 4).
+function diatonicStep(midi: number, steps: number, root: number, name: string): number {
+  const iv = SCALES[name];
+  if (!iv) return midi + steps * 2;
+  const set = iv.map((i) => (root + i) % 12);
+  let m = midi, count = 0;
+  while (count < steps && m < midi + 24) { m++; if (set.includes((((m % 12) + 12) % 12))) count++; }
+  return m;
+}
+function buildChord(rootMidi: number, chord: string, scaleRoot: number, scaleName: string): string {
+  const ns: number[] = [rootMidi];
+  if (chord === '5ª') ns.push(rootMidi + 7);
+  else if (chord === 'octava') ns.push(rootMidi + 12);
+  else if (chord === 'tríada') {
+    if (scaleName !== 'off') ns.push(diatonicStep(rootMidi, 2, scaleRoot, scaleName), diatonicStep(rootMidi, 4, scaleRoot, scaleName));
+    else ns.push(rootMidi + 3, rootMidi + 7); // tríada menor por defecto (géneros oscuros)
+  }
+  const names = ns.map((m) => midiToName(m));
+  return names.length > 1 ? `[${names.join(',')}]` : names[0];
+}
 function fmt(n: number): string {
   if (!isFinite(n)) return '1';
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
@@ -240,6 +266,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const [pitchOpen, setPitchOpen] = useState<Record<string, boolean>>({});
   const [scaleName, setScaleName] = useState('off'); // escala para el scale-lock ('off' = libre)
   const [scaleRoot, setScaleRoot] = useState(0); // tónica de la escala (0 = C)
+  const [chord, setChord] = useState('nota'); // acorde por paso al afinar ('nota' = sin acorde)
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
   const dragPitch = useRef<{ li: number; si: number; startY: number; startMidi: number } | null>(null); // arrastre de pitch activo
   const bank = parsed?.bank || '';
@@ -353,14 +380,14 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const startPitchDrag = (li: number, si: number, e: React.PointerEvent) => {
     if (lanes[li].steps[si] <= 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-    dragPitch.current = { li, si, startY: e.clientY, startMidi: noteToMidi(lanes[li].notes[si] || DEFAULT_NOTE) ?? PITCH_LO + 12 };
+    dragPitch.current = { li, si, startY: e.clientY, startMidi: noteToMidi(chordRoot(lanes[li].notes[si] || DEFAULT_NOTE)) ?? PITCH_LO + 12 };
     void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? DEFAULT_NOTE, 0.35, 0.7);
   };
   const movePitchDrag = (clientY: number) => {
     const d = dragPitch.current; if (!d) return;
     let midi = clampMidi(d.startMidi + Math.round((d.startY - clientY) / PX_PER_SEMI));
     if (scaleName !== 'off') midi = snapToScale(midi, scaleRoot, scaleName);
-    setNoteAt(d.li, d.si, midiToName(midi));
+    setNoteAt(d.li, d.si, buildChord(midi, chord, scaleRoot, scaleName));
   };
 
   const laneLabel = (snd: string) => PALETTE.find((p) => p.s === snd)?.label ?? snd;
@@ -381,6 +408,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
             <span>escala</span>
             <select className="nodrag" value={scaleRoot} onChange={(e) => setScaleRoot(Number(e.target.value))}>{ROOTS.map((r, i) => <option key={i} value={i}>{r}</option>)}</select>
             <select className="nodrag" value={scaleName} onChange={(e) => setScaleName(e.target.value)}><option value="off">libre</option>{Object.keys(SCALES).map((s) => <option key={s} value={s}>{s}</option>)}</select>
+            <span>acorde</span>
+            <select className="nodrag" value={chord} onChange={(e) => setChord(e.target.value)} title="acorde por paso: al afinar arrastrando, cada nota suena como este acorde (5ª/octava/tríada, para stabs y pads)">{CHORDS.map((c) => <option key={c} value={c}>{c}</option>)}</select>
           </div>
         )}
       </div>
@@ -420,7 +449,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                     {l.steps.slice(0, steps).map((v, si) => {
                       const on = v > 0;
                       const nn = l.notes[si] || DEFAULT_NOTE;
-                      const midi = on ? (noteToMidi(nn) ?? PITCH_LO) : PITCH_LO;
+                      const midi = on ? (noteToMidi(chordRoot(nn)) ?? PITCH_LO) : PITCH_LO;
                       const t = Math.max(0, Math.min(1, (midi - PITCH_LO) / PITCH_RANGE));
                       return (
                         <div
@@ -431,7 +460,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                           onPointerUp={() => { dragPitch.current = null; }}
                           title={on ? `nota paso ${si + 1}: ${nn} · clic y arrastra ↕ para afinar` : ''}
                         >
-                          {on && <><span className="seqs-pfill" style={{ height: `${Math.max(8, t * 100)}%` }} /><span className="seqs-pname">{nn}</span></>}
+                          {on && <><span className="seqs-pfill" style={{ height: `${Math.max(8, t * 100)}%` }} /><span className="seqs-pname">{chordRoot(nn)}{nn.startsWith('[') ? '▴' : ''}</span></>}
                         </div>
                       );
                     })}
