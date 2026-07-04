@@ -5,6 +5,7 @@ import { playSynthNote, playDrumHit } from '../audio/playNote';
 import { getScheduler } from '../audio/engine';
 import { ACCIDENTAL, midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
+import { MiniSlider } from './MiniSlider';
 
 // Secuenciador MELÓDICO por source (unifica con el synth): piano roll inline monofónico
 // para colocar NOTAS por paso con la octava correcta, viendo la onda en vivo y oyendo
@@ -38,14 +39,28 @@ function extractPat(code: string, method: string): { code: string; toks: number[
   const toks = m[1].trim() ? m[1].trim().split(/\s+/).map((t) => (t === '~' ? 1 : Number(t))).map((n) => (isFinite(n) ? n : 1)) : [];
   return { code: code.slice(0, m.index) + code.slice(m.index + m[0].length), toks: toks.length ? toks : null };
 }
+const SLIDE_MAX = 7; // semitonos de pitch-env con el mando "slide" al 100%
+// extrae un `.method(<número>)` ESCALAR (p.ej. `.penv(6)`, `.pdecay(0.12)`). Devuelve el
+// valor y el código sin esa llamada.
+function extractScalar(code: string, method: string): { code: string; val: number } {
+  const re = new RegExp('\\.' + method + '\\(\\s*([0-9.]+)\\s*\\)');
+  const m = re.exec(code);
+  if (!m) return { code, val: 0 };
+  const val = Number(m[1]);
+  return { code: code.slice(0, m.index) + code.slice(m.index + m[0].length), val: isFinite(val) ? val : 0 };
+}
 
-interface MelParsed { pre: string; post: string; sName: string | null; bank: string; wave: string | null; tokens: string[]; vels: number[] | null; gates: number[] | null }
+interface MelParsed { pre: string; post: string; sName: string | null; bank: string; wave: string | null; tokens: string[]; vels: number[] | null; gates: number[] | null; slide: number }
 
 function parseMel(code: string): MelParsed | null {
   // primero retira nuestros patrones de vel/dur (van al final); luego parsea la nota.
   const g = extractPat(code, 'gain');
   const c = extractPat(g.code, 'clip');
-  const base = c.code;
+  // "slide" de 808 = pitch-envelope (penv/pdecay), que superdough SÍ aplica. Reconstruye
+  // el valor del mando desde penv (0..SLIDE_MAX semitonos → 0..1) y retira penv+pdecay.
+  const pe = extractScalar(c.code, 'penv');
+  const pd = extractScalar(pe.code, 'pdecay');
+  const base = pd.code;
   const om = /(?:\.)?\b(?:note|n)\(\s*["'`]/.exec(base);
   if (!om) return null;
   const cs = om.index + om[0].length;
@@ -61,13 +76,15 @@ function parseMel(code: string): MelParsed | null {
   const bank = bankM ? bankM[1] : '';
   const wave = sName && ['sawtooth', 'square', 'triangle', 'sine', 'supersaw'].includes(sName) ? sName : null;
   const tokens = content.trim() ? content.trim().split(/\s+/) : [];
-  return { pre, post, sName, bank, wave, tokens, vels: g.toks, gates: c.toks };
+  return { pre, post, sName, bank, wave, tokens, vels: g.toks, gates: c.toks, slide: Math.max(0, Math.min(1, pe.val / SLIDE_MAX)) };
 }
-function buildMel(p: MelParsed, cells: string[], vels: number[], gates: number[]): string {
+function buildMel(p: MelParsed, cells: string[], vels: number[], gates: number[], slide: number): string {
   const body = cells.some((c) => c !== '~') ? cells.join(' ') : '~';
   let out = p.pre + body + p.post;
   if (vels.some((v) => Math.abs(v - 1) > 0.001)) out += `.gain("${vels.map(fmt).join(' ')}")`;
   if (gates.some((g) => Math.abs(g - 1) > 0.001)) out += `.clip("${gates.map(fmt).join(' ')}")`;
+  // 808 slide: pitch-env que desliza cada nota hasta su tono (penv semitonos + pdecay s).
+  if (slide > 0.02) out += `.penv(${(slide * SLIDE_MAX).toFixed(2)}).pdecay(${(0.05 + slide * 0.11).toFixed(3)})`;
   return out;
 }
 
@@ -130,7 +147,8 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
     void playSynthNote({ wave: parsed?.wave ?? 'sawtooth' }, row.midi, 0.6, id);
   };
 
-  const commit = (nc: string[], nv: number[], ng: number[]) => { if (parsed) update(id, { code: buildMel(parsed, nc, nv, ng) }); };
+  const slide = parsed?.slide ?? 0; // 808 slide (pitch-env de cada nota)
+  const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) update(id, { code: buildMel(parsed, nc, nv, ng, sl) }); };
   const place = (col: number, row: Row) => {
     const next = cells.slice();
     const on = noteToMidi(next[col]) === row.midi;
@@ -176,6 +194,9 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
           <button onClick={() => setStepCount(steps - 1)}>−</button>
           <b>{steps}<i>pasos</i></b>
           <button onClick={() => setStepCount(steps + 1)}>+</button>
+        </div>
+        <div className="seqs-slide" title="slide de 808: cada nota ENTRA deslizando el pitch hasta su tono (trap/drift-phonk). Mueve el pitch-env del sonido. 0 = sin slide.">
+          <MiniSlider label="slide" value={slide} min={0} max={1} step={0.02} onChange={(v) => commit(cells, vels, gates, v)} />
         </div>
         <button className={`seqs-auto${showAuto ? ' on' : ''}`} onClick={() => setShowAuto((a) => !a)} title="editar volumen (vel) y duración (dur) por paso">vel/dur</button>
         <button className="gate-clear" onClick={clearAll} title="borrar todas las notas y automatización">limpiar</button>
