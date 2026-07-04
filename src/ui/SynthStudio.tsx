@@ -277,6 +277,7 @@ export function SynthStudio() {
   const canRedo = useGraphStore((s) => s.future.length > 0);
   const [saveName, setSaveName] = useState('');
   const [ab, setAb] = useState<SynthParams | null>(null); // slot B para comparar A/B
+  const [fitMsg, setFitMsg] = useState(''); // "encajar" — DEBE ir antes del return (los hooks no van tras un return condicional)
 
   if (!synthEditId || !node) return null;
   const data = node.data as NodeData;
@@ -338,7 +339,6 @@ export function SynthStudio() {
   };
   // ENCAJAR: mide la duración del sample y pone loop = ciclos que dura, para que loopee
   // continuo SIN solaparse (arregla un sample largo que se re-dispara y se asolapa).
-  const [fitMsg, setFitMsg] = useState('');
   const fitLoop = async () => {
     const url = resolveSampleUrl(sampleName);
     if (!url) { setFitMsg('no pude medir la duración'); setTimeout(() => setFitMsg(''), 2000); return; }
