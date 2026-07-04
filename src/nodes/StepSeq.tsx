@@ -26,6 +26,7 @@ const NORMAL = 1, ACCENT = 1.4, GHOST = 0.5;
 const nextLevel = (v: number) => (Math.abs(v - NORMAL) < 0.01 ? ACCENT : Math.abs(v - ACCENT) < 0.01 ? GHOST : NORMAL);
 const DEFAULT_NOTE = 'c3'; // nota por defecto al afinar una pista
 const PITCH_LO = 36, PITCH_RANGE = 36; // rango de afinación de la sub-fila: c2..c5
+const PX_PER_SEMI = 6; // píxeles de arrastre vertical por semitono (afinado fluido/orgánico)
 // SCALE-LOCK: al afinar, el arrastre se ENGANCHA a una tonalidad (los bajos/808/stabs no
 // se desafinan). 'libre' = sin bloqueo.
 const ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -240,7 +241,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const [scaleName, setScaleName] = useState('off'); // escala para el scale-lock ('off' = libre)
   const [scaleRoot, setScaleRoot] = useState(0); // tónica de la escala (0 = C)
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
-  const dragPitch = useRef<number | null>(null); // índice de pista cuyo pitch se arrastra
+  const dragPitch = useRef<{ li: number; si: number; startY: number; startMidi: number } | null>(null); // arrastre de pitch activo
   const bank = parsed?.bank || '';
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo)
@@ -341,17 +342,25 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     setLanes(nl); commit(nl);
     setPitchOpen((o) => ({ ...o, [l.sound]: !pitched }));
   };
-  // arrastre vertical en la sub-fila de pitch: mapea la altura a una nota (c2..c5).
-  const setNote = (li: number, si: number, clientY: number, el: HTMLElement) => {
-    if (lanes[li].steps[si] <= 0) return;
-    const r = el.getBoundingClientRect();
-    const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
-    const raw = PITCH_LO + Math.round(t * PITCH_RANGE);
-    const midi = scaleName === 'off' ? raw : snapToScale(raw, scaleRoot, scaleName); // scale-lock
-    const nn = midiToName(midi);
+  // afinar por paso: CLIC + ARRASTRE VERTICAL relativo (tipo perilla). Con captura de
+  // puntero se arrastra libremente arriba/abajo y el pitch sube/baja fluido. scale-lock engancha.
+  const setNoteAt = (li: number, si: number, nn: string) => {
+    if (lanes[li].notes[si] === nn) return;
     const nl = lanes.map((l, i) => (i === li ? { ...l, notes: l.notes.map((v, j) => (j === si ? nn : v)) } : l));
     setLanes(nl); commit(nl);
-    void playDrumHit(lanes[li].sound, bank, nn, 0.4, 0.8);
+  };
+  const clampMidi = (m: number) => Math.max(PITCH_LO, Math.min(PITCH_LO + PITCH_RANGE, m));
+  const startPitchDrag = (li: number, si: number, e: React.PointerEvent) => {
+    if (lanes[li].steps[si] <= 0) return;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    dragPitch.current = { li, si, startY: e.clientY, startMidi: noteToMidi(lanes[li].notes[si] || DEFAULT_NOTE) ?? PITCH_LO + 12 };
+    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? DEFAULT_NOTE, 0.35, 0.7);
+  };
+  const movePitchDrag = (clientY: number) => {
+    const d = dragPitch.current; if (!d) return;
+    let midi = clampMidi(d.startMidi + Math.round((d.startY - clientY) / PX_PER_SEMI));
+    if (scaleName !== 'off') midi = snapToScale(midi, scaleRoot, scaleName);
+    setNoteAt(d.li, d.si, midiToName(midi));
   };
 
   const laneLabel = (snd: string) => PALETTE.find((p) => p.s === snd)?.label ?? snd;
@@ -417,9 +426,10 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                         <div
                           key={si}
                           className={`seqs-pcell${on ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
-                          onPointerDown={(e) => { if (on) { dragPitch.current = li; setNote(li, si, e.clientY, e.currentTarget); } }}
-                          onPointerEnter={(e) => { if (dragPitch.current === li && on) setNote(li, si, e.clientY, e.currentTarget); }}
-                          title={on ? `nota paso ${si + 1}: ${nn} (arrastra vertical)` : ''}
+                          onPointerDown={(e) => startPitchDrag(li, si, e)}
+                          onPointerMove={(e) => movePitchDrag(e.clientY)}
+                          onPointerUp={() => { dragPitch.current = null; }}
+                          title={on ? `nota paso ${si + 1}: ${nn} · clic y arrastra ↕ para afinar` : ''}
                         >
                           {on && <><span className="seqs-pfill" style={{ height: `${Math.max(8, t * 100)}%` }} /><span className="seqs-pname">{nn}</span></>}
                         </div>
