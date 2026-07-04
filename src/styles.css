@@ -713,6 +713,10 @@ body {
 .seqs-pitch-h { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 8px; color: var(--faint); padding: 0 1px; }
 .seqs-pitch-x { background: none; border: 1px solid var(--accent-dim); color: var(--accent); font-size: 8px; padding: 0 6px; border-radius: 2px; cursor: pointer; white-space: nowrap; line-height: 1.6; }
 .seqs-pitch-x:hover { background: rgba(61,240,208,0.12); }
+.seqs-scale { display: flex; align-items: center; gap: 3px; font-size: 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--faint); }
+.seqs-scale select { background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--dim); font-size: 9px; padding: 1px 2px; border-radius: 2px; cursor: pointer; }
+.seqs-scale select:hover { color: var(--accent); border-color: var(--accent-dim); }
+.seqs-scale select:focus { outline: none; border-color: var(--accent-dim); }
 .seqs-slide { display: flex; align-items: center; flex: 0 0 auto; }
 .seqs-pitch { display: grid; gap: 2px; }
 .seqs-pcell { position: relative; height: 30px; display: flex; align-items: flex-end; justify-content: center; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 2px; cursor: ns-resize; overflow: hidden; }

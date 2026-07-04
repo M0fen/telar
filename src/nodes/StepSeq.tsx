@@ -26,6 +26,24 @@ const NORMAL = 1, ACCENT = 1.4, GHOST = 0.5;
 const nextLevel = (v: number) => (Math.abs(v - NORMAL) < 0.01 ? ACCENT : Math.abs(v - ACCENT) < 0.01 ? GHOST : NORMAL);
 const DEFAULT_NOTE = 'c3'; // nota por defecto al afinar una pista
 const PITCH_LO = 36, PITCH_RANGE = 36; // rango de afinación de la sub-fila: c2..c5
+// SCALE-LOCK: al afinar, el arrastre se ENGANCHA a una tonalidad (los bajos/808/stabs no
+// se desafinan). 'libre' = sin bloqueo.
+const ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const SCALES: Record<string, number[]> = {
+  menor: [0, 2, 3, 5, 7, 8, 10], mayor: [0, 2, 4, 5, 7, 9, 11],
+  'menor pent': [0, 3, 5, 7, 10], 'mayor pent': [0, 2, 4, 7, 9],
+  dórica: [0, 2, 3, 5, 7, 9, 10], frigia: [0, 1, 3, 5, 7, 8, 10], 'menor arm': [0, 2, 3, 5, 7, 8, 11],
+};
+function snapToScale(midi: number, root: number, name: string): number {
+  const iv = SCALES[name];
+  if (!iv) return midi;
+  const set = iv.map((i) => (root + i) % 12);
+  for (let d = 0; d < 12; d++) {
+    if (set.includes((((midi + d) % 12) + 12) % 12)) return midi + d;
+    if (set.includes((((midi - d) % 12) + 12) % 12)) return midi - d;
+  }
+  return midi;
+}
 function fmt(n: number): string {
   if (!isFinite(n)) return '1';
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
@@ -219,6 +237,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState(false);
   const [pitchOpen, setPitchOpen] = useState<Record<string, boolean>>({});
+  const [scaleName, setScaleName] = useState('off'); // escala para el scale-lock ('off' = libre)
+  const [scaleRoot, setScaleRoot] = useState(0); // tónica de la escala (0 = C)
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
   const dragPitch = useRef<number | null>(null); // índice de pista cuyo pitch se arrastra
   const bank = parsed?.bank || '';
@@ -326,7 +346,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     if (lanes[li].steps[si] <= 0) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
-    const midi = PITCH_LO + Math.round(t * PITCH_RANGE);
+    const raw = PITCH_LO + Math.round(t * PITCH_RANGE);
+    const midi = scaleName === 'off' ? raw : snapToScale(raw, scaleRoot, scaleName); // scale-lock
     const nn = midiToName(midi);
     const nl = lanes.map((l, i) => (i === li ? { ...l, notes: l.notes.map((v, j) => (j === si ? nn : v)) } : l));
     setLanes(nl); commit(nl);
@@ -346,6 +367,13 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           <b>{steps}<i>pasos</i></b>
           <button onClick={() => setStepCount(steps + 1)} title="más pasos">+</button>
         </div>
+        {lanes.some((l) => lanePitched(l, steps)) && (
+          <div className="seqs-scale" title="scale-lock: al arrastrar ↕ para afinar, las notas se quedan en esta tonalidad (no se desafinan). «libre» = sin bloqueo.">
+            <span>escala</span>
+            <select className="nodrag" value={scaleRoot} onChange={(e) => setScaleRoot(Number(e.target.value))}>{ROOTS.map((r, i) => <option key={i} value={i}>{r}</option>)}</select>
+            <select className="nodrag" value={scaleName} onChange={(e) => setScaleName(e.target.value)}><option value="off">libre</option>{Object.keys(SCALES).map((s) => <option key={s} value={s}>{s}</option>)}</select>
+          </div>
+        )}
       </div>
 
       <LiveScope nodeId={id} height={36} />
