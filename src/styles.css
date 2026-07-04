@@ -681,7 +681,7 @@ body {
 .seqs-none { border-top: 1px solid var(--line); background: rgba(4,7,10,0.5); padding: 8px; margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
 .seqs-none code { color: var(--accent); }
 .seqs-norm { background: var(--accent); color: #04070a; border: none; cursor: pointer; font-size: 10px; font-weight: 600; padding: 6px 12px; border-radius: 3px; margin-top: 6px; }
-.seqs-ctl { display: flex; align-items: center; gap: 8px; }
+.seqs-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; row-gap: 6px; }
 .seqs-play { background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--accent); cursor: pointer; width: 22px; height: 20px; line-height: 1; padding: 0; border-radius: 3px; font-size: 10px; }
 .seqs-play.on { background: rgba(61,240,208,0.18); border-color: var(--accent); }
 .seqs-tag { font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); flex: 1; }
@@ -707,9 +707,13 @@ body {
 /* A2 — pista afinada por paso (808/cowbell melódico) */
 .seqs-lane-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .seqs-lane-body .seqs-row { flex: none; }
-.seqs-pitchtog { color: var(--faint); font-size: 10px; opacity: 0.55; cursor: pointer; padding: 0 1px; }
-.seqs-pitchtog:hover { color: var(--accent); opacity: 1; }
-.seqs-pitchtog.on { color: var(--accent); opacity: 1; }
+.seqs-pitchtog { display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 13px; padding: 0 3px; border: 1px solid var(--line); border-radius: 2px; color: var(--faint); font-size: 9px; cursor: pointer; }
+.seqs-pitchtog:hover { color: var(--accent); border-color: var(--accent-dim); }
+.seqs-pitchtog.on { color: #02110e; background: var(--accent); border-color: var(--accent); }
+.seqs-pitch-h { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 8px; color: var(--faint); padding: 1px 0; }
+.seqs-pitch-x { background: none; border: 1px solid var(--line); color: var(--dim); font-size: 8px; padding: 1px 6px; border-radius: 2px; cursor: pointer; }
+.seqs-pitch-x:hover { color: var(--accent); border-color: var(--accent-dim); }
+.seqs-slide { display: flex; align-items: center; flex: 0 0 auto; }
 .seqs-pitch { display: grid; gap: 2px; }
 .seqs-pcell { position: relative; height: 30px; display: flex; align-items: flex-end; justify-content: center; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 2px; cursor: ns-resize; overflow: hidden; }
 .seqs-pcell.beat { border-left-color: var(--accent-dim); }

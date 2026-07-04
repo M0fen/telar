@@ -377,6 +377,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                   ))}
                 </div>
                 {open && (
+                  <>
+                  <div className="seqs-pitch-h"><span>afinar: arrastra ↕ cada paso</span><button className="seqs-pitch-x" onClick={() => togglePitch(li)} title="quitar afinación (volver a percusión)">✕ salir</button></div>
                   <div className="seqs-pitch" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
                     {l.steps.slice(0, steps).map((v, si) => {
                       const on = v > 0;
@@ -396,6 +398,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                       );
                     })}
                   </div>
+                  </>
                 )}
               </div>
             </div>
