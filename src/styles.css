@@ -692,7 +692,7 @@ body {
 .seqs-steps i { font-style: normal; font-size: 7px; color: var(--faint); text-transform: uppercase; }
 .seqs-lanes { display: flex; flex-direction: column; gap: 3px; }
 .seqs-lane { display: flex; align-items: stretch; gap: 4px; }
-.seqs-name { flex: 0 0 64px; width: 64px; min-width: 64px; max-width: 64px; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 3px; background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 9px; padding: 0 5px; border-radius: 2px; text-align: left; }
+.seqs-name { flex: 0 0 78px; width: 78px; min-width: 78px; max-width: 78px; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 2px; background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 9px; padding: 0 4px; border-radius: 2px; text-align: left; }
 .seqs-nl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seqs-pitchtog, .seqs-rm { flex: 0 0 auto; }
 .seqs-name:hover { color: var(--accent); border-color: var(--accent-dim); }
@@ -721,6 +721,8 @@ body {
 .seqs-scale select:hover { color: var(--accent); border-color: var(--accent-dim); }
 .seqs-scale select:focus { outline: none; border-color: var(--accent-dim); }
 .seqs-slide { display: flex; align-items: center; flex: 0 0 auto; }
+.seqs-groove { display: flex; align-items: center; gap: 8px; padding: 2px 1px; }
+.seqs-groove .tn-ms { flex: 1 1 auto; }
 .seqs-pitch { display: grid; gap: 2px; }
 .seqs-pcell { position: relative; height: 30px; display: flex; align-items: flex-end; justify-content: center; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 2px; cursor: ns-resize; overflow: hidden; }
 .seqs-pcell.beat { border-left-color: var(--accent-dim); }

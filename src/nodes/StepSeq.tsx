@@ -4,6 +4,7 @@ import { getScheduler } from '../audio/engine';
 import { playDrumHit } from '../audio/playNote';
 import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
+import { MiniSlider } from './MiniSlider';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -27,6 +28,12 @@ const nextLevel = (v: number) => (Math.abs(v - NORMAL) < 0.01 ? ACCENT : Math.ab
 const DEFAULT_NOTE = 'c3'; // nota por defecto al afinar una pista
 const PITCH_LO = 36, PITCH_RANGE = 36; // rango de afinación de la sub-fila: c2..c5
 const PX_PER_SEMI = 6; // píxeles de arrastre vertical por semitono (afinado fluido/orgánico)
+// A5 — GROOVE por pista: swing (balanceo/tumbao de las corcheas pares) + humanize
+// (micro-timing y micro-dinámica aleatorios por golpe → quita la rigidez de máquina).
+// Los sliders van 0..1 y se mapean a estos máximos al emitir Strudel.
+const SWING_MAX = 0.34; // amount máx de .swingBy (~ tresillo a fondo)
+const HUMAN_LATE = 0.02; // desfase máx (fracción de ciclo) del .late(rand…)
+const HUMAN_GAIN = 0.3; // caída de gain máx del humanize (rand.range(1-x,1))
 // SCALE-LOCK: al afinar, el arrastre se ENGANCHA a una tonalidad (los bajos/808/stabs no
 // se desafinan). 'libre' = sin bloqueo.
 const ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -84,7 +91,7 @@ const PALETTE: { s: string; label: string }[] = [
   { s: 'cb', label: 'cowbell' }, { s: 'cr', label: 'crash' }, { s: 'rd', label: 'ride' },
 ];
 
-interface Lane { sound: string; steps: number[]; notes: (string | null)[]; ratchet: number[] } // steps[i]=0(off)|gain · notes[i]=nota|null · ratchet[i]=1|2|3|4 (roll/tresillo)
+interface Lane { sound: string; steps: number[]; notes: (string | null)[]; ratchet: number[]; swing?: number; human?: number } // steps[i]=0(off)|gain · notes[i]=nota|null · ratchet[i]=1|2|3|4 (roll/tresillo) · swing/human=groove 0..1
 interface Parsed { bank: string; tail: string; lanes: Lane[]; steps: number; complex: boolean }
 
 function splitTop(s: string, sep: string): string[] {
@@ -126,7 +133,8 @@ function splitTail(tailRaw: string): { bank: string; tail: string } {
 // construye lanes agrupando por sonido a partir de sublanes ya tokenizados, con sus
 // niveles de velocity (gains[i]) y notas (notes[i]) por posición. Marca `complex` si hay
 // tokens con corchetes o longitudes dispares.
-function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notesPerSub: ((string | null)[] | null)[]): { lanes: Lane[]; steps: number; complex: boolean } {
+type Groove = { swing?: number; human?: number };
+function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notesPerSub: ((string | null)[] | null)[], groovePerSub: (Groove | null)[]): { lanes: Lane[]; steps: number; complex: boolean } {
   const steps = Math.max(1, ...toks.map((t) => t.length));
   let complex = false;
   for (const t of toks) {
@@ -136,10 +144,12 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notes
   const laneMap = new Map<string, number[]>();
   const noteMap = new Map<string, (string | null)[]>();
   const ratchMap = new Map<string, number[]>();
+  const grooveMap = new Map<string, Groove>();
   if (!complex) {
     toks.forEach((t, si) => {
       const gains = gainsPerSub[si];
       const notes = notesPerSub[si];
+      const groove = groovePerSub[si];
       for (let i = 0; i < steps; i++) {
         const tk = t[i];
         if (!tk || tk === '~') continue;
@@ -148,11 +158,12 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notes
         if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); }
         laneMap.get(snd)![i] = gains && isFinite(gains[i]) ? gains[i] : NORMAL;
         if (notes && notes[i]) noteMap.get(snd)![i] = notes[i];
+        if (groove && !grooveMap.has(snd)) grooveMap.set(snd, groove); // groove es de segmento → 1ª pista del sub
         const rm = /\*(\d+)$/.exec(tk); if (rm) ratchMap.get(snd)![i] = Math.max(1, Math.min(8, Number(rm[1]))); // roll por paso
       }
     });
   }
-  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)! }));
+  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)!, swing: grooveMap.get(sound)?.swing, human: grooveMap.get(sound)?.human }));
   return { lanes, steps, complex };
 }
 
@@ -173,7 +184,14 @@ function parseStackForm(code: string): Parsed | null {
   const toks: string[][] = [];
   const gains: (number[] | null)[] = [];
   const notes: ((string | null)[] | null)[] = [];
+  const grooves: (Groove | null)[] = [];
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
   for (const seg of segs) {
+    // groove por segmento (A5): .swingBy(x,4) y/o .late(rand.range(0,h))…
+    const swM = /\.swingBy\(\s*([\d.]+)\s*,/.exec(seg);
+    const laM = /\.late\(\s*rand\.range\(\s*0\s*,\s*([\d.]+)\s*\)\s*\)/.exec(seg);
+    grooves.push((swM || laM) ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: laM ? clamp01(Number(laM[1]) / HUMAN_LATE) : undefined } : null);
+    // gain "de acento" por segmento (NO el rand del humanize, que lleva paréntesis dentro)
     const gM = /\.gain\(\s*"([^"]*)"\s*\)/.exec(seg);
     const gain = gM ? gM[1].trim().split(/\s+/).map((x) => Number(x)).map((n) => (isFinite(n) ? n : 1)) : null;
     const noteM = /\bnote\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
@@ -193,7 +211,7 @@ function parseStackForm(code: string): Parsed | null {
       gains.push(gain);
     }
   }
-  const { lanes, steps, complex } = lanesFromToks(toks, gains, notes);
+  const { lanes, steps, complex } = lanesFromToks(toks, gains, notes, grooves);
   return { bank, tail, lanes, steps, complex };
 }
 
@@ -213,7 +231,7 @@ function parseSimpleForm(code: string): Parsed | null {
   const { bank, tail } = splitTail(code.slice(j));
   const sublanes = splitTop(content, ',').map((s) => s.trim()).filter((s) => s.length);
   const toks = sublanes.map(expand);
-  const { lanes, steps, complex } = lanesFromToks(toks, toks.map(() => null), toks.map(() => null));
+  const { lanes, steps, complex } = lanesFromToks(toks, toks.map(() => null), toks.map(() => null), toks.map(() => null));
   return { bank, tail, lanes, steps, complex };
 }
 
@@ -234,6 +252,16 @@ function laneBody(l: Lane, steps: number): string {
 function laneNotesBody(l: Lane, steps: number): string {
   return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + ratchSfx(l, i) : '~')).join(' ');
 }
+const laneGroove = (l: Lane) => (l.swing ?? 0) > 0.01 || (l.human ?? 0) > 0.01;
+// sufijo de groove por pista (A5). swing = balanceo del tumbao; humanize = micro-timing
+// + micro-dinámica aleatorios (rand por golpe). Se emite como método sobre el segmento.
+const fmt3 = (n: number) => (isFinite(n) ? n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') : '0'); // 3 decimales: los montos de groove son chicos (0..0.34), 2 decimales perdían resolución
+function grooveSfx(l: Lane): string {
+  let s = '';
+  if ((l.swing ?? 0) > 0.01) s += `.swingBy(${fmt3((l.swing as number) * SWING_MAX)}, 4)`;
+  if ((l.human ?? 0) > 0.01) { const h = l.human as number; s += `.late(rand.range(0,${fmt3(h * HUMAN_LATE)})).gain(rand.range(${fmt3(1 - h * HUMAN_GAIN)},1))`; }
+  return s;
+}
 export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const active = lanes.filter((l) => l.steps.slice(0, steps).some((v) => v > 0));
   const bankSfx = p.bank ? `.bank("${p.bank}")` : '';
@@ -241,16 +269,18 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   if (!active.length) return `s("~")${bankSfx}${tail}`;
   const hasAccent = active.some((l) => l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01));
   const anyPitched = active.some((l) => lanePitched(l, steps));
-  if (!hasAccent && !anyPitched) {
+  const anyGroove = active.some(laneGroove);
+  if (!hasAccent && !anyPitched && !anyGroove) {
     const body = active.map((l) => laneBody(l, steps)).join(', ');
     return `s("${body}")${bankSfx}${tail}`;
   }
   const parts = active.map((l) => {
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
+    const gr = grooveSfx(l);
     // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").
-    if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}`;
-    return `s("${laneBody(l, steps)}")${g}`;
+    if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}${gr}`;
+    return `s("${laneBody(l, steps)}")${g}${gr}`;
   });
   return `stack(${parts.join(', ')})${bankSfx}${tail}`;
 }
@@ -264,6 +294,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState(false);
   const [pitchOpen, setPitchOpen] = useState<Record<string, boolean>>({});
+  const [grooveOpen, setGrooveOpen] = useState<Record<string, boolean>>({}); // groove abierto por pista (A5)
   const [scaleName, setScaleName] = useState('off'); // escala para el scale-lock ('off' = libre)
   const [scaleRoot, setScaleRoot] = useState(0); // tónica de la escala (0 = C)
   const [chord, setChord] = useState('nota'); // acorde por paso al afinar ('nota' = sin acorde)
@@ -377,6 +408,15 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const nl = lanes.map((x, i) => (i === li ? { ...x, notes: x.steps.map((v) => (v > 0 ? ref : null)) } : x));
     setLanes(nl); commit(nl);
   };
+  // groove por pista (A5): swing y humanize 0..1. Cambia con throttle del store (arrastre = 1 swap).
+  const setGroove = (li: number, key: 'swing' | 'human', v: number) => {
+    const nl = lanes.map((l, i) => (i === li ? { ...l, [key]: v } : l));
+    setLanes(nl); commit(nl);
+  };
+  const clearGroove = (li: number) => {
+    const nl = lanes.map((l, i) => (i === li ? { ...l, swing: 0, human: 0 } : l));
+    setLanes(nl); commit(nl);
+  };
   // afinar por paso: CLIC + ARRASTRE VERTICAL relativo (tipo perilla). Con captura de
   // puntero se arrastra libremente arriba/abajo y el pitch sube/baja fluido. scale-lock engancha.
   const setNoteAt = (li: number, si: number, nn: string) => {
@@ -433,6 +473,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
               <button className="seqs-name" onClick={() => void playDrumHit(l.sound, bank)} title={`escuchar ${laneLabel(l.sound)}`}>
                 <span className="seqs-nl">{laneLabel(l.sound)}</span>
                 <span className={`seqs-pitchtog${pitched ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); togglePitch(li); }} title="afinar por paso (pista melódica): 808 afinado, cowbell melódico">♪</span>
+                <span className={`seqs-pitchtog${laneGroove(l) ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); setGrooveOpen((o) => ({ ...o, [l.sound]: !o[l.sound] })); }} title="groove: swing (balanceo) + humanize (micro-timing) de esta pista">≋</span>
                 <span className="seqs-rm" onClick={(e) => { e.stopPropagation(); removeLane(li); }} title="quitar pista">×</span>
               </button>
               <div className="seqs-lane-body">
@@ -474,6 +515,13 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                     })}
                   </div>
                   </>
+                )}
+                {grooveOpen[l.sound] && (
+                  <div className="seqs-groove">
+                    <MiniSlider label="swing" value={l.swing ?? 0} min={0} max={1} step={0.02} onChange={(v) => setGroove(li, 'swing', v)} />
+                    <MiniSlider label="human" value={l.human ?? 0} min={0} max={1} step={0.02} onChange={(v) => setGroove(li, 'human', v)} />
+                    <button className="seqs-pitch-x" onClick={() => clearGroove(li)} title="quitar el groove de esta pista">✕</button>
+                  </div>
                 )}
               </div>
             </div>
