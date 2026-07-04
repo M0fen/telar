@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { getScheduler } from '../audio/engine';
 import { playDrumHit } from '../audio/playNote';
+import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
@@ -14,10 +15,17 @@ import { LiveScope } from './LiveScope';
 // acento (más fuerte) → ghost (más flojo). Mientras todo esté a nivel normal se emite el
 // patrón simple `s("a ~, ~ b")`; en cuanto hay un acento se emite `stack(s("…").gain("…"),
 // …)` con un `.gain` por pista (se multiplica con el del canal, así que compone bien).
+//
+// PITCH por paso (A2): una pista puede volverse MELÓDICA (toggle ♪). Entonces se emite
+// como `note("c3 ~ eb3 ~").s("cb")` (note() re-afina el sample: 808 afinado, cowbell
+// melódico). Cada paso encendido lleva su nota (arrastre vertical en la sub-fila de
+// pitch). Sin pitch la pista queda IDÉNTICA a hoy.
 
 // niveles de velocity (valor de gain). Ghost/normal/acento; el ciclo pasa por estos.
 const NORMAL = 1, ACCENT = 1.4, GHOST = 0.5;
 const nextLevel = (v: number) => (Math.abs(v - NORMAL) < 0.01 ? ACCENT : Math.abs(v - ACCENT) < 0.01 ? GHOST : NORMAL);
+const DEFAULT_NOTE = 'c3'; // nota por defecto al afinar una pista
+const PITCH_LO = 36, PITCH_RANGE = 36; // rango de afinación de la sub-fila: c2..c5
 function fmt(n: number): string {
   if (!isFinite(n)) return '1';
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
@@ -31,7 +39,7 @@ const PALETTE: { s: string; label: string }[] = [
   { s: 'cb', label: 'cowbell' }, { s: 'cr', label: 'crash' }, { s: 'rd', label: 'ride' },
 ];
 
-interface Lane { sound: string; steps: number[] } // steps[i] = 0 (off) | valor de gain
+interface Lane { sound: string; steps: number[]; notes: (string | null)[] } // steps[i] = 0 (off) | gain · notes[i] = nota o null
 interface Parsed { bank: string; tail: string; lanes: Lane[]; steps: number; complex: boolean }
 
 function splitTop(s: string, sep: string): string[] {
@@ -71,9 +79,9 @@ function splitTail(tailRaw: string): { bank: string; tail: string } {
 }
 
 // construye lanes agrupando por sonido a partir de sublanes ya tokenizados, con sus
-// niveles de velocity (gains[i] por posición, def 1). Marca `complex` si hay tokens con
-// corchetes o longitudes dispares.
-function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[]): { lanes: Lane[]; steps: number; complex: boolean } {
+// niveles de velocity (gains[i]) y notas (notes[i]) por posición. Marca `complex` si hay
+// tokens con corchetes o longitudes dispares.
+function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notesPerSub: ((string | null)[] | null)[]): { lanes: Lane[]; steps: number; complex: boolean } {
   const steps = Math.max(1, ...toks.map((t) => t.length));
   let complex = false;
   for (const t of toks) {
@@ -81,24 +89,28 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[]): { la
     for (const tk of t) if (tk !== '~' && isComplex(tk)) complex = true;
   }
   const laneMap = new Map<string, number[]>();
+  const noteMap = new Map<string, (string | null)[]>();
   if (!complex) {
     toks.forEach((t, si) => {
       const gains = gainsPerSub[si];
+      const notes = notesPerSub[si];
       for (let i = 0; i < steps; i++) {
         const tk = t[i];
         if (!tk || tk === '~') continue;
         const snd = soundOf(tk);
         if (!snd) continue;
-        if (!laneMap.has(snd)) laneMap.set(snd, Array(steps).fill(0));
+        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); }
         laneMap.get(snd)![i] = gains && isFinite(gains[i]) ? gains[i] : NORMAL;
+        if (notes && notes[i]) noteMap.get(snd)![i] = notes[i];
       }
     });
   }
-  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2 }));
+  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)! }));
   return { lanes, steps, complex };
 }
 
-// forma STACK (con acentos): stack(s("…").gain("…"), s("…"))<tail>
+// forma STACK: stack(seg, seg, …)<tail>. Cada seg es `s("…")[.gain("…")]` (percusión) o
+// `note("…").s("snd")[.gain("…")]` (pista melódica/afinada).
 function parseStackForm(code: string): Parsed | null {
   const open = code.indexOf('(');
   if (open < 0) return null;
@@ -113,14 +125,28 @@ function parseStackForm(code: string): Parsed | null {
   const segs = splitTop(inner, ',').map((s) => s.trim()).filter(Boolean);
   const toks: string[][] = [];
   const gains: (number[] | null)[] = [];
+  const notes: ((string | null)[] | null)[] = [];
   for (const seg of segs) {
-    const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
-    if (!sM) return null; // segmento no es un s("…") → deja el patrón como avanzado
-    toks.push(expand(sM[1]));
     const gM = /\.gain\(\s*"([^"]*)"\s*\)/.exec(seg);
-    gains.push(gM ? gM[1].trim().split(/\s+/).map((x) => Number(x)).map((n) => (isFinite(n) ? n : 1)) : null);
+    const gain = gM ? gM[1].trim().split(/\s+/).map((x) => Number(x)).map((n) => (isFinite(n) ? n : 1)) : null;
+    const noteM = /\bnote\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
+    if (noteM) {
+      // pista afinada: note("…").s("snd") → presencia por posición + notas aparte.
+      const sM = /\.s(?:ound)?\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)/.exec(seg);
+      if (!sM) return null;
+      const nt = expand(noteM[1]);
+      toks.push(nt.map((t) => (t === '~' ? '~' : sM[1])));
+      notes.push(nt.map((t) => (t === '~' ? null : t)));
+      gains.push(gain);
+    } else {
+      const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
+      if (!sM) return null; // segmento no es un s("…") → deja el patrón como avanzado
+      toks.push(expand(sM[1]));
+      notes.push(null);
+      gains.push(gain);
+    }
   }
-  const { lanes, steps, complex } = lanesFromToks(toks, gains);
+  const { lanes, steps, complex } = lanesFromToks(toks, gains, notes);
   return { bank, tail, lanes, steps, complex };
 }
 
@@ -140,7 +166,7 @@ function parseSimpleForm(code: string): Parsed | null {
   const { bank, tail } = splitTail(code.slice(j));
   const sublanes = splitTop(content, ',').map((s) => s.trim()).filter((s) => s.length);
   const toks = sublanes.map(expand);
-  const { lanes, steps, complex } = lanesFromToks(toks, toks.map(() => null));
+  const { lanes, steps, complex } = lanesFromToks(toks, toks.map(() => null), toks.map(() => null));
   return { bank, tail, lanes, steps, complex };
 }
 
@@ -150,24 +176,33 @@ export function parseSeq(code: string): Parsed | null {
   return parseSimpleForm(code);
 }
 
+// ¿la pista está afinada? (algún paso encendido tiene nota)
+function lanePitched(l: Lane, steps: number): boolean {
+  return l.steps.slice(0, steps).some((v, i) => v > 0 && !!l.notes[i]);
+}
 function laneBody(l: Lane, steps: number): string {
   return l.steps.slice(0, steps).map((v) => (v > 0 ? l.sound : '~')).join(' ');
 }
-function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
+function laneNotesBody(l: Lane, steps: number): string {
+  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) : '~')).join(' ');
+}
+export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const active = lanes.filter((l) => l.steps.slice(0, steps).some((v) => v > 0));
   const bankSfx = p.bank ? `.bank("${p.bank}")` : '';
   const tail = p.tail || '';
   if (!active.length) return `s("~")${bankSfx}${tail}`;
   const hasAccent = active.some((l) => l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01));
-  if (!hasAccent) {
+  const anyPitched = active.some((l) => lanePitched(l, steps));
+  if (!hasAccent && !anyPitched) {
     const body = active.map((l) => laneBody(l, steps)).join(', ');
     return `s("${body}")${bankSfx}${tail}`;
   }
   const parts = active.map((l) => {
-    const pat = laneBody(l, steps);
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
-    return `s("${pat}")${g}`;
+    // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").
+    if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}`;
+    return `s("${laneBody(l, steps)}")${g}`;
   });
   return `stack(${parts.join(', ')})${bankSfx}${tail}`;
 }
@@ -180,7 +215,9 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const [head, setHead] = useState(-1);
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState(false);
+  const [pitchOpen, setPitchOpen] = useState<Record<string, boolean>>({});
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
+  const dragPitch = useRef<number | null>(null); // índice de pista cuyo pitch se arrastra
   const bank = parsed?.bank || '';
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo)
@@ -200,7 +237,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     return () => cancelAnimationFrame(raf);
   }, [steps]);
   useEffect(() => {
-    const up = () => { drawing.current = null; };
+    const up = () => { drawing.current = null; dragPitch.current = null; };
     window.addEventListener('pointerup', up);
     return () => window.removeEventListener('pointerup', up);
   }, []);
@@ -222,7 +259,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     return (
       <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
         <p className="seqs-none">patrón avanzado (usa [ ] &lt; &gt; …). Empieza una rejilla nueva para editarlo aquí:</p>
-        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0) }], 8) }); }}>empezar rejilla de 8 pasos</button>
+        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null) }], 8) }); }}>empezar rejilla de 8 pasos</button>
       </div>
     );
   }
@@ -231,7 +268,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const paint = (li: number, si: number, val: number) => {
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? val : v)) } : l));
     setLanes(nl); commit(nl);
-    if (val > 0) void playDrumHit(lanes[li].sound, bank, undefined, 0.5, 0.9 * val);
+    if (val > 0) void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9 * val);
   };
   // clic derecho en celda ENCENDIDA: cicla el nivel de velocity (normal→acento→ghost).
   const cycleLevel = (li: number, si: number) => {
@@ -240,20 +277,46 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const nv = nextLevel(cur);
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? nv : v)) } : l));
     setLanes(nl); commit(nl);
-    void playDrumHit(lanes[li].sound, bank, undefined, 0.5, 0.9 * nv);
+    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9 * nv);
   };
   const addLane = (snd: string) => {
     setAdding(false);
     if (lanes.some((l) => l.sound === snd)) return;
-    const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0) }];
+    const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0), notes: Array(steps).fill(null) }];
     setLanes(nl);
     void playDrumHit(snd, bank);
   };
   const removeLane = (li: number) => { const nl = lanes.filter((_, i) => i !== li); setLanes(nl); commit(nl); };
   const setStepCount = (n: number) => {
     const c = Math.max(2, Math.min(32, n));
-    const nl = lanes.map((l) => { const s = l.steps.slice(0, c); while (s.length < c) s.push(0); return { ...l, steps: s }; });
+    const nl = lanes.map((l) => {
+      const s = l.steps.slice(0, c); while (s.length < c) s.push(0);
+      const nt = l.notes.slice(0, c); while (nt.length < c) nt.push(null);
+      return { ...l, steps: s, notes: nt };
+    });
     setLanes(nl); setSteps(c); commit(nl, c);
+  };
+  // afinar/desafinar una pista: al activar, cada paso encendido toma DEFAULT_NOTE (y se
+  // abre la sub-fila de pitch); al desactivar, se limpian las notas → idéntico a hoy.
+  const togglePitch = (li: number) => {
+    const l = lanes[li];
+    const pitched = lanePitched(l, steps);
+    const nl = lanes.map((x, i) => (i === li
+      ? { ...x, notes: x.steps.map((v, j) => (pitched ? null : (v > 0 ? (x.notes[j] || DEFAULT_NOTE) : null))) }
+      : x));
+    setLanes(nl); commit(nl);
+    setPitchOpen((o) => ({ ...o, [l.sound]: !pitched }));
+  };
+  // arrastre vertical en la sub-fila de pitch: mapea la altura a una nota (c2..c5).
+  const setNote = (li: number, si: number, clientY: number, el: HTMLElement) => {
+    if (lanes[li].steps[si] <= 0) return;
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
+    const midi = PITCH_LO + Math.round(t * PITCH_RANGE);
+    const nn = midiToName(midi);
+    const nl = lanes.map((l, i) => (i === li ? { ...l, notes: l.notes.map((v, j) => (j === si ? nn : v)) } : l));
+    setLanes(nl); commit(nl);
+    void playDrumHit(lanes[li].sound, bank, nn, 0.4, 0.8);
   };
 
   const laneLabel = (snd: string) => PALETTE.find((p) => p.s === snd)?.label ?? snd;
@@ -274,25 +337,54 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       <LiveScope nodeId={id} height={36} />
 
       <div className="seqs-lanes">
-        {lanes.map((l, li) => (
-          <div className="seqs-lane" key={l.sound}>
-            <button className="seqs-name" onClick={() => void playDrumHit(l.sound, bank)} title="escuchar este sonido">
-              {laneLabel(l.sound)}<span className="seqs-rm" onClick={(e) => { e.stopPropagation(); removeLane(li); }} title="quitar pista">×</span>
-            </button>
-            <div className="seqs-row" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-              {l.steps.slice(0, steps).map((v, si) => (
-                <button
-                  key={si}
-                  className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${si % 4 === 0 ? ' beat' : ''}`}
-                  onPointerDown={() => { const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
-                  onPointerEnter={() => { if (drawing.current != null) paint(li, si, drawing.current); }}
-                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); cycleLevel(li, si); }}
-                  title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'} (clic der. cambia)` : ''}`}
-                />
-              ))}
+        {lanes.map((l, li) => {
+          const pitched = lanePitched(l, steps);
+          const open = pitched || pitchOpen[l.sound];
+          return (
+            <div className="seqs-lane" key={l.sound}>
+              <button className="seqs-name" onClick={() => void playDrumHit(l.sound, bank)} title="escuchar este sonido">
+                {laneLabel(l.sound)}
+                <span className={`seqs-pitchtog${pitched ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); togglePitch(li); }} title="afinar por paso (pista melódica): 808 afinado, cowbell melódico">♪</span>
+                <span className="seqs-rm" onClick={(e) => { e.stopPropagation(); removeLane(li); }} title="quitar pista">×</span>
+              </button>
+              <div className="seqs-lane-body">
+                <div className="seqs-row" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
+                  {l.steps.slice(0, steps).map((v, si) => (
+                    <button
+                      key={si}
+                      className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${si % 4 === 0 ? ' beat' : ''}`}
+                      onPointerDown={() => { const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
+                      onPointerEnter={() => { if (drawing.current != null) paint(li, si, drawing.current); }}
+                      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); cycleLevel(li, si); }}
+                      title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'} (clic der. cambia)` : ''}`}
+                    />
+                  ))}
+                </div>
+                {open && (
+                  <div className="seqs-pitch" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
+                    {l.steps.slice(0, steps).map((v, si) => {
+                      const on = v > 0;
+                      const nn = l.notes[si] || DEFAULT_NOTE;
+                      const midi = on ? (noteToMidi(nn) ?? PITCH_LO) : PITCH_LO;
+                      const t = Math.max(0, Math.min(1, (midi - PITCH_LO) / PITCH_RANGE));
+                      return (
+                        <div
+                          key={si}
+                          className={`seqs-pcell${on ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
+                          onPointerDown={(e) => { if (on) { dragPitch.current = li; setNote(li, si, e.clientY, e.currentTarget); } }}
+                          onPointerEnter={(e) => { if (dragPitch.current === li && on) setNote(li, si, e.clientY, e.currentTarget); }}
+                          title={on ? `nota paso ${si + 1}: ${nn} (arrastra vertical)` : ''}
+                        >
+                          {on && <><span className="seqs-pfill" style={{ height: `${Math.max(8, t * 100)}%` }} /><span className="seqs-pname">{nn}</span></>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div className="seqs-add">
@@ -305,7 +397,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           </div>
         )}
       </div>
-      <p className="seqs-hint">clic = golpe (arrastra para pintar) · clic derecho = acento/ghost (velocity) · «+ añadir sonido» mete otro tu/pa · ▶/espacio = escuchar aislado</p>
+      <p className="seqs-hint">clic = golpe (arrastra) · clic derecho = acento/ghost · ♪ = afinar la pista por paso (808/cowbell melódico) · «+ añadir sonido» · ▶/espacio = escuchar aislado</p>
     </div>
   );
 }

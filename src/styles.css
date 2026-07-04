@@ -704,6 +704,19 @@ body {
 .seqs-cell.on.accent { opacity: 0.98; box-shadow: 0 0 7px var(--accent-dim); }
 .seqs-cell.on.ghost { opacity: 0.26; }
 .seqs-cell.play { box-shadow: inset 0 0 0 2px #e8d16a; }
+/* A2 — pista afinada por paso (808/cowbell melódico) */
+.seqs-lane-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.seqs-lane-body .seqs-row { flex: none; }
+.seqs-pitchtog { color: var(--faint); font-size: 10px; opacity: 0.55; cursor: pointer; padding: 0 1px; }
+.seqs-pitchtog:hover { color: var(--accent); opacity: 1; }
+.seqs-pitchtog.on { color: var(--accent); opacity: 1; }
+.seqs-pitch { display: grid; gap: 2px; }
+.seqs-pcell { position: relative; height: 30px; display: flex; align-items: flex-end; justify-content: center; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 2px; cursor: ns-resize; overflow: hidden; }
+.seqs-pcell.beat { border-left-color: var(--accent-dim); }
+.seqs-pcell.rest { opacity: 0.22; cursor: default; }
+.seqs-pfill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); opacity: 0.38; pointer-events: none; }
+.seqs-pcell:hover .seqs-pfill { opacity: 0.62; }
+.seqs-pname { position: relative; z-index: 1; font-size: 8px; color: var(--fg); pointer-events: none; padding-bottom: 1px; text-shadow: 0 0 2px #000, 0 0 2px #000; }
 .seqs-add { display: flex; flex-direction: column; gap: 5px; }
 .seqs-addbtn { align-self: flex-start; background: rgba(10,16,22,0.6); border: 1px dashed var(--line); color: var(--dim); cursor: pointer; font-size: 10px; padding: 4px 10px; border-radius: 3px; }
 .seqs-addbtn:hover { color: var(--accent); border-color: var(--accent-dim); }
