@@ -430,8 +430,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           const open = pitched || pitchOpen[l.sound];
           return (
             <div className="seqs-lane" key={l.sound}>
-              <button className="seqs-name" onClick={() => void playDrumHit(l.sound, bank)} title="escuchar este sonido">
-                {laneLabel(l.sound)}
+              <button className="seqs-name" onClick={() => void playDrumHit(l.sound, bank)} title={`escuchar ${laneLabel(l.sound)}`}>
+                <span className="seqs-nl">{laneLabel(l.sound)}</span>
                 <span className={`seqs-pitchtog${pitched ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); togglePitch(li); }} title="afinar por paso (pista melódica): 808 afinado, cowbell melódico">♪</span>
                 <span className="seqs-rm" onClick={(e) => { e.stopPropagation(); removeLane(li); }} title="quitar pista">×</span>
               </button>

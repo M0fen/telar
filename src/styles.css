@@ -692,7 +692,9 @@ body {
 .seqs-steps i { font-style: normal; font-size: 7px; color: var(--faint); text-transform: uppercase; }
 .seqs-lanes { display: flex; flex-direction: column; gap: 3px; }
 .seqs-lane { display: flex; align-items: stretch; gap: 4px; }
-.seqs-name { flex: 0 0 60px; display: flex; align-items: center; justify-content: space-between; gap: 3px; background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 9px; padding: 0 5px; border-radius: 2px; text-align: left; }
+.seqs-name { flex: 0 0 64px; width: 64px; min-width: 64px; max-width: 64px; box-sizing: border-box; overflow: hidden; display: flex; align-items: center; justify-content: space-between; gap: 3px; background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 9px; padding: 0 5px; border-radius: 2px; text-align: left; }
+.seqs-nl { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seqs-pitchtog, .seqs-rm { flex: 0 0 auto; }
 .seqs-name:hover { color: var(--accent); border-color: var(--accent-dim); }
 .seqs-rm { color: var(--faint); font-size: 11px; opacity: 0.6; }
 .seqs-rm:hover { color: #e46a6a; opacity: 1; }
