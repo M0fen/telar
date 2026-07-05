@@ -204,6 +204,15 @@ export function voiceToValue(v: VoiceParams, name: string, begin = 0, end = 1): 
     const pf = Math.pow(2, Math.max(-24, Math.min(24, semi)) / 12);
     val.stretch = pf >= 1 ? pf - 1 : (pf - 1) * 4;
   }
+  // VIBRATO: superdough modula el `detune` del sample con un LFO (vib Hz, vibmod
+  // semitonos). Antes NO se pasaba a la audición → el vibrato "no se oía" en la preview
+  // (solo en el grafo). Se necesita una nota que SOSTENGA para notarlo (holdSec largo).
+  const vib = num(v.vibrato, 0);
+  if (vib > 0.01) {
+    val.vib = Math.min(8, vib);
+    const vd = num(v.vibratoDepth, 0.3);
+    if (vd > 0.001) val.vibmod = Math.min(2, vd);
+  }
   // pulir: paso-alto + compresor + postgain (misma cadena que applyVoice)
   if (v.polish) {
     val.hcutoff = 110;

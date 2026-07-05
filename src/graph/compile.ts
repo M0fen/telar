@@ -327,13 +327,6 @@ function applyVoice(code: string, v: VoiceParams): string {
     // `slide` del motor hace el legato de altura; escalamos 0..1 → deslizamiento útil.
     const glide = c01(num(v.glide, 0));
     if (glide > 0.01) out += `.slide(${(glide * 1.0).toFixed(2)})`;
-    // VIBRATO vocal: da vida a las notas sostenidas (Hz + profundidad en semitonos).
-    const vib = num(v.vibrato, 0);
-    if (vib > 0.01) {
-      out += `.vib(${Math.min(8, vib).toFixed(2)})`;
-      const vd = num(v.vibratoDepth, 0.3);
-      if (vd > 0.001) out += `.vibmod(${Math.min(2, vd).toFixed(2)})`;
-    }
   } else if (v.tempo && !hasLoopCode) {
     // AL TEMPO: encaja la voz en N ciclos (loopAt = varispeed). loopAt lee el cps EN
     // VIVO (_loopAt usa state.controls._cps), así que la voz sigue los cambios de BPM
@@ -354,6 +347,14 @@ function applyVoice(code: string, v: VoiceParams): string {
   }
   const speed = num(v.speed, 1);
   if (Math.abs(speed - 1) > 0.001) out += `.speed(${speed.toFixed(2)})`;
+  // VIBRATO vocal (LFO sobre el detune del sample): da vida a la voz. Ahora se aplica a
+  // CUALQUIER voz (con o sin melodía), no solo a las notas del piano roll.
+  const vib = num(v.vibrato, 0);
+  if (vib > 0.01) {
+    out += `.vib(${Math.min(8, vib).toFixed(2)})`;
+    const vd = num(v.vibratoDepth, 0.3);
+    if (vd > 0.001) out += `.vibmod(${Math.min(2, vd).toFixed(2)})`;
+  }
   // AFINAR: pitch-shift espectral en SEMITONOS, independiente de la velocidad (control
   // `stretch` = phase-vocoder). El worklet mapea el valor `raw` a un factor de pitch:
   // raw>=0 → pf = raw+1 ; raw<0 → pf = raw*0.25+1. Para lograr pf = 2^(semi/12) exacto

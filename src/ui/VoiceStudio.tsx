@@ -353,8 +353,13 @@ export function VoiceStudio() {
   const set = (patch: Partial<VoiceParams>) => {
     const nv: VoiceParams = { ...v, ...patch };
     update(voiceEditId, { voice: nv });
-    const melodyEdit = 'melody' in patch || 'scale' in patch; // el piano roll ya audiciona por nota
-    if (live && name && !melodyEdit) {
+    // La audición (playVoiceSample) es un DISPARO ESTÁTICO del recorte con FX: refleja
+    // afinar/room/delay/shape/vowel/pulir/vibrato/speed/gain. NO puede reflejar cosas
+    // que dependen del patrón/tiempo o de varias notas → para esas NO re-disparamos una
+    // preview idéntica (confundía: "se repite sin cambio"). Se oyen al reproducir el grafo.
+    const noPreview = ['melody', 'scale', 'harmony', 'glide', 'spread', 'granular', 'grain', 'tempo', 'tempoCycles', 'loop']
+      .some((k) => k in patch);
+    if (live && name && !noPreview) {
       clearTimeout(auditionTimer.current);
       auditionTimer.current = window.setTimeout(() => {
         const dur = bufRef.current?.duration ?? 3;
@@ -544,8 +549,8 @@ export function VoiceStudio() {
           {/* autotune "suave": glide entre notas (portamento) + vibrato vocal */}
           <div className="vs-grid vs-autotune">
             <MiniSlider label="glide" value={Number(v.glide ?? 0)} min={0} max={1} step={0.02} disabled={!melodic} onChange={(x) => set({ glide: x })} />
-            <MiniSlider label="vibrato" value={Number(v.vibrato ?? 0)} min={0} max={8} step={0.2} disabled={!melodic} onChange={(x) => set({ vibrato: x })} />
-            <MiniSlider label="vib prof" value={Number(v.vibratoDepth ?? 0.3)} min={0} max={2} step={0.05} disabled={!melodic || !(Number(v.vibrato ?? 0) > 0)} onChange={(x) => set({ vibratoDepth: x })} />
+            <MiniSlider label="vibrato" value={Number(v.vibrato ?? 0)} min={0} max={8} step={0.2} onChange={(x) => set({ vibrato: x })} />
+            <MiniSlider label="vib prof" value={Number(v.vibratoDepth ?? 0.3)} min={0} max={2} step={0.05} disabled={!(Number(v.vibrato ?? 0) > 0)} onChange={(x) => set({ vibratoDepth: x })} />
           </div>
           <p className="vs-hint">glide = deslizamiento de pitch entre notas (autotune suave) · vibrato = vida en notas largas</p>
         </div>
