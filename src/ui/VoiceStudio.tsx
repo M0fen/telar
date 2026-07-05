@@ -248,6 +248,9 @@ export function VoiceStudio() {
   const [warpBusy, setWarpBusy] = useState(false);
   const [warpMsg, setWarpMsg] = useState('');
   const [warpSemi, setWarpSemi] = useState(5); // control de afinado propio del warp (autónomo)
+  // preview EN CONTEXTO: aísla el source y reproduce el patrón compilado REAL (tempo,
+  // granular, vibrato, recorte… todo lo que un disparo estático no puede mostrar).
+  const [ctxPreview, setCtxPreview] = useState(false);
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -340,6 +343,22 @@ export function VoiceStudio() {
     };
     rafRef.current = requestAnimationFrame(tick);
   };
+
+  // preview en contexto: aísla (solo) este source y arranca el transporte → suena la voz
+  // por el patrón compilado real (tempo/granular/vibrato/recorte). El disparo estático no
+  // puede mostrar loopAt/chop. Al desactivar, quita el aislado.
+  const toggleCtxPreview = () => {
+    if (!voiceEditId) return;
+    const s = useGraphStore.getState();
+    const next = !ctxPreview;
+    setCtxPreview(next);
+    stopPreview();
+    s.updateNodeData(voiceEditId, { solo: next });
+    if (next && !s.playing) void s.play();
+  };
+  // al cerrar / cambiar de voz, retira el aislado del preview en contexto.
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => () => { if (ctxPreview && voiceEditId) useGraphStore.getState().updateNodeData(voiceEditId, { solo: false }); }, [voiceEditId, ctxPreview]);
 
   if (!voiceEditId || !node) return null;
   const data = node.data as NodeData;
@@ -506,8 +525,13 @@ export function VoiceStudio() {
               <button
                 className="vs-fxbtn"
                 onClick={() => { if (name) void playVoiceSample(name, v, b, e, bufRef.current?.duration ?? 6); }}
-                title="escuchar la voz CON sus efectos (formante, espacio, afinar, pulir) — al instante, sin esperar su entrada por el ciclo"
+                title="escuchar la voz CON sus efectos (formante, espacio, afinar, pulir) — disparo estático, al instante. NO muestra al-tempo/granular/melodía (eso es del patrón)."
               >◈ con FX</button>
+              <button
+                className={`vs-fxbtn${ctxPreview ? ' on' : ''}`}
+                onClick={toggleCtxPreview}
+                title="reproducir la voz EN CONTEXTO: aísla este source y suena por el patrón real, al tempo de la canción. Es lo ÚNICO que muestra «al tempo», «granular», melodía y el recorte aplicados. Vuelve a pulsar para parar."
+              >{ctxPreview ? '◎ parar' : '◎ en el tempo'}</button>
               <span className="vs-warpgrp" title="B1 · warp Rubber Band (alta calidad): afina el recorte estos semitonos SIN cambiar la duración y preservando formantes (voz natural, no ardilla). Autónomo: no depende de otros controles. Compara con «con FX».">
                 <button className="vs-warpstep" onClick={() => setWarpSemi((s) => Math.max(-12, s - 1))} title="menos semitonos">−</button>
                 <b className="vs-warpsemi">{warpSemi > 0 ? '+' : ''}{warpSemi}</b>
