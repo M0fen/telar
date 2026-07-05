@@ -5,7 +5,8 @@ import { getAudioCtx, registerSample } from '../audio/engine';
 import type { NodeData, VoiceParams } from '../graph/types';
 import { VOICE_VOWELS, VOICE_SCALES, DEFAULT_VOICE } from '../graph/types';
 import { MiniSlider } from '../nodes/MiniSlider';
-import { getVoiceUrl } from '../lib/voiceUrls';
+import { getVoiceUrl, setVoiceUrl } from '../lib/voiceUrls';
+import { audioBufferToWav } from '../lib/wavEncode';
 import { playVoiceSample, playVoiceNote } from '../audio/playNote';
 
 // Estudio de voz DEDICADO (área propia, sustituye al mini-panel del nodo). Pro:
@@ -222,13 +223,17 @@ export function VoiceStudio() {
     const tok = /[A-Za-z0-9_]+/.exec(m[1]);
     return tok ? tok[0] : null;
   }, [code]);
-  // URL del audio de la voz: registro propio (voiceUrls, funciona en prod para voz IA
-  // y demo) con fallback a downloadsStore (grabaciones dev/servidor). De aquí sale la
-  // ONDA y el preview — ya NO dependemos de que la voz esté en downloadsStore.
+  // override local tras un RECORTE destructivo (WAV recortado en objectURL). Tiene
+  // prioridad sobre el registro; se resetea al cambiar de voz.
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+  // URL del audio de la voz: override local (recorte) → registro propio (voiceUrls,
+  // funciona en prod para voz IA y demo) → fallback a downloadsStore (grabaciones dev).
+  // De aquí sale la ONDA y el preview — ya NO dependemos de que la voz esté en downloadsStore.
   const audioUrl = useMemo(
-    () => getVoiceUrl(name) ?? tracks.find((t) => t.name === name)?.file ?? null,
-    [tracks, name],
+    () => localUrl ?? getVoiceUrl(name) ?? tracks.find((t) => t.name === name)?.file ?? null,
+    [localUrl, tracks, name],
   );
+  useEffect(() => { setLocalUrl(null); }, [name]); // al cambiar de voz, olvida el recorte local
 
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -460,6 +465,27 @@ export function VoiceStudio() {
       setWarpBusy(false);
     }
   };
+  // RECORTE DESTRUCTIVO: corta físicamente la grabación a la región [begin,end], descarta
+  // el resto y la re-registra como el sample de esta voz (grafo + estudio la usan ya
+  // recortada). Resetea el recorte. Así al-tempo/loop usan solo el audio útil.
+  const cropDestructive = async () => {
+    const buf = bufRef.current;
+    if (!buf || !name || !voiceEditId) return;
+    if (b < 0.001 && e > 0.999) { setWarpMsg('no hay nada que recortar (mueve las manijas de la onda primero).'); return; }
+    try {
+      const region = sliceBuffer(buf, b, e);
+      const url = URL.createObjectURL(audioBufferToWav(region));
+      await registerSample(name, url); // el grafo/superdough usan el recortado
+      setVoiceUrl(name, url); // registro de voz (onda/preview)
+      bufRef.current = region; // el estudio ya tiene el buffer nuevo
+      setLocalUrl(url); // fuerza re-decodificar/redibujar la onda recortada
+      update(voiceEditId, { begin: 0, end: 1 }); // ya no queda recorte pendiente
+      setHead(0);
+      setWarpMsg(`✂ recortado a ${(region.length / region.sampleRate).toFixed(2)}s (espacio no usado eliminado).`);
+    } catch (err) {
+      setWarpMsg('✗ no se pudo recortar: ' + (err instanceof Error ? err.message : String(err)));
+    }
+  };
 
   return (
     <>
@@ -544,7 +570,10 @@ export function VoiceStudio() {
               </span>
               <span className="vs-region">recorte {(b * 100).toFixed(0)}%–{(e * 100).toFixed(0)}%</span>
             </div>
-            <button onClick={() => { update(voiceEditId, { begin: 0, end: 1 }); setHead(0); }}>reset recorte</button>
+            <span className="vs-trim-actions">
+              <button className="vs-crop" onClick={() => void cropDestructive()} title="RECORTAR de verdad: corta la grabación a la región elegida, descarta el resto y la deja como nuevo audio (limpia el espacio no usado). Irreversible en la sesión.">✂ recortar</button>
+              <button onClick={() => { update(voiceEditId, { begin: 0, end: 1 }); setHead(0); }}>reset recorte</button>
+            </span>
           </div>
         )}
         {audioUrl && warpMsg && (
