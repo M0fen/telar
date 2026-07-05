@@ -187,7 +187,7 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
     <div className="seqs mel nodrag" onPointerDown={(e) => e.stopPropagation()}>
       <div className="seqs-ctl">
         <button className={`seqs-play${preview ? ' on' : ''}`} onClick={togglePreview} title="aislar y previsualizar (luego ESPACIO reproduce/para)">{preview ? '◉' : '▶'}</button>
-        <span className="seqs-tag">notas</span>
+        <span className="seqs-tag" title="editas las notas de ESTE source, con su propio timbre">notas{parsed.wave || parsed.sName ? ` · ${parsed.wave || parsed.sName}` : ''}{parsed.bank ? ` · ${parsed.bank}` : ''}</span>
         <span className={`seqs-saved${saved ? ' on' : ''}`} title="edición en vivo: cada nota se guarda en el source y suena al instante — no hay que guardar aparte">● en vivo</span>
         <div className="seqs-steps" title="octava base">
           <button onClick={() => setOct((o) => Math.max(0, o - 1))}>−</button>
