@@ -17,6 +17,7 @@
     "@codemirror/language": "^6.10.3",
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.34.1",
+    "@echogarden/rubberband-wasm": "^0.2.0",
     "@strudel/web": "^1.0.3",
     "@uiw/codemirror-theme-vscode": "^4.23.6",
     "@xyflow/react": "^12.3.5",

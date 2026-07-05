@@ -18,6 +18,17 @@ import { playVoiceSample, playVoiceNote } from '../audio/playNote';
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
+// extrae la región [b,e] (fracciones 0..1) de un AudioBuffer como buffer nuevo, para
+// warpear solo lo recortado (más rápido y coincide con lo que se oye). HILO B / B1.
+function sliceBuffer(buf: AudioBuffer, b: number, e: number): AudioBuffer {
+  const n = buf.length;
+  const s = Math.max(0, Math.min(n - 1, Math.floor(clamp01(b) * n)));
+  const en = Math.max(s + 1, Math.min(n, Math.floor(clamp01(e) * n)));
+  const out = new AudioBuffer({ length: en - s, numberOfChannels: buf.numberOfChannels, sampleRate: buf.sampleRate });
+  for (let c = 0; c < buf.numberOfChannels; c++) out.getChannelData(c).set(buf.getChannelData(c).subarray(s, en));
+  return out;
+}
+
 // --- notas <-> midi (notación con bemoles, como el placeholder y Strudel) ------
 const PC_FLAT = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b'];
 const ACCIDENTAL = new Set([1, 3, 6, 8, 10]); // teclas negras
@@ -232,6 +243,9 @@ export function VoiceStudio() {
   const [live, setLive] = useState(true); // audición en vivo: oye cada ajuste al instante
   const auditionTimer = useRef(0);
   useEffect(() => () => clearTimeout(auditionTimer.current), []);
+  // B1 — warp Rubber Band (offline): reproductor del resultado + estado de "procesando"
+  const warpSrcRef = useRef<AudioBufferSourceNode | null>(null);
+  const [warpBusy, setWarpBusy] = useState(false);
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -275,9 +289,14 @@ export function VoiceStudio() {
 
   const stopPreview = () => {
     if (srcRef.current) { try { srcRef.current.onended = null; srcRef.current.stop(); } catch { /* ya parado */ } srcRef.current = null; }
+    if (warpSrcRef.current) { try { warpSrcRef.current.stop(); } catch { /* ya parado */ } warpSrcRef.current = null; }
     cancelAnimationFrame(rafRef.current);
     setPlaying(false);
   };
+  // B1 — precarga el WASM de Rubber Band al haber audio, para que el 1er warp no espere.
+  useEffect(() => {
+    if (audioUrl) void import('../audio/rubberband').then((m) => m.preloadRubberband()).catch(() => {});
+  }, [audioUrl]);
   // detener el preview al cerrar / cambiar de voz
   useEffect(() => stopPreview, [voiceEditId]);
   useEffect(() => { loopRef.current = loopPrev; }, [loopPrev]);
@@ -378,6 +397,35 @@ export function VoiceStudio() {
     const rect = wrapRef.current!.getBoundingClientRect();
     setHead(clamp01((ev.clientX - rect.left) / rect.width));
   };
+  // reproduce un AudioBuffer arbitrario (el resultado del warp) directo a la salida.
+  const playAudioBuffer = (buf: AudioBuffer) => {
+    const ctx = getAudioCtx();
+    if (ctx.state === 'suspended') void ctx.resume();
+    if (warpSrcRef.current) { try { warpSrcRef.current.stop(); } catch { /* ya parado */ } }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = Number(v.gain ?? 1);
+    src.connect(g).connect(ctx.destination);
+    try { src.start(); } catch { /* noop */ }
+    warpSrcRef.current = src;
+  };
+  // B1 — prueba del warp Rubber Band: afina el fragmento recortado por «afinar» semitonos
+  // SIN cambiar la duración (formantes preservados) y lo reproduce. A/B contra «con FX»
+  // (que usa el .stretch crudo del motor) para oír la diferencia de calidad.
+  const warpTest = async () => {
+    const buf = bufRef.current;
+    if (!buf || warpBusy) return;
+    setWarpBusy(true);
+    try {
+      const { warpBuffer } = await import('../audio/rubberband');
+      const region = sliceBuffer(buf, b, e);
+      const warped = await warpBuffer(region, { semitones: Number(v.pitchShift ?? 0), timeRatio: 1, formant: true });
+      playAudioBuffer(warped);
+    } finally {
+      setWarpBusy(false);
+    }
+  };
 
   return (
     <>
@@ -445,6 +493,12 @@ export function VoiceStudio() {
                 onClick={() => { if (name) void playVoiceSample(name, v, b, e, bufRef.current?.duration ?? 6); }}
                 title="escuchar la voz CON sus efectos (formante, espacio, afinar, pulir) — al instante, sin esperar su entrada por el ciclo"
               >◈ con FX</button>
+              <button
+                className={`vs-fxbtn${warpBusy ? ' on' : ''}`}
+                disabled={warpBusy}
+                onClick={() => void warpTest()}
+                title="B1 · warp Rubber Band (alta calidad): afina el recorte por «afinar» semitonos SIN cambiar la duración y preservando formantes (voz natural, no ardilla). Compara con «con FX» (que usa el .stretch crudo del motor)."
+              >{warpBusy ? '⋯ warp' : '◆ warp RB'}</button>
               <span className="vs-region">recorte {(b * 100).toFixed(0)}%–{(e * 100).toFixed(0)}%</span>
             </div>
             <button onClick={() => { update(voiceEditId, { begin: 0, end: 1 }); setHead(0); }}>reset recorte</button>
