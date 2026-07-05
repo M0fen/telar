@@ -14,6 +14,7 @@ import wasmUrl from '@echogarden/rubberband-wasm/rubberband.wasm?url';
 
 // --- flags de opciones de Rubber Band (rubberband-c.h) ---
 const OPT_PROCESS_OFFLINE = 0x00000000;
+const OPT_PROCESS_REALTIME = 0x00000001; // permite cambiar el pitch por bloque (autotune)
 const OPT_THREADING_NEVER = 0x00010000; // WASM sin pthreads → single-thread determinista
 const OPT_FORMANT_PRESERVED = 0x01000000; // mantiene el timbre vocal al afinar
 const OPT_PITCH_HIGH_QUALITY = 0x02000000;
@@ -120,6 +121,79 @@ export async function warpBuffer(buffer: AudioBuffer, opts: WarpOpts = {}): Prom
     return outBuf;
   } catch (err) {
     console.warn('[rubberband] warp falló, devuelvo el buffer original:', err);
+    return buffer;
+  }
+}
+
+// B2c — resíntesis con PITCH VARIABLE en el tiempo (autotune real): procesa en modo
+// TIEMPO REAL bloque a bloque, fijando el pitch de cada bloque desde `ratioAtSample`
+// (ratio de corrección muestreado cada `ratioHop` muestras, interpolado). Duración
+// intacta (timeRatio=1), formantes preservados. Devuelve un AudioBuffer nuevo alineado
+// (se descarta la latencia de arranque). Ante fallo, devuelve el original.
+export async function warpVaryingPitch(buffer: AudioBuffer, ratioAtSample: Float32Array, ratioHop: number, opts: { formant?: boolean } = {}): Promise<AudioBuffer> {
+  const formant = opts.formant ?? true;
+  try {
+    const M = await getModule();
+    const sr = buffer.sampleRate;
+    const channels = buffer.numberOfChannels;
+    const nframes = buffer.length;
+    if (!nframes || !channels || !ratioAtSample.length) return buffer;
+    let options = OPT_PROCESS_REALTIME | OPT_ENGINE_FASTER | OPT_PITCH_HIGH_QUALITY | OPT_THREADING_NEVER;
+    if (formant) options |= OPT_FORMANT_PRESERVED;
+    const rb = M._rubberband_new(sr, channels, options, 1.0, 1.0);
+    if (!rb) return buffer;
+
+    const F = 4, BLOCK = 1024;
+    const alloc: number[] = [];
+    const malloc = (bytes: number) => { const p = M._malloc(bytes); alloc.push(p); return p; };
+    const inChan: number[] = []; for (let c = 0; c < channels; c++) inChan.push(malloc(BLOCK * F));
+    const inArr = malloc(channels * F);
+    const outChan: number[] = []; for (let c = 0; c < channels; c++) outChan.push(malloc(BLOCK * F));
+    const outArr = malloc(channels * F);
+    for (let c = 0; c < channels; c++) { M.HEAPU32[(inArr >> 2) + c] = inChan[c]; M.HEAPU32[(outArr >> 2) + c] = outChan[c]; }
+    const src: Float32Array[] = []; for (let c = 0; c < channels; c++) src.push(buffer.getChannelData(c));
+
+    const ratioAt = (i: number) => {
+      const k = i / ratioHop, k0 = Math.floor(k), frac = k - k0;
+      const a = ratioAtSample[Math.min(ratioAtSample.length - 1, k0)] || 1;
+      const b = ratioAtSample[Math.min(ratioAtSample.length - 1, k0 + 1)] || a;
+      return a + (b - a) * frac;
+    };
+
+    const chunks: Float32Array[][] = Array.from({ length: channels }, () => []);
+    let total = 0, pos = 0;
+    while (pos < nframes) {
+      const n = Math.min(BLOCK, nframes - pos);
+      M._rubberband_set_pitch_scale(rb, ratioAt(pos));
+      for (let c = 0; c < channels; c++) M.HEAPF32.set(src[c].subarray(pos, pos + n), inChan[c] >> 2);
+      M._rubberband_process(rb, inArr, n, pos + n >= nframes ? 1 : 0);
+      let avail = 0;
+      while ((avail = M._rubberband_available(rb)) > 0) {
+        const want = Math.min(avail, BLOCK);
+        const got = M._rubberband_retrieve(rb, outArr, want);
+        if (got <= 0) break;
+        for (let c = 0; c < channels; c++) { const base = outChan[c] >> 2; chunks[c].push(new Float32Array(M.HEAPF32.subarray(base, base + got))); }
+        total += got;
+      }
+      pos += n;
+    }
+    const latency = Math.max(0, M._rubberband_get_latency(rb) | 0);
+    M._rubberband_delete(rb);
+    for (const p of alloc) M._free(p);
+    if (total === 0) return buffer;
+
+    // aplanar por canal y recortar la latencia de arranque para alinear con la entrada
+    const start = Math.min(latency, Math.max(0, total - 1));
+    const outLen = Math.min(nframes, total - start);
+    const outBuf = new AudioBuffer({ length: nframes, numberOfChannels: channels, sampleRate: sr });
+    for (let c = 0; c < channels; c++) {
+      const flat = new Float32Array(total); let o = 0;
+      for (const ch of chunks[c]) { flat.set(ch, o); o += ch.length; }
+      outBuf.getChannelData(c).set(flat.subarray(start, start + outLen));
+    }
+    return outBuf;
+  } catch (err) {
+    console.warn('[rubberband] autotune (pitch variable) falló, devuelvo el original:', err);
     return buffer;
   }
 }
