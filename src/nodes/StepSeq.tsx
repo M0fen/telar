@@ -278,7 +278,10 @@ const fmt3 = (n: number) => (isFinite(n) ? n.toFixed(3).replace(/0+$/, '').repla
 function grooveSfx(l: Lane): string {
   let s = '';
   if ((l.swing ?? 0) > 0.01) s += `.swingBy(${fmt3((l.swing as number) * SWING_MAX)}, 4)`;
-  if ((l.human ?? 0) > 0.01) { const h = l.human as number; s += `.late(rand.range(0,${fmt3(h * HUMAN_LATE)})).gain(rand.range(${fmt3(1 - h * HUMAN_GAIN)},1))`; }
+  // dinámica aleatoria por .velocity (NO .gain): superdough hace gain*=velocity, así se
+  // MULTIPLICA con el .gain de los acentos en vez de pisarlo (dos .gain encadenados =
+  // el 2º gana, borraría los acentos).
+  if ((l.human ?? 0) > 0.01) { const h = l.human as number; s += `.late(rand.range(0,${fmt3(h * HUMAN_LATE)})).velocity(rand.range(${fmt3(1 - h * HUMAN_GAIN)},1))`; }
   return s;
 }
 export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
