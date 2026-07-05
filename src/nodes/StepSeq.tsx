@@ -111,9 +111,23 @@ function tokenize(pat: string): string[] {
 const soundOf = (tok: string) => tok.replace(/\*\d+/, '').replace(/\?[\d.]*/, '').trim(); // quita roll (*N) y probabilidad (?p)
 const isComplex = (tok: string) => /[[\]<>()]/.test(tok);
 
+// A7 — normaliza sub-estructura que SÍ mapea al modelo de rejilla, para no rendirse:
+// `[x x x]` (corchete plano, mismo sonido repetido) → `x*3` (roll, suena idéntico).
+// Acordes `[c,e,g]`, alternancia `<a b>`, euclid `(3,8)` y `[a b]` mixto se dejan como
+// están (siguen marcando "avanzado": forzarlos a la rejilla cambiaría el patrón).
+function normalizeTok(tok: string): string {
+  const m = /^\[([^[\]<>()]+)\]$/.exec(tok); // corchete plano, sin anidar
+  if (!m) return tok;
+  const inner = m[1].trim();
+  if (inner.includes(',')) return tok; // acorde/stack → no tocar
+  const parts = inner.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2 && parts.every((p) => p === parts[0])) return `${parts[0]}*${parts.length}`;
+  return tok;
+}
+
 // tokens de un sublane; expande un único `X*N` a N pasos.
 function expand(sl: string): string[] {
-  let t = tokenize(sl);
+  let t = tokenize(sl).map(normalizeTok);
   if (t.length === 1 && /^[A-Za-z][\w:]*\*\d+$/.test(t[0])) {
     const [, base, n] = /^([A-Za-z][\w:]*)\*(\d+)$/.exec(t[0])!;
     t = Array.from({ length: Math.min(32, Number(n)) }, () => base);
@@ -344,8 +358,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   if (parsed.complex) {
     return (
       <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
-        <p className="seqs-none">patrón avanzado (usa [ ] &lt; &gt; …). Empieza una rejilla nueva para editarlo aquí:</p>
-        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8) }); }}>empezar rejilla de 8 pasos</button>
+        <p className="seqs-none">patrón avanzado: usa alternancia <code>&lt;a b&gt;</code>, euclídeo <code>(3,8)</code> o sub-secuencias mixtas que no caben en una rejilla fija. Tu patrón <b>sigue sonando igual</b> (no se toca). Para editarlo aquí puedes empezar una rejilla nueva:</p>
+        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8) }); }}>empezar rejilla de 8 pasos (reemplaza el patrón)</button>
       </div>
     );
   }
