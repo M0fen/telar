@@ -91,7 +91,7 @@ const PALETTE: { s: string; label: string }[] = [
   { s: 'cb', label: 'cowbell' }, { s: 'cr', label: 'crash' }, { s: 'rd', label: 'ride' },
 ];
 
-interface Lane { sound: string; steps: number[]; notes: (string | null)[]; ratchet: number[]; swing?: number; human?: number } // steps[i]=0(off)|gain · notes[i]=nota|null · ratchet[i]=1|2|3|4 (roll/tresillo) · swing/human=groove 0..1
+interface Lane { sound: string; steps: number[]; notes: (string | null)[]; ratchet: number[]; prob: number[]; swing?: number; human?: number } // steps[i]=0(off)|gain · notes[i]=nota|null · ratchet[i]=1|2|3|4 (roll/tresillo) · prob[i]=1|0.75|0.5|0.25 (probabilidad ?p) · swing/human=groove 0..1
 interface Parsed { bank: string; tail: string; lanes: Lane[]; steps: number; complex: boolean }
 
 function splitTop(s: string, sep: string): string[] {
@@ -108,7 +108,7 @@ function splitTop(s: string, sep: string): string[] {
 function tokenize(pat: string): string[] {
   return splitTop(pat.trim().replace(/\s+/g, ' '), ' ').map((t) => t.trim()).filter(Boolean);
 }
-const soundOf = (tok: string) => tok.replace(/\*\d+$/, '').trim();
+const soundOf = (tok: string) => tok.replace(/\*\d+/, '').replace(/\?[\d.]*/, '').trim(); // quita roll (*N) y probabilidad (?p)
 const isComplex = (tok: string) => /[[\]<>()]/.test(tok);
 
 // tokens de un sublane; expande un único `X*N` a N pasos.
@@ -144,6 +144,7 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notes
   const laneMap = new Map<string, number[]>();
   const noteMap = new Map<string, (string | null)[]>();
   const ratchMap = new Map<string, number[]>();
+  const probMap = new Map<string, number[]>();
   const grooveMap = new Map<string, Groove>();
   if (!complex) {
     toks.forEach((t, si) => {
@@ -155,15 +156,16 @@ function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notes
         if (!tk || tk === '~') continue;
         const snd = soundOf(tk);
         if (!snd) continue;
-        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); }
+        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); probMap.set(snd, Array(steps).fill(1)); }
         laneMap.get(snd)![i] = gains && isFinite(gains[i]) ? gains[i] : NORMAL;
         if (notes && notes[i]) noteMap.get(snd)![i] = notes[i];
         if (groove && !grooveMap.has(snd)) grooveMap.set(snd, groove); // groove es de segmento → 1ª pista del sub
-        const rm = /\*(\d+)$/.exec(tk); if (rm) ratchMap.get(snd)![i] = Math.max(1, Math.min(8, Number(rm[1]))); // roll por paso
+        const rm = /\*(\d+)/.exec(tk); if (rm) ratchMap.get(snd)![i] = Math.max(1, Math.min(8, Number(rm[1]))); // roll por paso
+        const pm = /\?([\d.]*)/.exec(tk); if (pm) probMap.get(snd)![i] = pm[1] ? Math.max(0, Math.min(1, Number(pm[1]))) : 0.5; // probabilidad por paso (hh? = 0.5)
       }
     });
   }
-  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)!, swing: grooveMap.get(sound)?.swing, human: grooveMap.get(sound)?.human }));
+  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)!, prob: probMap.get(sound)!, swing: grooveMap.get(sound)?.swing, human: grooveMap.get(sound)?.human }));
   return { lanes, steps, complex };
 }
 
@@ -200,8 +202,8 @@ function parseStackForm(code: string): Parsed | null {
       const sM = /\.s(?:ound)?\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)/.exec(seg);
       if (!sM) return null;
       const nt = expand(noteM[1]);
-      toks.push(nt.map((t) => (t === '~' ? '~' : sM[1] + (/\*\d+$/.exec(t)?.[0] ?? '')))); // conserva *N (roll) en la presencia
-      notes.push(nt.map((t) => (t === '~' ? null : t.replace(/\*\d+$/, ''))));
+      toks.push(nt.map((t) => (t === '~' ? '~' : sM[1] + (/\*\d+/.exec(t)?.[0] ?? '') + (/\?[\d.]*/.exec(t)?.[0] ?? '')))); // conserva *N (roll) y ?p (prob) en la presencia
+      notes.push(nt.map((t) => (t === '~' ? null : t.replace(/\*\d+/, '').replace(/\?[\d.]*/, ''))));
       gains.push(gain);
     } else {
       const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
@@ -246,11 +248,13 @@ function lanePitched(l: Lane, steps: number): boolean {
   return l.steps.slice(0, steps).some((v, i) => v > 0 && !!l.notes[i]);
 }
 const ratchSfx = (l: Lane, i: number) => (l.ratchet[i] > 1 ? `*${l.ratchet[i]}` : ''); // roll: hh*3
+const probSfx = (l: Lane, i: number) => ((l.prob?.[i] ?? 1) < 0.999 ? `?${fmt(l.prob[i])}` : ''); // probabilidad: hh?0.5
+const stepSfx = (l: Lane, i: number) => ratchSfx(l, i) + probSfx(l, i); // roll + prob (hh*3?0.5)
 function laneBody(l: Lane, steps: number): string {
-  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? l.sound + ratchSfx(l, i) : '~')).join(' ');
+  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? l.sound + stepSfx(l, i) : '~')).join(' ');
 }
 function laneNotesBody(l: Lane, steps: number): string {
-  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + ratchSfx(l, i) : '~')).join(' ');
+  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + stepSfx(l, i) : '~')).join(' ');
 }
 const laneGroove = (l: Lane) => (l.swing ?? 0) > 0.01 || (l.human ?? 0) > 0.01;
 // sufijo de groove por pista (A5). swing = balanceo del tumbao; humanize = micro-timing
@@ -341,7 +345,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     return (
       <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
         <p className="seqs-none">patrón avanzado (usa [ ] &lt; &gt; …). Empieza una rejilla nueva para editarlo aquí:</p>
-        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1) }], 8) }); }}>empezar rejilla de 8 pasos</button>
+        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8) }); }}>empezar rejilla de 8 pasos</button>
       </div>
     );
   }
@@ -371,10 +375,21 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     setLanes(nl); commit(nl);
     void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.85);
   };
+  // alt+clic en celda encendida: cicla la PROBABILIDAD 100→75→50→25% → hh?p (variación viva).
+  const cycleProb = (li: number, si: number) => {
+    if (lanes[li].steps[si] <= 0) return;
+    const cur = lanes[li].prob?.[si] ?? 1;
+    const PROBS = [1, 0.75, 0.5, 0.25];
+    const idx = PROBS.findIndex((p) => Math.abs(p - cur) < 0.01);
+    const nv = PROBS[(idx + 1) % PROBS.length];
+    const nl = lanes.map((l, i) => (i === li ? { ...l, prob: l.prob.map((v, j) => (j === si ? nv : v)) } : l));
+    setLanes(nl); commit(nl);
+    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9);
+  };
   const addLane = (snd: string) => {
     setAdding(false);
     if (lanes.some((l) => l.sound === snd)) return;
-    const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0), notes: Array(steps).fill(null), ratchet: Array(steps).fill(1) }];
+    const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0), notes: Array(steps).fill(null), ratchet: Array(steps).fill(1), prob: Array(steps).fill(1) }];
     setLanes(nl);
     void playDrumHit(snd, bank);
   };
@@ -385,7 +400,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       const s = l.steps.slice(0, c); while (s.length < c) s.push(0);
       const nt = l.notes.slice(0, c); while (nt.length < c) nt.push(null);
       const rt = l.ratchet.slice(0, c); while (rt.length < c) rt.push(1);
-      return { ...l, steps: s, notes: nt, ratchet: rt };
+      const pr = (l.prob ?? []).slice(0, c); while (pr.length < c) pr.push(1);
+      return { ...l, steps: s, notes: nt, ratchet: rt, prob: pr };
     });
     setLanes(nl); setSteps(c); commit(nl, c);
   };
@@ -481,13 +497,14 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
                   {l.steps.slice(0, steps).map((v, si) => (
                     <button
                       key={si}
-                      className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${si % 4 === 0 ? ' beat' : ''}`}
-                      onPointerDown={(e) => { if (e.shiftKey && v > 0) { cycleRatchet(li, si); return; } const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
+                      className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${si % 4 === 0 ? ' beat' : ''}${v > 0 && (l.prob?.[si] ?? 1) < 0.999 ? ' prob' : ''}`}
+                      onPointerDown={(e) => { if (e.shiftKey && v > 0) { cycleRatchet(li, si); return; } if (e.altKey && v > 0) { cycleProb(li, si); return; } const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
                       onPointerEnter={() => { if (drawing.current != null) paint(li, si, drawing.current); }}
                       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); cycleLevel(li, si); }}
-                      title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'}${l.ratchet[si] > 1 ? ` · roll x${l.ratchet[si]}` : ''} (clic der. = vel · shift+clic = roll)` : ''}`}
+                      title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'}${l.ratchet[si] > 1 ? ` · roll x${l.ratchet[si]}` : ''}${(l.prob?.[si] ?? 1) < 0.999 ? ` · ${Math.round(l.prob[si] * 100)}%` : ''} (clic der. = vel · shift+clic = roll · alt+clic = probabilidad)` : ''}`}
                     >
                       {v > 0 && l.ratchet[si] > 1 && <span className="seqs-ratch">{l.ratchet[si]}</span>}
+                      {v > 0 && (l.prob?.[si] ?? 1) < 0.999 && <span className="seqs-prob">{Math.round(l.prob[si] * 100)}</span>}
                     </button>
                   ))}
                 </div>
@@ -539,7 +556,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           </div>
         )}
       </div>
-      <p className="seqs-hint">clic = golpe (arrastra) · clic der. = acento/ghost · shift+clic = roll/tresillo (×2/3/4) · ♪ = afinar por paso · «+ añadir sonido» · ▶/espacio = escuchar</p>
+      <p className="seqs-hint">clic = golpe (arrastra) · clic der. = acento/ghost · shift+clic = roll/tresillo · alt+clic = probabilidad (75/50/25%) · ♪ = afinar · ≋ = groove · «+ añadir sonido» · ▶/espacio = escuchar</p>
     </div>
   );
 }
