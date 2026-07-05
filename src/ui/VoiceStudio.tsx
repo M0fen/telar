@@ -19,6 +19,12 @@ import { playVoiceSample, playVoiceNote } from '../audio/playNote';
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
+// B2 — listas para el selector de autotune (deben coincidir con AUTOTUNE_ROOTS/SCALES de
+// src/audio/autotune.ts). Locales para NO importar autotune.ts estáticamente (mantiene
+// el WASM de Rubber Band en carga perezosa).
+const AT_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const AT_SCALE_NAMES = ['cromática', 'mayor', 'menor', 'menor arm', 'menor pent', 'mayor pent', 'dórica', 'frigia'];
+
 // extrae la región [b,e] (fracciones 0..1) de un AudioBuffer como buffer nuevo, para
 // warpear solo lo recortado (más rápido y coincide con lo que se oye). HILO B / B1.
 function sliceBuffer(buf: AudioBuffer, b: number, e: number): AudioBuffer {
@@ -256,6 +262,11 @@ export function VoiceStudio() {
   // preview EN CONTEXTO: aísla el source y reproduce el patrón compilado REAL (tempo,
   // granular, vibrato, recorte… todo lo que un disparo estático no puede mostrar).
   const [ctxPreview, setCtxPreview] = useState(false);
+  // B2 — autotune real (corrección de tono): escala/raíz/velocidad de retune propios.
+  const [atRoot, setAtRoot] = useState(0);
+  const [atScale, setAtScale] = useState('menor');
+  const [atSpeed, setAtSpeed] = useState(0); // 0 = duro (T-Pain) · 1 = natural
+  const [atBusy, setAtBusy] = useState(false);
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -486,6 +497,38 @@ export function VoiceStudio() {
       setWarpMsg('✗ no se pudo recortar: ' + (err instanceof Error ? err.message : String(err)));
     }
   };
+  // B2 — AUTOTUNE REAL: corrige el tono de la toma (región recortada) hacia la escala.
+  // `bake` = hornear en el sample (destructivo, suena corregido en todo el proyecto);
+  // sin bake = solo previsualiza el resultado (A/B de escala/velocidad sin comprometer).
+  const runAutotune = async (bake: boolean) => {
+    const buf = bufRef.current;
+    if (!buf || atBusy) return;
+    setAtBusy(true);
+    setWarpMsg(bake ? 'aplicando autotune…' : 'corrigiendo (previa)…');
+    try {
+      const { autotuneBuffer } = await import('../audio/autotune');
+      const region = sliceBuffer(buf, b, e);
+      const corrected = await autotuneBuffer(region, { scale: atScale, root: atRoot, retuneSpeed: atSpeed, strength: 1, formant: true });
+      if (corrected === region) { setWarpMsg('⚠ autotune no procesó (¿voz muy corta o WASM no cargó?) — consola F12'); playAudioBuffer(region); return; }
+      playAudioBuffer(corrected);
+      if (bake && name && voiceEditId) {
+        const url = URL.createObjectURL(audioBufferToWav(corrected));
+        await registerSample(name, url);
+        setVoiceUrl(name, url);
+        bufRef.current = corrected;
+        setLocalUrl(url);
+        update(voiceEditId, { begin: 0, end: 1 });
+        setHead(0);
+        setWarpMsg(`✓ tono corregido y aplicado · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'}`);
+      } else {
+        setWarpMsg(`▶ previa de autotune · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'} (pulsa «aplicar» para hornear)`);
+      }
+    } catch (err) {
+      setWarpMsg('✗ error de autotune: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setAtBusy(false);
+    }
+  };
 
   return (
     <>
@@ -580,9 +623,9 @@ export function VoiceStudio() {
           <div className="vs-warpmsg" title="resultado del warp Rubber Band (B1)">{warpMsg}</div>
         )}
 
-        {/* melodía / autotune con piano roll */}
+        {/* melodía con piano roll (SAMPLER: re-dispara la voz por notas — no corrige el tono) */}
         <div className="vs-sec">
-          <h4>melodía · autotune</h4>
+          <h4>melodía · sampler <span className="vs-h4sub">(la voz canta notas)</span></h4>
           <MelodyRoll
             melody={v.melody ?? ''}
             scale={v.scale ?? ''}
@@ -607,6 +650,24 @@ export function VoiceStudio() {
           </div>
           <p className="vs-hint">glide = deslizamiento de pitch entre notas (autotune suave) · vibrato = vida en notas largas</p>
         </div>
+
+        {/* B2 — AUTOTUNE REAL: corrige el tono de la toma grabada (tus palabras, tu tiempo) */}
+        {audioUrl && (
+          <div className="vs-sec">
+            <h4>corregir tono · autotune real <span className="vs-h4sub">(afina tu grabación)</span></h4>
+            <div className="vs-at">
+              <label className="vs-at-scale" title="tonalidad a la que se cuantiza el tono de tu voz">
+                <span>tono</span>
+                <select className="nodrag" value={atRoot} onChange={(e) => setAtRoot(Number(e.target.value))}>{AT_ROOTS.map((r, i) => <option key={i} value={i}>{r}</option>)}</select>
+                <select className="nodrag" value={atScale} onChange={(e) => setAtScale(e.target.value)}>{AT_SCALE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+              </label>
+              <MiniSlider label="retune" value={atSpeed} min={0} max={1} step={0.05} onChange={setAtSpeed} />
+              <button className="vs-fxbtn" disabled={atBusy} onClick={() => void runAutotune(false)} title="previsualizar la corrección sin hornearla (A/B de escala y velocidad)">{atBusy ? '⋯' : '▶ probar'}</button>
+              <button className="vs-crop" disabled={atBusy} onClick={() => void runAutotune(true)} title="aplicar la corrección: la hornea en la voz (suena corregida en todo el proyecto). Irreversible en la sesión.">aplicar</button>
+            </div>
+            <p className="vs-hint">corrige el TONO de tu toma a la escala (tus palabras y tu tiempo intactos). <b>retune 0</b> = duro/robótico (T-Pain) · <b>alto</b> = natural. «probar» previsualiza; «aplicar» lo hornea. Distinto del «sampler» de arriba (que re-dispara notas).</p>
+          </div>
+        )}
 
         {/* modo de reproducción + formante */}
         <div className="vs-sec">

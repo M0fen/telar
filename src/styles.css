@@ -1409,6 +1409,12 @@ button.pal-item { width: 100%; }
 .vs-warpmsg { margin-top: 4px; font-size: 11px; line-height: 1.35; color: var(--accent); opacity: 0.95; word-break: break-word; max-width: 100%; }
 .vs-trim-actions { display: inline-flex; gap: 6px; }
 .vs-crop { color: var(--accent); border-color: var(--accent-dim); }
+/* B2 — sección de autotune real */
+.vs-h4sub { font-size: 9px; font-weight: 400; color: var(--faint); text-transform: none; letter-spacing: 0; }
+.vs-at { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vs-at-scale { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; color: var(--dim); }
+.vs-at-scale select { background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--dim); font-size: 11px; padding: 2px 4px; border-radius: 2px; cursor: pointer; }
+.vs-at-scale select:hover { color: var(--accent); border-color: var(--accent-dim); }
 
 /* piano roll de melodía / autotune */
 .vs-roll-ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
