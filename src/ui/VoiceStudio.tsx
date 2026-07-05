@@ -267,6 +267,7 @@ export function VoiceStudio() {
   const [atScale, setAtScale] = useState('menor');
   const [atSpeed, setAtSpeed] = useState(0); // 0 = duro (T-Pain) · 1 = natural
   const [atBusy, setAtBusy] = useState(false);
+  const [gateAmt, setGateAmt] = useState(0.4); // B5 — noise gate (limpiar fondo)
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -529,6 +530,31 @@ export function VoiceStudio() {
       setAtBusy(false);
     }
   };
+  // B5 — LIMPIAR: aplica el noise gate a la toma (región) y lo hornea en el sample.
+  const applyClean = async () => {
+    const buf = bufRef.current;
+    if (!buf || !name || !voiceEditId || atBusy) return;
+    setAtBusy(true);
+    setWarpMsg('limpiando…');
+    try {
+      const { cleanVoice } = await import('../audio/voiceClean');
+      const region = sliceBuffer(buf, b, e);
+      const cleaned = cleanVoice(region, { gate: gateAmt });
+      const url = URL.createObjectURL(audioBufferToWav(cleaned));
+      await registerSample(name, url);
+      setVoiceUrl(name, url);
+      bufRef.current = cleaned;
+      setLocalUrl(url);
+      update(voiceEditId, { begin: 0, end: 1 });
+      setHead(0);
+      playAudioBuffer(cleaned);
+      setWarpMsg('✓ voz limpiada (ruido de fondo silenciado).');
+    } catch (err) {
+      setWarpMsg('✗ error al limpiar: ' + (err instanceof Error ? err.message : String(err)));
+    } finally {
+      setAtBusy(false);
+    }
+  };
 
   return (
     <>
@@ -666,6 +692,11 @@ export function VoiceStudio() {
               <button className="vs-crop" disabled={atBusy} onClick={() => void runAutotune(true)} title="aplicar la corrección: la hornea en la voz (suena corregida en todo el proyecto). Irreversible en la sesión.">aplicar</button>
             </div>
             <p className="vs-hint">corrige el TONO de tu toma a la escala (tus palabras y tu tiempo intactos). <b>retune 0</b> = duro/robótico (T-Pain) · <b>alto</b> = natural. «probar» previsualiza; «aplicar» lo hornea. Distinto del «sampler» de arriba (que re-dispara notas).</p>
+            <div className="vs-at">
+              <MiniSlider label="ruido" value={gateAmt} min={0} max={1} step={0.05} onChange={setGateAmt} />
+              <button className="vs-crop" disabled={atBusy} onClick={() => void applyClean()} title="limpiar: silencia el ruido de fondo / hiss entre frases (noise gate) y lo hornea en la voz. El de-esser (suavizar eses) llegará después.">✧ limpiar</button>
+            </div>
+            <p className="vs-hint">limpiar = quita el ruido de fondo (noise gate). Sube «ruido» si queda hiss entre frases; bájalo si se come el final de las palabras.</p>
           </div>
         )}
 
