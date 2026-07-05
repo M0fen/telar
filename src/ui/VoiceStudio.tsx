@@ -243,10 +243,11 @@ export function VoiceStudio() {
   const [live, setLive] = useState(true); // audición en vivo: oye cada ajuste al instante
   const auditionTimer = useRef(0);
   useEffect(() => () => clearTimeout(auditionTimer.current), []);
-  // B1 — warp Rubber Band (offline): reproductor del resultado + estado + diagnóstico
+  // B1 — warp Rubber Band (offline): reproductor + estado + diagnóstico + semitonos propios
   const warpSrcRef = useRef<AudioBufferSourceNode | null>(null);
   const [warpBusy, setWarpBusy] = useState(false);
   const [warpMsg, setWarpMsg] = useState('');
+  const [warpSemi, setWarpSemi] = useState(5); // control de afinado propio del warp (autónomo)
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -417,8 +418,8 @@ export function VoiceStudio() {
   const warpTest = async () => {
     const buf = bufRef.current;
     if (!buf || warpBusy) return;
-    const semi = Number(v.pitchShift ?? 0);
-    if (Math.abs(semi) < 0.001) { setWarpMsg('«afinar» está en 0 → no hay nada que afinar. Súbelo (p.ej. +5).'); return; }
+    const semi = warpSemi;
+    if (Math.abs(semi) < 0.001) { setWarpMsg('pon los semitonos ≠ 0 (usa −/+ al lado del botón).'); return; }
     setWarpBusy(true);
     setWarpMsg('warpeando…');
     try {
@@ -502,17 +503,23 @@ export function VoiceStudio() {
                 onClick={() => { if (name) void playVoiceSample(name, v, b, e, bufRef.current?.duration ?? 6); }}
                 title="escuchar la voz CON sus efectos (formante, espacio, afinar, pulir) — al instante, sin esperar su entrada por el ciclo"
               >◈ con FX</button>
-              <button
-                className={`vs-fxbtn${warpBusy ? ' on' : ''}`}
-                disabled={warpBusy}
-                onClick={() => void warpTest()}
-                title="B1 · warp Rubber Band (alta calidad): afina el recorte por «afinar» semitonos SIN cambiar la duración y preservando formantes (voz natural, no ardilla). Compara con «con FX» (que usa el .stretch crudo del motor)."
-              >{warpBusy ? '⋯ warp' : '◆ warp RB'}</button>
+              <span className="vs-warpgrp" title="B1 · warp Rubber Band (alta calidad): afina el recorte estos semitonos SIN cambiar la duración y preservando formantes (voz natural, no ardilla). Autónomo: no depende de otros controles. Compara con «con FX».">
+                <button className="vs-warpstep" onClick={() => setWarpSemi((s) => Math.max(-12, s - 1))} title="menos semitonos">−</button>
+                <b className="vs-warpsemi">{warpSemi > 0 ? '+' : ''}{warpSemi}</b>
+                <button className="vs-warpstep" onClick={() => setWarpSemi((s) => Math.min(12, s + 1))} title="más semitonos">+</button>
+                <button
+                  className={`vs-fxbtn${warpBusy ? ' on' : ''}`}
+                  disabled={warpBusy}
+                  onClick={() => void warpTest()}
+                >{warpBusy ? '⋯ warp' : '◆ warp RB'}</button>
+              </span>
               <span className="vs-region">recorte {(b * 100).toFixed(0)}%–{(e * 100).toFixed(0)}%</span>
-              {warpMsg && <span className="vs-warpmsg" title="resultado del warp Rubber Band (B1)">{warpMsg}</span>}
             </div>
             <button onClick={() => { update(voiceEditId, { begin: 0, end: 1 }); setHead(0); }}>reset recorte</button>
           </div>
+        )}
+        {audioUrl && warpMsg && (
+          <div className="vs-warpmsg" title="resultado del warp Rubber Band (B1)">{warpMsg}</div>
         )}
 
         {/* melodía / autotune con piano roll */}
