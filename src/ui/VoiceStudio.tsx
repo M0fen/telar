@@ -243,9 +243,10 @@ export function VoiceStudio() {
   const [live, setLive] = useState(true); // audición en vivo: oye cada ajuste al instante
   const auditionTimer = useRef(0);
   useEffect(() => () => clearTimeout(auditionTimer.current), []);
-  // B1 — warp Rubber Band (offline): reproductor del resultado + estado de "procesando"
+  // B1 — warp Rubber Band (offline): reproductor del resultado + estado + diagnóstico
   const warpSrcRef = useRef<AudioBufferSourceNode | null>(null);
   const [warpBusy, setWarpBusy] = useState(false);
+  const [warpMsg, setWarpMsg] = useState('');
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -416,12 +417,20 @@ export function VoiceStudio() {
   const warpTest = async () => {
     const buf = bufRef.current;
     if (!buf || warpBusy) return;
+    const semi = Number(v.pitchShift ?? 0);
+    if (Math.abs(semi) < 0.001) { setWarpMsg('«afinar» está en 0 → no hay nada que afinar. Súbelo (p.ej. +5).'); return; }
     setWarpBusy(true);
+    setWarpMsg('warpeando…');
     try {
       const { warpBuffer } = await import('../audio/rubberband');
       const region = sliceBuffer(buf, b, e);
-      const warped = await warpBuffer(region, { semitones: Number(v.pitchShift ?? 0), timeRatio: 1, formant: true });
+      const warped = await warpBuffer(region, { semitones: semi, timeRatio: 1, formant: true });
+      // warpBuffer devuelve el MISMO buffer si no procesó (no-op o fallo del WASM).
+      if (warped === region) setWarpMsg('⚠ el WASM no procesó (¿no cargó?) — abre la consola (F12) y busca [rubberband]');
+      else setWarpMsg(`✓ warp OK · ${semi > 0 ? '+' : ''}${semi} semis · ${(warped.length / warped.sampleRate).toFixed(2)}s (misma duración)`);
       playAudioBuffer(warped);
+    } catch (err) {
+      setWarpMsg('✗ error: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setWarpBusy(false);
     }
@@ -500,6 +509,7 @@ export function VoiceStudio() {
                 title="B1 · warp Rubber Band (alta calidad): afina el recorte por «afinar» semitonos SIN cambiar la duración y preservando formantes (voz natural, no ardilla). Compara con «con FX» (que usa el .stretch crudo del motor)."
               >{warpBusy ? '⋯ warp' : '◆ warp RB'}</button>
               <span className="vs-region">recorte {(b * 100).toFixed(0)}%–{(e * 100).toFixed(0)}%</span>
+              {warpMsg && <span className="vs-warpmsg" title="resultado del warp Rubber Band (B1)">{warpMsg}</span>}
             </div>
             <button onClick={() => { update(voiceEditId, { begin: 0, end: 1 }); setHead(0); }}>reset recorte</button>
           </div>
