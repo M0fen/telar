@@ -5,6 +5,7 @@ import { playDrumHit } from '../audio/playNote';
 import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
+import { DRUM_MACHINES } from '../docs/catalog';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -365,6 +366,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   }
 
   const commit = (nl: Lane[], ns = steps) => update(id, { code: buildSeq(parsed, nl, ns) });
+  // A8 — cambia la caja de ritmos (.bank) de TODA la rejilla; re-emite con el banco nuevo.
+  const setBank = (b: string) => update(id, { code: buildSeq({ ...parsed, bank: b }, lanes, steps) });
   const paint = (li: number, si: number, val: number) => {
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? val : v)) } : l));
     setLanes(nl); commit(nl);
@@ -475,7 +478,15 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
       <div className="seqs-ctl">
         <button className={`seqs-play${preview ? ' on' : ''}`} onClick={togglePreview} title="aislar y previsualizar este source (luego ESPACIO reproduce/para)">{preview ? '◉' : '▶'}</button>
-        <span className="seqs-tag">secuenciador{bank ? ` · ${bank}` : ''}</span>
+        <span className="seqs-tag">secuenciador</span>
+        <label className="seqs-bank" title="caja de ritmos: cambia el banco de samples de toda la rejilla (808/909/LinnDrum… — 30 de las 71 disponibles). «defecto» = banco base.">
+          <span>caja</span>
+          <select className="nodrag" value={bank} onChange={(e) => setBank(e.target.value)}>
+            <option value="">defecto</option>
+            {bank && !DRUM_MACHINES.includes(bank) && <option value={bank}>{bank}</option>}
+            {DRUM_MACHINES.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </label>
         <div className="seqs-steps">
           <button onClick={() => setStepCount(steps - 1)} title="menos pasos">−</button>
           <b>{steps}<i>pasos</i></b>
