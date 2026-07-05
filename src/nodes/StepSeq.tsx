@@ -319,6 +319,9 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const [chord, setChord] = useState('nota'); // acorde por paso al afinar ('nota' = sin acorde)
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
   const dragPitch = useRef<{ li: number; si: number; startY: number; startMidi: number } | null>(null); // arrastre de pitch activo
+  const [saved, setSaved] = useState(false); // pulso "en vivo": cada cambio se guarda y suena al instante
+  const savedT = useRef<number | undefined>(undefined);
+  const pulseSaved = () => { setSaved(true); clearTimeout(savedT.current); savedT.current = window.setTimeout(() => setSaved(false), 700); };
   const bank = parsed?.bank || '';
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo)
@@ -365,9 +368,9 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     );
   }
 
-  const commit = (nl: Lane[], ns = steps) => update(id, { code: buildSeq(parsed, nl, ns) });
+  const commit = (nl: Lane[], ns = steps) => { update(id, { code: buildSeq(parsed, nl, ns) }); pulseSaved(); };
   // A8 — cambia la caja de ritmos (.bank) de TODA la rejilla; re-emite con el banco nuevo.
-  const setBank = (b: string) => update(id, { code: buildSeq({ ...parsed, bank: b }, lanes, steps) });
+  const setBank = (b: string) => { update(id, { code: buildSeq({ ...parsed, bank: b }, lanes, steps) }); pulseSaved(); };
   const paint = (li: number, si: number, val: number) => {
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? val : v)) } : l));
     setLanes(nl); commit(nl);
@@ -479,6 +482,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       <div className="seqs-ctl">
         <button className={`seqs-play${preview ? ' on' : ''}`} onClick={togglePreview} title="aislar y previsualizar este source (luego ESPACIO reproduce/para)">{preview ? '◉' : '▶'}</button>
         <span className="seqs-tag">secuenciador</span>
+        <span className={`seqs-saved${saved ? ' on' : ''}`} title="edición en vivo: cada cambio se guarda en el source y suena al instante — no hay que guardar aparte">● en vivo</span>
         <label className="seqs-bank" title="caja de ritmos: cambia el banco de samples de toda la rejilla (808/909/LinnDrum… — 30 de las 71 disponibles). «defecto» = banco base.">
           <span>caja</span>
           <select className="nodrag" value={bank} onChange={(e) => setBank(e.target.value)}>

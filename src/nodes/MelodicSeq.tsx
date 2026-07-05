@@ -100,6 +100,9 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
   const [showAuto, setShowAuto] = useState(false);
   const drawing = useRef<{ note: string } | null>(null);
   const dragLane = useRef<'vel' | 'gate' | null>(null);
+  const [saved, setSaved] = useState(false); // pulso "en vivo": cada cambio se guarda y suena al instante
+  const savedT = useRef<number | undefined>(undefined);
+  const pulseSaved = () => { setSaved(true); clearTimeout(savedT.current); savedT.current = window.setTimeout(() => setSaved(false), 700); };
 
   useEffect(() => { if (parsed?.tokens.length) setSteps((s) => Math.max(s, Math.min(32, parsed.tokens.length))); }, [parsed?.tokens.length]);
   useEffect(() => {
@@ -148,7 +151,7 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
   };
 
   const slide = parsed?.slide ?? 0; // 808 slide (pitch-env de cada nota)
-  const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) update(id, { code: buildMel(parsed, nc, nv, ng, sl) }); };
+  const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) { update(id, { code: buildMel(parsed, nc, nv, ng, sl) }); pulseSaved(); } };
   const place = (col: number, row: Row) => {
     const next = cells.slice();
     const on = noteToMidi(next[col]) === row.midi;
@@ -185,6 +188,7 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
       <div className="seqs-ctl">
         <button className={`seqs-play${preview ? ' on' : ''}`} onClick={togglePreview} title="aislar y previsualizar (luego ESPACIO reproduce/para)">{preview ? '◉' : '▶'}</button>
         <span className="seqs-tag">notas</span>
+        <span className={`seqs-saved${saved ? ' on' : ''}`} title="edición en vivo: cada nota se guarda en el source y suena al instante — no hay que guardar aparte">● en vivo</span>
         <div className="seqs-steps" title="octava base">
           <button onClick={() => setOct((o) => Math.max(0, o - 1))}>−</button>
           <b>C{oct}<i>8va</i></b>
