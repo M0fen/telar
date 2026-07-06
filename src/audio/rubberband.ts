@@ -160,13 +160,10 @@ export async function warpVaryingPitch(buffer: AudioBuffer, ratioAtSample: Float
       return a + (b - a) * frac;
     };
 
+    const latency = Math.max(0, M._rubberband_get_latency(rb) | 0);
     const chunks: Float32Array[][] = Array.from({ length: channels }, () => []);
-    let total = 0, pos = 0;
-    while (pos < nframes) {
-      const n = Math.min(BLOCK, nframes - pos);
-      M._rubberband_set_pitch_scale(rb, ratioAt(pos));
-      for (let c = 0; c < channels; c++) M.HEAPF32.set(src[c].subarray(pos, pos + n), inChan[c] >> 2);
-      M._rubberband_process(rb, inArr, n, pos + n >= nframes ? 1 : 0);
+    let total = 0;
+    const drain = () => {
       let avail = 0;
       while ((avail = M._rubberband_available(rb)) > 0) {
         const want = Math.min(avail, BLOCK);
@@ -175,9 +172,30 @@ export async function warpVaryingPitch(buffer: AudioBuffer, ratioAtSample: Float
         for (let c = 0; c < channels; c++) { const base = outChan[c] >> 2; chunks[c].push(new Float32Array(M.HEAPF32.subarray(base, base + got))); }
         total += got;
       }
+    };
+    // procesa toda la entrada (SIN marcar final: el modo RT retrasa la salida `latency`)
+    let pos = 0;
+    while (pos < nframes) {
+      const n = Math.min(BLOCK, nframes - pos);
+      M._rubberband_set_pitch_scale(rb, ratioAt(pos));
+      for (let c = 0; c < channels; c++) M.HEAPF32.set(src[c].subarray(pos, pos + n), inChan[c] >> 2);
+      M._rubberband_process(rb, inArr, n, 0);
+      drain();
       pos += n;
     }
-    const latency = Math.max(0, M._rubberband_get_latency(rb) | 0);
+    // FLUSH: alimenta `latency` muestras de silencio (con final) para expulsar la cola
+    // retrasada → la salida conserva la duración completa (antes se perdían los ~23ms
+    // finales, que cortaban el final de la última palabra).
+    if (latency > 0) {
+      for (let c = 0; c < channels; c++) M.HEAPF32.fill(0, inChan[c] >> 2, (inChan[c] >> 2) + BLOCK);
+      let toFlush = latency + BLOCK;
+      while (toFlush > 0) {
+        const n = Math.min(BLOCK, toFlush);
+        M._rubberband_process(rb, inArr, n, toFlush - n <= 0 ? 1 : 0);
+        drain();
+        toFlush -= n;
+      }
+    }
     M._rubberband_delete(rb);
     for (const p of alloc) M._free(p);
     if (total === 0) return buffer;

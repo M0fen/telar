@@ -271,6 +271,7 @@ export function VoiceStudio() {
   useEffect(() => () => clearTimeout(auditionTimer.current), []);
   // B1 — warp Rubber Band (offline): reproductor + estado + diagnóstico + semitonos propios
   const warpSrcRef = useRef<AudioBufferSourceNode | null>(null);
+  const bakedUrlRef = useRef<string | null>(null); // objectURL del último bake, para revocar el anterior (anti-leak)
   const [warpBusy, setWarpBusy] = useState(false);
   const [warpMsg, setWarpMsg] = useState('');
   const [warpSemi, setWarpSemi] = useState(5); // control de afinado propio del warp (autónomo)
@@ -520,22 +521,34 @@ export function VoiceStudio() {
   // RECORTE DESTRUCTIVO: corta físicamente la grabación a la región [begin,end], descarta
   // el resto y la re-registra como el sample de esta voz (grafo + estudio la usan ya
   // recortada). Resetea el recorte. Así al-tempo/loop usan solo el audio útil.
+  const emsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  // "Hornea" un buffer procesado como el sample de esta voz: lo registra en el motor y en
+  // el estudio, y REVOCA el objectURL del bake anterior (anti-leak: antes se acumulaban).
+  const bakeBuffer = async (buf: AudioBuffer) => {
+    if (!name || !voiceEditId) return;
+    const url = URL.createObjectURL(audioBufferToWav(buf));
+    await registerSample(name, url); // el grafo/superdough usan el resultado
+    setVoiceUrl(name, url); // registro de voz (onda/preview)
+    bufRef.current = buf;
+    if (bakedUrlRef.current) { try { URL.revokeObjectURL(bakedUrlRef.current); } catch { /* noop */ } }
+    bakedUrlRef.current = url; // el anterior ya no lo referencia nadie → revocado
+    setLocalUrl(url); // fuerza re-decodificar/redibujar
+    update(voiceEditId, { begin: 0, end: 1 });
+    setHead(0);
+  };
   const cropDestructive = async () => {
     const buf = bufRef.current;
-    if (!buf || !name || !voiceEditId) return;
+    if (!buf || !name || !voiceEditId || atBusy) return;
     if (b < 0.001 && e > 0.999) { setWarpMsg('no hay nada que recortar (mueve las manijas de la onda primero).'); return; }
+    setAtBusy(true);
     try {
       const region = sliceBuffer(buf, b, e);
-      const url = URL.createObjectURL(audioBufferToWav(region));
-      await registerSample(name, url); // el grafo/superdough usan el recortado
-      setVoiceUrl(name, url); // registro de voz (onda/preview)
-      bufRef.current = region; // el estudio ya tiene el buffer nuevo
-      setLocalUrl(url); // fuerza re-decodificar/redibujar la onda recortada
-      update(voiceEditId, { begin: 0, end: 1 }); // ya no queda recorte pendiente
-      setHead(0);
+      await bakeBuffer(region);
       setWarpMsg(`✂ recortado a ${(region.length / region.sampleRate).toFixed(2)}s (espacio no usado eliminado).`);
     } catch (err) {
-      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ no se pudo recortar: ' + m); toast.err('Recorte: ' + m); }
+      const m = emsg(err); setWarpMsg('✗ no se pudo recortar: ' + m); toast.err('Recorte: ' + m);
+    } finally {
+      setAtBusy(false);
     }
   };
   // B2 — AUTOTUNE REAL: corrige el tono de la toma (región recortada) hacia la escala.
@@ -553,19 +566,13 @@ export function VoiceStudio() {
       if (corrected === region) { setWarpMsg('⚠ autotune no procesó (¿voz muy corta o WASM no cargó?) — consola F12'); playAudioBuffer(region); return; }
       playAudioBuffer(corrected);
       if (bake && name && voiceEditId) {
-        const url = URL.createObjectURL(audioBufferToWav(corrected));
-        await registerSample(name, url);
-        setVoiceUrl(name, url);
-        bufRef.current = corrected;
-        setLocalUrl(url);
-        update(voiceEditId, { begin: 0, end: 1 });
-        setHead(0);
+        await bakeBuffer(corrected);
         setWarpMsg(`✓ tono corregido y aplicado · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'}`);
       } else {
         setWarpMsg(`▶ previa de autotune · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'} (pulsa «aplicar» para hornear)`);
       }
     } catch (err) {
-      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ error de autotune: ' + m); toast.err('Autotune: ' + m); }
+      const m = emsg(err); setWarpMsg('✗ error de autotune: ' + m); toast.err('Autotune: ' + m);
     } finally {
       setAtBusy(false);
     }
@@ -580,24 +587,17 @@ export function VoiceStudio() {
       const { cleanVoice } = await import('../audio/voiceClean');
       const region = sliceBuffer(buf, b, e);
       const cleaned = cleanVoice(region, { gate: gateAmt });
-      const url = URL.createObjectURL(audioBufferToWav(cleaned));
-      await registerSample(name, url);
-      setVoiceUrl(name, url);
-      bufRef.current = cleaned;
-      setLocalUrl(url);
-      update(voiceEditId, { begin: 0, end: 1 });
-      setHead(0);
+      await bakeBuffer(cleaned);
       playAudioBuffer(cleaned);
       setWarpMsg('✓ voz limpiada (ruido de fondo silenciado).');
     } catch (err) {
-      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ error al limpiar: ' + m); toast.err('Limpiar: ' + m); }
+      const m = emsg(err); setWarpMsg('✗ error al limpiar: ' + m); toast.err('Limpiar: ' + m);
     } finally {
       setAtBusy(false);
     }
   };
 
   // B4 — COMPING: grabar tomas (mic), elegir por tramo, componer la final.
-  const emsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
   const startTakeRec = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -633,26 +633,25 @@ export function VoiceStudio() {
     setSelection((sel) => sel.map((v) => (v === ci ? 0 : v > ci ? v - 1 : v)));
   };
   const composeTakes = async () => {
-    if (!bufRef.current || !name || !voiceEditId) { toast.warn('No hay voz base para componer.'); return; }
+    if (!bufRef.current || !name || !voiceEditId || atBusy) { if (!bufRef.current) toast.warn('No hay voz base para componer.'); return; }
     const bufs = [bufRef.current, ...takes.map((t) => t.buf)];
     const sel = selection.map((v) => Math.max(0, Math.min(bufs.length - 1, v)));
+    setAtBusy(true);
     setWarpMsg('componiendo…');
     try {
       const { compTakes } = await import('../audio/compTakes');
       const comp = compTakes(bufs, sel, 0.008);
-      const url = URL.createObjectURL(audioBufferToWav(comp));
-      await registerSample(name, url);
-      setVoiceUrl(name, url);
-      bufRef.current = comp;
-      setLocalUrl(url);
-      update(voiceEditId, { begin: 0, end: 1 });
-      setHead(0);
+      await bakeBuffer(comp);
       setTakes([]);
       setSelection(Array(nSeg).fill(0));
       playAudioBuffer(comp);
       setWarpMsg('✓ comping aplicado (toma final compuesta por tramos).');
       toast.ok('Comping aplicado.');
-    } catch (err) { const m = emsg(err); setWarpMsg('✗ comping: ' + m); toast.err('Comping: ' + m); }
+    } catch (err) {
+      const m = emsg(err); setWarpMsg('✗ comping: ' + m); toast.err('Comping: ' + m);
+    } finally {
+      setAtBusy(false);
+    }
   };
 
   return (
