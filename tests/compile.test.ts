@@ -157,6 +157,35 @@ test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
   assert.match(m, /\.mul\(gain\(1\.30\)\)/);
 });
 
+// --- CLAMP DEFENSIVO del máster (proyectos importados de otra IA / JSON a mano) -----
+// Un valor fuera de rango que la UI jamás produce no debe silenciar/romper la salida.
+test('máster fuera de rango se CLAMPEA: filter:-2 no emite lpf(1) (mudo) sino lpf(100)', () => {
+  const bad = applyMaster('s("bd*4")', { gain: 1, filter: -2, room: 0 });
+  assert.doesNotMatch(bad, /\.lpf\(1\)/);       // el caso real de test111.json: 1 Hz = mudo
+  assert.match(bad, /\.lpf\(100\)/);            // clampeado a filter -1 → lpf 100
+});
+
+test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) sino crush(4.0)', () => {
+  const bad = applyMaster('s("bd*4")', { gain: 1, filter: 0, room: 0, crush: 2 });
+  assert.doesNotMatch(bad, /\.crush\(-/);       // crush negativo = basura
+  assert.match(bad, /\.crush\(4\.0\)/);         // clampeado a crush 1 → 4 bits
+});
+
+test('máster fuera de rango: hpf/room/gain también acotados (no rompen)', () => {
+  const bad = applyMaster('s("bd*4")', { gain: 99, filter: 5, room: 9 });
+  assert.doesNotMatch(bad, /\.mul\(gain\(99/);  // gain clampeado a 4
+  assert.match(bad, /\.mul\(gain\(4\.00\)\)/);
+  assert.match(bad, /\.room\(0\.95\)/);          // room clampeado a 0.95
+  assert.match(bad, /\.hpf\(5000\)/);            // filter +1 → hpf 5000 (no un valor absurdo)
+});
+
+test('máster EN rango: el clamp es no-op (los proyectos normales suenan idéntico)', () => {
+  const ok = applyMaster('s("bd*4")', { gain: 1, filter: -0.5, room: 0.2, crush: 0.5 });
+  assert.match(ok, /\.crush\(10\.0\)/);         // 16 - 0.5*12 = 10
+  assert.match(ok, /\.room\(0\.20\)/);
+  assert.match(ok, /\.lpf\(1342\)/);            // filter -0.5 → lpf ~1342
+});
+
 test('P1.3 delay del synth: delaysync solo se emite si difiere del 3/16 del motor', () => {
   const base = { kind: 'source', code: 'note("c3").s("sawtooth")', synthOn: true } as Record<string, unknown>;
   const dub = C([src('s', 'note("c3").s("sawtooth")', { ...base, synth: { delay: 0.3, delayfb: 0.5 } }), out()], [E('s', 'o')]);

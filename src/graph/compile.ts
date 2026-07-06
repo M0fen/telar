@@ -426,13 +426,23 @@ export function applyMaster(code: string, m: MasterFx): string {
   if (m.roll && m.roll > 1) out = `${out}.ply(${Math.round(m.roll)})`;
   if (m.gate && m.gate > 0) out = `${out}.mul(gain(square.range(0, 1).fast(${Math.round(m.gate)})))`;
   // macros creativos (saturación → lo-fi → eco), antes del filtro/room/gain.
-  if (m.drive && m.drive > 0.02) out = `${out}.shape(${Math.min(0.9, m.drive * 0.9).toFixed(2)})`;
-  if (m.crush && m.crush > 0.02) out = `${out}.crush(${(16 - m.crush * 12).toFixed(1)})`;
-  if (m.delay && m.delay > 0.02) out = `${out}.delay(${m.delay.toFixed(2)})`;
-  if (m.filter > 0.02) out = `${out}.hpf(${Math.round(20 * Math.pow(5000 / 20, m.filter))})`;
-  else if (m.filter < -0.02) out = `${out}.lpf(${Math.round(18000 * Math.pow(100 / 18000, -m.filter))})`;
-  if (m.room > 0.02) {
-    out = `${out}.room(${m.room.toFixed(2)})`;
+  // CLAMP DEFENSIVO a rango válido: un proyecto IMPORTADO (otra IA, JSON a mano) puede
+  // traer valores que la UI jamás produce y que ROMPEN/silencian la salida — p.ej.
+  // filter:-2 → lpf(1 Hz) = MUDO, crush:2 → crush(-8) inválido. La UI ya acota; esto
+  // protege las demás vías (CLAUDE.md §4: nunca dejar que un cambio silencie la salida).
+  // Es no-op para valores en rango → los proyectos normales suenan idéntico.
+  const mDrive = Math.max(0, Math.min(1, m.drive ?? 0));
+  const mCrush = Math.max(0, Math.min(1, m.crush ?? 0));
+  const mDelay = Math.max(0, Math.min(1, m.delay ?? 0));
+  const mFilter = Math.max(-1, Math.min(1, m.filter ?? 0));
+  const mRoom = Math.max(0, Math.min(0.95, m.room ?? 0));
+  if (mDrive > 0.02) out = `${out}.shape(${(mDrive * 0.9).toFixed(2)})`;
+  if (mCrush > 0.02) out = `${out}.crush(${(16 - mCrush * 12).toFixed(1)})`;
+  if (mDelay > 0.02) out = `${out}.delay(${mDelay.toFixed(2)})`;
+  if (mFilter > 0.02) out = `${out}.hpf(${Math.round(20 * Math.pow(5000 / 20, mFilter))})`;
+  else if (mFilter < -0.02) out = `${out}.lpf(${Math.round(18000 * Math.pow(100 / 18000, -mFilter))})`;
+  if (mRoom > 0.02) {
+    out = `${out}.room(${mRoom.toFixed(2)})`;
     // espacio por IR (convolución real): usa la muestra como respuesta al impulso.
     // roomsize DEBE ser la duración exacta del IR: superdough reconstruye el buffer
     // con adjustLength(roomsize, ir) — si roomsize>dur BUCLEA el IR (eco fantasma) y
@@ -442,7 +452,8 @@ export function applyMaster(code: string, m: MasterFx): string {
     if (m.space && knownIr(m.space)) out = `${out}.ir("${m.space}").roomsize(${irRoomsize(m.space)})`;
   }
   // fader (de canal o del máster): multiplicativo — respeta acentos/velocity internos.
-  if (Math.abs(m.gain - 1) > 0.001) out = `${out}.mul(gain(${m.gain.toFixed(2)}))`;
+  const mGain = Math.max(0, Math.min(4, m.gain ?? 1));
+  if (Math.abs(mGain - 1) > 0.001) out = `${out}.mul(gain(${mGain.toFixed(2)}))`;
   return out;
 }
 
