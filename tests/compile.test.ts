@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileGraph, isSampleSource, applyMaster } from '../src/graph/compile.ts';
+import { compileGraph, isSampleSource, applyMaster, sanitizeMasterFx } from '../src/graph/compile.ts';
 import { registerUserIr } from '../src/audio/irRegistry.ts';
 
 // helpers de construcción de grafo (casts laxos: son fixtures de test)
@@ -184,6 +184,23 @@ test('máster EN rango: el clamp es no-op (los proyectos normales suenan idénti
   assert.match(ok, /\.crush\(10\.0\)/);         // 16 - 0.5*12 = 10
   assert.match(ok, /\.room\(0\.20\)/);
   assert.match(ok, /\.lpf\(1342\)/);            // filter -0.5 → lpf ~1342
+});
+
+// --- sanitizeMasterFx: normaliza el máster al importar + describe qué cambió ----------
+test('sanitizeMasterFx acota los valores de test111 y los reporta', () => {
+  const { master, notes } = sanitizeMasterFx({ gain: 1, filter: -2, room: 0.18, crush: 2 } as any);
+  assert.equal((master as any).filter, -1);   // -2 fuera de [-1,1] → -1
+  assert.equal((master as any).crush, 1);      // 2 fuera de [0,1] → 1
+  assert.equal((master as any).room, 0.18);    // en rango → intacto
+  assert.ok(notes.some((n) => n.includes('filtro')));
+  assert.ok(notes.some((n) => n.includes('crush')));
+});
+
+test('sanitizeMasterFx es NO-OP para un máster normal (notes vacío)', () => {
+  const { master, notes } = sanitizeMasterFx({ gain: 1, filter: -0.3, room: 0.2, crush: 0.4, swing: 0.1 } as any);
+  assert.deepEqual(notes, []);
+  assert.equal((master as any).filter, -0.3);
+  assert.equal((master as any).swing, 0.1);
 });
 
 test('P1.3 delay del synth: delaysync solo se emite si difiere del 3/16 del motor', () => {

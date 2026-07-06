@@ -457,6 +457,46 @@ export function applyMaster(code: string, m: MasterFx): string {
   return out;
 }
 
+// Rango VÁLIDO de cada campo del máster (el que produce la UI de Telar). Un proyecto
+// IMPORTADO (otra IA / JSON a mano) puede traer valores fuera de rango que suenan raro o
+// silencian (p.ej. filter:-2 → lpf a 1 Hz = mudo, crush:2 → crush negativo). Se acotan AL
+// CARGAR y se avisa, para que la perilla muestre un valor sano y el usuario afine desde
+// ahí. (applyMaster además clampa en render como red de seguridad — esto es la capa de UX.)
+const MASTER_RANGES: { key: keyof MasterFx; min: number; max: number; label: string }[] = [
+  { key: 'gain', min: 0, max: 1.5, label: 'ganancia' },
+  { key: 'filter', min: -1, max: 1, label: 'filtro' },
+  { key: 'room', min: 0, max: 0.8, label: 'reverb' },
+  { key: 'drive', min: 0, max: 1, label: 'saturación' },
+  { key: 'delay', min: 0, max: 1, label: 'eco' },
+  { key: 'crush', min: 0, max: 1, label: 'crush' },
+  { key: 'roll', min: 0, max: 16, label: 'roll' },
+  { key: 'gate', min: 0, max: 16, label: 'gate' },
+  { key: 'swing', min: 0, max: 0.6, label: 'swing' },
+  { key: 'humanize', min: 0, max: 1, label: 'humanize' },
+  { key: 'limit', min: 0, max: 1, label: 'limitador' },
+  { key: 'glue', min: 0, max: 1, label: 'glue' },
+  { key: 'sat', min: 0, max: 1, label: 'saturador de bus' },
+  { key: 'width', min: 0, max: 2, label: 'ancho' },
+];
+const fmtN = (n: number): string => String(Number(n.toFixed(2)));
+
+// Acota los campos del máster a su rango válido y describe qué se cambió (para el aviso).
+// NO-OP para proyectos normales (todos sus valores ya están en rango) → notes vacío.
+export function sanitizeMasterFx(m: MasterFx): { master: MasterFx; notes: string[] } {
+  const master: MasterFx = { ...m };
+  const notes: string[] = [];
+  for (const { key, min, max, label } of MASTER_RANGES) {
+    const v = master[key];
+    if (typeof v !== 'number' || !isFinite(v)) continue;
+    const c = Math.max(min, Math.min(max, v));
+    if (c !== v) {
+      (master[key] as number) = c;
+      notes.push(`${label} ${fmtN(v)}→${fmtN(c)}`);
+    }
+  }
+  return { master, notes };
+}
+
 // Opciones globales de compilación (capa de transporte/performance).
 export interface CompileOpts {
   transpose?: number; // semitonos globales ("tono"): se suma SOLO a fuentes con note(…)

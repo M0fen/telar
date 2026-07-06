@@ -11,7 +11,8 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyMaster, type MasterFx } from '../graph/compile';
+import { compileGraph, applyMaster, sanitizeMasterFx, type MasterFx } from '../graph/compile';
+import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, setMasterBus, setChannelEqs } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
 import { registerUserPacks } from '../lib/userPacks';
@@ -770,14 +771,22 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // sanea el modo: solo 'standard'|'dj' son válidos. Un valor inválido (p.ej.
       // "studio") hacía que la app cayera al layout DJ (roto para proyectos de grafo).
       const mode = snap.mode === 'dj' ? 'dj' : 'standard';
+      // MÁSTER: rellena defaults + ACOTA a rango válido (un import de otra IA / JSON a mano
+      // puede traer valores que suenan raro o silencian, p.ej. filter:-2 → mudo). Se avisa
+      // qué se ajustó para que el usuario sepa por qué y afine desde una perilla sana.
+      let master = get().master;
+      let masterNotes: string[] = [];
+      if (snap.master) {
+        const sane = sanitizeMasterFx({ ...DEFAULT_MASTER, ...snap.master });
+        master = sane.master; masterNotes = sane.notes;
+      }
       set({
         nodes,
         edges,
         cps: snap.cps ?? get().cps,
         beatsPerCycle: snap.beatsPerCycle ?? 4,
         transpose: snap.transpose ?? 0,
-        // mezcla defaults: un master parcial (IA) rellena todos los campos → sin undefined.
-        master: snap.master ? { ...DEFAULT_MASTER, ...snap.master } : get().master,
+        master,
         mode,
         djOrientation: snap.djOrientation ?? get().djOrientation,
         vizMode: snap.vizMode ?? get().vizMode,
@@ -791,6 +800,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
       });
       if (snap.cps != null) setCps(snap.cps);
       get().recompile();
+      // avisa (sin bloquear) si hubo que acotar el máster del proyecto importado.
+      if (masterNotes.length) {
+        toast.warn(`Ajusté el máster de este proyecto para que suene (venía fuera de rango): ${masterNotes.join(', ')}. Ábrelo para afinar.`);
+      }
     },
 
     recompile,
