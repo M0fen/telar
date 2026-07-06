@@ -4,6 +4,7 @@ import { useGalleryStore } from '../store/useGalleryStore';
 import type { ProjectSnapshot } from '../lib/projectStore';
 import { DEMOS } from '../lib/demos';
 import { buildShareUrl, shortenUrl } from '../lib/share';
+import { askPrompt, askConfirm } from '../store/useNotifyStore';
 
 // Menú de proyecto: guardar/abrir (.json), galería de proyectos (localStorage),
 // copiar el código compilado y limpiar todo. El proyecto además se autoguarda en
@@ -92,10 +93,10 @@ export function ProjectMenu() {
   };
 
   // Guarda el mapa actual en la galería (localStorage), pidiendo un nombre.
-  const saveToGallery = () => {
-    const name = window.prompt('Nombre del proyecto en la galería:', `proyecto ${gallery.length + 1}`);
+  const saveToGallery = async () => {
+    const name = await askPrompt('Guardar en la galería', { message: 'Ponle un nombre al proyecto:', defaultValue: `proyecto ${gallery.length + 1}`, confirmLabel: 'guardar' });
     if (name == null) return; // cancelado
-    galSave(name, currentSnapshot());
+    galSave(name.trim() || `proyecto ${gallery.length + 1}`, currentSnapshot());
     flash('guardado en galería');
   };
 
@@ -115,9 +116,9 @@ export function ProjectMenu() {
     flash(`ejemplo · ${demo.title}`);
   };
 
-  const clearAll = () => {
+  const clearAll = async () => {
     setOpen(false);
-    if (window.confirm('¿Limpiar todo el proyecto? (esto reemplaza el grafo actual)')) {
+    if (await askConfirm('¿Limpiar todo el proyecto?', { message: 'Esto reemplaza el grafo actual por un lienzo vacío. No se puede deshacer.', confirmLabel: 'limpiar', danger: true })) {
       resetProject();
       flash('lienzo nuevo');
     }

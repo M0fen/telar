@@ -31,6 +31,8 @@ import { AudioInput } from './ui/AudioInput';
 import { ToolsMenu } from './ui/ToolsMenu';
 import { NodIa } from './ui/NodIa';
 import { ErrorBoundary } from './ui/ErrorBoundary';
+import { Toaster, DialogHost } from './ui/Notifications';
+import { toast } from './store/useNotifyStore';
 import { useSequencerStore } from './store/useSequencerStore';
 import { useSamplePacksStore } from './store/useSamplePacksStore';
 import { useDownloadsStore } from './store/useDownloadsStore';
@@ -241,6 +243,26 @@ export default function App() {
         ? s
         : { tracks: [{ id: 'voxmaster', name: 'voxmaster', title: 'voz · Master show', file: '/telar-mastershow-vocal.mp3', createdAt: Date.now() }, ...s.tracks] },
     );
+  }, []);
+
+  // Manejadores GLOBALES de error: cualquier excepción no capturada o promesa rechazada
+  // (audio, WASM, red…) se muestra como toast en vez de fallar en silencio o solo en la
+  // consola. Así el sistema SIEMPRE avisa qué pasó ante algo extraordinario.
+  useEffect(() => {
+    const onErr = (e: ErrorEvent) => {
+      const m = e.message || String(e.error ?? 'error');
+      if (/ResizeObserver|Script error/i.test(m)) return; // ruido benigno del navegador
+      toast.err('Error inesperado: ' + m.slice(0, 180));
+    };
+    const onRej = (e: PromiseRejectionEvent) => {
+      const r = e.reason;
+      const m = r instanceof Error ? r.message : String(r);
+      if (/AbortError|The play\(\) request/i.test(m)) return; // benignos (autoplay/abort)
+      toast.err('Fallo no controlado: ' + m.slice(0, 180));
+    };
+    window.addEventListener('error', onErr);
+    window.addEventListener('unhandledrejection', onRej);
+    return () => { window.removeEventListener('error', onErr); window.removeEventListener('unhandledrejection', onRej); };
   }, []);
 
   // Tras CARGAR un grafo (demo/proyecto/IA/reset), re-encuadra el lienzo para que el
@@ -494,6 +516,8 @@ export default function App() {
       <ErrorBoundary variant="panel" label="estudio de sonido" onClose={() => useGraphStore.getState().setSynthEdit(null)}><SynthStudio /></ErrorBoundary>
       <ErrorBoundary variant="panel" label="clip studio" onClose={() => useGraphStore.getState().setClipEdit(null)}><ClipStudio /></ErrorBoundary>
       <ErrorBoundary variant="panel" label="secuenciador" onClose={() => useSequencerStore.getState().setOpen(false)}><StepSequencer /></ErrorBoundary>
+      <Toaster />
+      <DialogHost />
     </div>
   );
 }
