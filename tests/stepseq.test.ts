@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSeq, buildSeq, type Parsed } from '../src/nodes/stepseqCode.ts';
+import { URBAN_KITS } from '../src/graph/instrumentKits.ts';
 
 // Round-trip de la rejilla (P0.1d, auditoría dancehall): lo que la rejilla no modela
 // se PRESERVA al reconstruir (bank/room/lpf por segmento), y los niveles escalares
@@ -22,17 +23,34 @@ test('simple sin extras: round-trip idéntico en forma simple', () => {
   assert.equal(out, 's("bd ~ bd ~, ~ sd ~ sd")');
 });
 
-test('kit dembow: bank y gain POR SEGMENTO sobreviven a la reconstrucción', () => {
+test('kit dembow: bank y gain por segmento sobreviven a la reconstrucción', () => {
   // como el kit de instrumentKits.ts pero con segmentos de igual longitud (los dispares
   // siguen siendo "complejos" y no se tocan). Antes: la rejilla descartaba .bank y .gain.
+  // Los bancos por segmento COHERENTES se unifican como banco de la rejilla (selector
+  // «caja») y se re-emiten global — mismo sonido, un solo .bank.
   const kit = 'stack(s("bd ~ ~ ~ bd ~ ~ ~").bank("RolandTR808"), s("~ ~ ~ sd ~ ~ sd ~").bank("RolandTR808").gain(0.85), s("hh*8").bank("RolandTR808").gain(0.35))';
-  const out = rebuild(kit);
-  const banks = out.match(/\.bank\("RolandTR808"\)/g) ?? [];
-  assert.equal(banks.length, 3, `banks por pista perdidos: ${out}`);
+  const p = parsed(kit);
+  assert.equal(p.bank, 'RolandTR808'); // el selector «caja» ya lo ve
+  const out = buildSeq(p, p.lanes, p.steps);
+  assert.match(out, /\.bank\("RolandTR808"\)/);
   assert.match(out, /\.mul\(gain\(0\.85\)\)/);
   assert.match(out, /\.mul\(gain\(0\.35\)\)/);
   // jamás un .gain escalar que pise acentos futuros
   assert.doesNotMatch(out, /\)\.gain\(0\.85\)/);
+});
+
+test('percusión de pack EXENTA del banco: el banco no la prefija (la silenciaría)', () => {
+  // mezcla caja de ritmos + conga de pack: el banco va POR SEGMENTO en las bancables.
+  const out = rebuild('stack(s("bd ~ bd ~").bank("RolandTR808"), s("~ crate_conga ~ crate_conga"))');
+  assert.match(out, /s\("bd ~ bd ~"\)\.bank\("RolandTR808"\)/);
+  assert.doesNotMatch(out, /crate_conga[^)]*"\)\.bank\(/); // la conga queda SIN banco
+  assert.equal(rebuild(out), out, 'round-trip inestable');
+});
+
+test('rejilla SOLO de packs con banco heredado: el banco se descarta (antes: pista muda)', () => {
+  const out = rebuild('s("crate_sh*8").bank("RolandTR808")');
+  assert.doesNotMatch(out, /\.bank\(/);
+  assert.match(out, /crate_sh/);
 });
 
 test('nivel de segmento + acentos: el .gain("…") de acentos convive con .mul(gain(nivel))', () => {
@@ -123,6 +141,20 @@ test('SEGURIDAD: los patrones normales con cola de FX siguen siendo editables', 
     const p = parseSeq(c);
     assert.ok(p, c);
     assert.equal(p!.complex, false, `se volvió avanzado sin razón: ${c}`);
+  }
+});
+
+test('kit "latin dancehall": sus patrones de percusión son 100% editables en rejilla', () => {
+  const g = URBAN_KITS.find((k) => k.genre === 'latin dancehall');
+  assert.ok(g, 'falta el grupo latin dancehall en URBAN_KITS');
+  for (const it of g!.items.filter((i) => /^stack\s*\(/.test(i.code))) {
+    const p = parseSeq(it.code);
+    assert.ok(p, it.label);
+    assert.equal(p!.complex, false, `"${it.label}" no es editable en rejilla`);
+    assert.equal(p!.steps, 16, `"${it.label}" no es de 16 pasos`);
+    const once = buildSeq(p!, p!.lanes, p!.steps);
+    const p2 = parseSeq(once)!;
+    assert.equal(buildSeq(p2, p2.lanes, p2.steps), once, `"${it.label}" round-trip inestable`);
   }
 });
 

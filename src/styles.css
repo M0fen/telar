@@ -757,9 +757,17 @@ body {
 .seqs-add { display: flex; flex-direction: column; gap: 5px; }
 .seqs-addbtn { align-self: flex-start; background: rgba(10,16,22,0.6); border: 1px dashed var(--line); color: var(--dim); cursor: pointer; font-size: 10px; padding: 4px 10px; border-radius: 3px; }
 .seqs-addbtn:hover { color: var(--accent); border-color: var(--accent-dim); }
-.seqs-palette { display: flex; flex-wrap: wrap; gap: 4px; }
+.seqs-palette { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .seqs-palette button { background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 9px; padding: 3px 8px; border-radius: 3px; }
 .seqs-palette button:hover { color: var(--accent); border-color: var(--accent-dim); }
+/* percusión viva de los packs (crate/vcsl): chips diferenciados + campo libre */
+.seqs-pal-sep { flex-basis: 100%; margin-top: 3px; color: var(--dim); font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.8; }
+.seqs-palette button.perc { border-style: dashed; }
+.seqs-pal-input {
+  background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--fg);
+  font-size: 9px; padding: 3px 7px; border-radius: 3px; width: 108px;
+}
+.seqs-pal-input::placeholder { color: var(--dim); }
 .seqs-hint { margin: 0; font-size: 8px; color: var(--faint); line-height: 1.4; }
 /* onda en vivo del secuenciador */
 .seq-scope { background: rgba(2,5,8,0.6); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }

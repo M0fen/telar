@@ -64,6 +64,14 @@ function tokenize(pat: string): string[] {
 export const soundOf = (tok: string) => tok.replace(/\*\d+/, '').replace(/\?[\d.]*/, '').trim(); // quita roll (*N) y probabilidad (?p)
 const isComplex = (tok: string) => /[[\]<>()]/.test(tok);
 
+// Sonidos EXENTOS del banco: `.bank("X")` prefija el nombre a ciegas (superdough:
+// s = `${bank}_${s}`) → un sample de pack (crate_conga, o conga de vcsl) se volvería
+// "RolandTR808_crate_conga" = inexistente = PISTA MUDA. Los nombres con "_" (packs,
+// importados, freeze_*) y la percusión de vcsl quedan fuera del banco: se emiten sin
+// `.bank()` (el banco va POR SEGMENTO en las pistas que sí son de caja de ritmos).
+const BANK_EXEMPT = new Set(['conga', 'bongo', 'darbuka', 'framedrum', 'timpani']);
+export const bankExempt = (snd: string) => snd.includes('_') || BANK_EXEMPT.has(soundOf(snd).split(':')[0]);
+
 // A7 — normaliza sub-estructura que SÍ mapea al modelo de rejilla, para no rendirse:
 // `[x x x]` (corchete plano, mismo sonido repetido) → `x*3` (roll, suena idéntico).
 // Acordes `[c,e,g]`, alternancia `<a b>`, euclid `(3,8)` y `[a b]` mixto se dejan como
@@ -201,6 +209,8 @@ function parseStackForm(code: string): Parsed | null {
   const extras: (SegExtras | null)[] = [];
   const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
   let badSfx = false;
+  const segBanks: string[] = [];
+  const segBankable: boolean[] = [];
   for (const seg of segs) {
     let rest = seg; // copia de la que vamos RETIRANDO lo que sí modelamos → el resto es sfx
     const cut = (m: RegExpExecArray | null) => { if (m) rest = rest.replace(m[0], ''); };
@@ -233,14 +243,33 @@ function parseStackForm(code: string): Parsed | null {
       notes.push(null);
       gains.push(gain);
     }
-    // nivel escalar del segmento (kit: .gain(0.85)) + residuo verbatim (.bank/.room/…)
+    // banco por segmento: se extrae para unificarlo como banco de la rejilla (si es
+    // coherente) o re-adjuntarlo al residuo (si cada pista trae el suyo).
+    const bkM = /\.bank\(\s*["'`]([^"'`]+)["'`]\s*\)/.exec(rest);
+    cut(bkM);
+    segBanks.push(bkM ? bkM[1] : '');
+    segBankable.push(toks[toks.length - 1].some((t) => t !== '~' && !bankExempt(soundOf(t))));
+    // nivel escalar del segmento (kit: .gain(0.85)) + residuo verbatim (.room/.lpf/…)
     const lv = extractLevel(rest);
     const sfx = lv.rest.trim();
     if (!validSfx(sfx)) badSfx = true; // residuo irreconstruible → patrón avanzado
     extras.push({ groove, level: lv.level, sfx });
   }
+  // Unificación del banco: si NO hay banco en la cola y todos los segmentos BANCABLES
+  // (sonidos de caja de ritmos) comparten el mismo, ese es el banco de la rejilla (el
+  // selector «caja» lo muestra). Un banco sobre un segmento EXENTO se descarta al
+  // reconstruir — lo estaba SILENCIANDO (superdough prefijaría un nombre inexistente).
+  // Si los bancos no son coherentes, cada uno vuelve a su residuo (preservado verbatim).
+  let gridBank = bank;
+  if (!bank) {
+    const withBank = segBanks.filter(Boolean);
+    const coherent = withBank.length > 0 && withBank.every((b) => b === withBank[0]) &&
+      segBanks.every((b, i) => (segBankable[i] ? b === withBank[0] : true));
+    if (coherent) gridBank = withBank[0];
+    else segBanks.forEach((b, i) => { const ex = extras[i]; if (b && ex) ex.sfx += `.bank("${b}")`; });
+  }
   const parsed = lanesFromToks(toks, gains, notes, extras);
-  return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || badSfx || !tailOk };
+  return { bank: gridBank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || badSfx || !tailOk };
 }
 
 // forma SIMPLE: s("a ~, ~ b")<tail>
@@ -313,13 +342,19 @@ const tailGainSfx = (g: number) => (Math.abs(g - 1) > 0.001 ? `.mul(gain(${fmt(g
 
 export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const active = lanes.filter((l) => l.steps.slice(0, steps).some((v) => v > 0));
-  const bankSfx = p.bank ? `.bank("${p.bank}")` : '';
   const tail = (p.tail || '') + tailGainSfx(p.tailGain ?? 1);
-  if (!active.length) return `s("~")${bankSfx}${tail}`;
+  if (!active.length) return `s("~")${p.bank ? `.bank("${p.bank}")` : ''}${tail}`; // vacía: conserva el banco elegido
+  // BANCO: global (en la cola) solo si NINGUNA pista es exenta. Con mezcla de pistas
+  // de caja de ritmos + packs, el banco va POR SEGMENTO en las bancables (a las exentas
+  // el prefijo las silenciaría). Si todas son exentas, el banco no se emite.
+  const anyExempt = active.some((l) => bankExempt(l.sound));
+  const allExempt = active.every((l) => bankExempt(l.sound));
+  const bankSfx = p.bank && !anyExempt ? `.bank("${p.bank}")` : '';
+  const mixedBank = !!p.bank && anyExempt && !allExempt; // banco por segmento → necesita stack
   const hasAccent = active.some((l) => l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01));
   const anyPitched = active.some((l) => lanePitched(l, steps));
   const anyGroove = active.some(laneGroove);
-  const anyExtra = active.some(laneExtra); // nivel o residuo por pista → necesita stack
+  const anyExtra = active.some(laneExtra) || mixedBank; // nivel/residuo/banco-mixto → stack
   if (!hasAccent && !anyPitched && !anyGroove && !anyExtra) {
     const body = active.map((l) => laneBody(l, steps)).join(', ');
     return `s("${body}")${bankSfx}${tail}`;
@@ -328,10 +363,11 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
     const gr = grooveSfx(l, steps);
+    const bk = mixedBank && !bankExempt(l.sound) ? `.bank("${p.bank}")` : '';
     const extra = (l.sfx ?? '') + levelSfx(l); // residuo verbatim + nivel multiplicativo
     // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").
-    if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}${gr}${extra}`;
-    return `s("${laneBody(l, steps)}")${g}${gr}${extra}`;
+    if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}${gr}${bk}${extra}`;
+    return `s("${laneBody(l, steps)}")${g}${gr}${bk}${extra}`;
   });
   return `stack(${parts.join(', ')})${bankSfx}${tail}`;
 }

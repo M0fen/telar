@@ -15,6 +15,40 @@ export interface KitGroup {
 
 export const URBAN_KITS: KitGroup[] = [
   {
+    // Kit pensado para la REJILLA: segmentos de 16 pasos de igual longitud (nada de
+    // arrange/struct → todo editable), niveles con .mul(gain(x)) (no pisan acentos) y
+    // percusión de packs SIN banco (bankExempt: el prefijo la silenciaría).
+    genre: 'latin dancehall',
+    items: [
+      {
+        label: 'riddim dembow (16)',
+        name: 'riddim',
+        // kick medio-tiempo (1 y 9) + caja en el patrón dembow (4·7·12·15) + hats
+        // discretos en corcheas. TODO editable en la rejilla, paso a paso.
+        code: 'stack(s("bd ~ ~ ~ ~ ~ ~ ~ bd ~ ~ ~ ~ ~ ~ ~"), s("~ ~ ~ sd ~ ~ sd ~ ~ ~ ~ sd ~ ~ sd ~").mul(gain(0.85)), s("hh ~ hh ~ hh ~ hh ~ hh ~ hh ~ hh ~ hh ~").mul(gain(0.4))).bank("RolandTR808")',
+      },
+      {
+        label: 'percusión viva',
+        name: 'perc latina',
+        // conga a contratiempo + shaker en semicorcheas (crate, sin banco): la capa
+        // que separa amateur de pro. Menos es más: deja el 1 al bombo.
+        code: 'stack(s("~ ~ crate_conga ~ ~ ~ ~ crate_conga ~ ~ crate_conga ~ ~ ~ ~ ~").mul(gain(0.55)), s("crate_sh*16").mul(gain(0.3)))',
+      },
+      {
+        label: 'skank offbeat (bubble)',
+        name: 'skank',
+        // tríadas menores SOLO en el offbeat + eco dub (delaysync 3/16 del motor).
+        code: 'note("~ [c4,eb4,g4] ~ [c4,eb4,g4] ~ [c4,eb4,g4] ~ [c4,eb4,g4]").s("square").lpf(1500).lpq(4).attack(0.005).decay(0.12).sustain(0).delay(0.25).delayfeedback(0.5).room(0.15).mul(gain(0.5))',
+      },
+      {
+        label: 'bajo dancehall',
+        name: 'bajo',
+        // sub redondo que encastra con el kick (1 con él, respuestas en los huecos).
+        code: 'note("c2 ~ ~ c2 ~ ~ g1 ~").s("sine").lpf(600).shape(0.2)',
+      },
+    ],
+  },
+  {
     genre: 'dancehall / reggaetón',
     items: [
       {

@@ -6,7 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, buildSeq, laneGroove, lanePitched, parseSeq, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, bankExempt, buildSeq, laneGroove, lanePitched, parseSeq, type Lane } from './stepseqCode';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -80,6 +80,17 @@ const PALETTE: { s: string; label: string }[] = [
   { s: 'lt', label: 'tom-b' }, { s: 'mt', label: 'tom-m' }, { s: 'ht', label: 'tom-a' },
   { s: 'cb', label: 'cowbell' }, { s: 'cr', label: 'crash' }, { s: 'rd', label: 'ride' },
 ];
+// PERCUSIÓN VIVA de los packs cargados (crate/vcsl, prebake) — la capa latina que
+// separa amateur de pro en dancehall/dembow. Son nombres ABSOLUTOS: quedan exentos
+// del banco de la rejilla (bankExempt) para que el prefijo no los silencie.
+const PERC_PALETTE: { s: string; label: string }[] = [
+  { s: 'crate_conga', label: 'conga' }, { s: 'crate_bongo', label: 'bongo' },
+  { s: 'crate_sh', label: 'shaker' }, { s: 'crate_clave', label: 'clave' },
+  { s: 'crate_block', label: 'block' }, { s: 'crate_djembe', label: 'djembe' },
+  { s: 'crate_bell', label: 'campana' }, { s: 'crate_stick', label: 'stick' },
+  { s: 'conga', label: 'conga vcsl' }, { s: 'bongo', label: 'bongo vcsl' },
+  { s: 'darbuka', label: 'darbuka' }, { s: 'sh', label: 'shaker 808' },
+];
 
 export function StepSeq({ id, code }: { id: string; code: string }) {
   const update = useGraphStore((s) => s.updateNodeData);
@@ -100,6 +111,9 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const savedT = useRef<number | undefined>(undefined);
   const pulseSaved = () => { setSaved(true); clearTimeout(savedT.current); savedT.current = window.setTimeout(() => setSaved(false), 700); };
   const bank = parsed?.bank || '';
+  // audición: los sonidos exentos (packs) NO llevan el banco de la rejilla (el prefijo
+  // apuntaría a un sample inexistente y no sonaría nada al probarlos).
+  const hitBank = (snd: string) => (bankExempt(snd) ? '' : bank);
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo)
   useEffect(() => {
@@ -151,7 +165,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const paint = (li: number, si: number, val: number) => {
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? val : v)) } : l));
     setLanes(nl); commit(nl);
-    if (val > 0) void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9 * val);
+    if (val > 0) void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.9 * val);
   };
   // clic derecho en celda ENCENDIDA: cicla el nivel de velocity (normal→acento→ghost).
   const cycleLevel = (li: number, si: number) => {
@@ -160,7 +174,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const nv = nextLevel(cur);
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? nv : v)) } : l));
     setLanes(nl); commit(nl);
-    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9 * nv);
+    void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.9 * nv);
   };
   // shift+clic en celda encendida: cicla el RATCHET (roll/tresillo) 1→2→3→4 → hh*n.
   const cycleRatchet = (li: number, si: number) => {
@@ -170,7 +184,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const nv = RATCHETS[(RATCHETS.indexOf(cur) + 1) % RATCHETS.length] ?? 1;
     const nl = lanes.map((l, i) => (i === li ? { ...l, ratchet: l.ratchet.map((v, j) => (j === si ? nv : v)) } : l));
     setLanes(nl); commit(nl);
-    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.85);
+    void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.85);
   };
   // alt+clic en celda encendida: cicla la PROBABILIDAD 100→75→50→25% → hh?p (variación viva).
   const cycleProb = (li: number, si: number) => {
@@ -181,14 +195,14 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const nv = PROBS[(idx + 1) % PROBS.length];
     const nl = lanes.map((l, i) => (i === li ? { ...l, prob: l.prob.map((v, j) => (j === si ? nv : v)) } : l));
     setLanes(nl); commit(nl);
-    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? undefined, 0.5, 0.9);
+    void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.9);
   };
   const addLane = (snd: string) => {
     setAdding(false);
     if (lanes.some((l) => l.sound === snd)) return;
     const nl = [...lanes, { sound: snd, steps: Array(steps).fill(0), notes: Array(steps).fill(null), ratchet: Array(steps).fill(1), prob: Array(steps).fill(1) }];
     setLanes(nl);
-    void playDrumHit(snd, bank);
+    void playDrumHit(snd, hitBank(snd));
   };
   const removeLane = (li: number) => { const nl = lanes.filter((_, i) => i !== li); setLanes(nl); commit(nl); };
   const setStepCount = (n: number) => {
@@ -242,7 +256,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     if (lanes[li].steps[si] <= 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     dragPitch.current = { li, si, startY: e.clientY, startMidi: noteToMidi(chordRoot(lanes[li].notes[si] || DEFAULT_NOTE)) ?? PITCH_LO + 12 };
-    void playDrumHit(lanes[li].sound, bank, lanes[li].notes[si] ?? DEFAULT_NOTE, 0.35, 0.7);
+    void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? DEFAULT_NOTE, 0.35, 0.7);
   };
   const movePitchDrag = (clientY: number) => {
     const d = dragPitch.current; if (!d) return;
@@ -251,7 +265,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     setNoteAt(d.li, d.si, buildChord(midi, chord, scaleRoot, scaleName));
   };
 
-  const laneLabel = (snd: string) => PALETTE.find((p) => p.s === snd)?.label ?? snd;
+  const laneLabel = (snd: string) => PALETTE.find((p) => p.s === snd)?.label ?? PERC_PALETTE.find((p) => p.s === snd)?.label ?? snd;
   const lvlClass = (v: number) => (v <= 0 ? '' : Math.abs(v - ACCENT) < 0.01 ? ' on accent' : Math.abs(v - GHOST) < 0.01 ? ' on ghost' : ' on');
 
   return (
@@ -292,7 +306,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           const open = pitched || pitchOpen[l.sound];
           return (
             <div className="seqs-lane" key={l.sound}>
-              <button className="seqs-name" onClick={() => void playDrumHit(l.sound, bank)} title={`escuchar ${laneLabel(l.sound)}`}>
+              <button className="seqs-name" onClick={() => void playDrumHit(l.sound, hitBank(l.sound))} title={`escuchar ${laneLabel(l.sound)}`}>
                 <span className="seqs-nl">{laneLabel(l.sound)}</span>
                 <span className={`seqs-pitchtog${pitched ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); togglePitch(li); }} title="afinar por paso (pista melódica): 808 afinado, cowbell melódico">♪</span>
                 <span className={`seqs-pitchtog${laneGroove(l) ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); setGrooveOpen((o) => ({ ...o, [l.sound]: !o[l.sound] })); }} title="groove: swing (balanceo) + humanize (micro-timing) de esta pista">≋</span>
@@ -359,6 +373,22 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
             {PALETTE.filter((p) => !lanes.some((l) => l.sound === p.s)).map((p) => (
               <button key={p.s} onClick={() => addLane(p.s)} title={`añadir ${p.label}`}>{p.label}</button>
             ))}
+            <span className="seqs-pal-sep" title="percusión viva de los packs (crate/vcsl): la capa latina del riddim. No usan el banco de la rejilla.">percusión</span>
+            {PERC_PALETTE.filter((p) => !lanes.some((l) => l.sound === p.s)).map((p) => (
+              <button key={p.s} className="perc" onClick={() => addLane(p.s)} title={`añadir ${p.label} (${p.s})`}>{p.label}</button>
+            ))}
+            <input
+              className="seqs-pal-input nodrag"
+              placeholder="otro sample… ⏎"
+              title="añade CUALQUIER sample por nombre (packs cargados, importados, descargados). Enter para añadir; el botón de la pista lo pre-escucha."
+              onPointerDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                const el = e.target as HTMLInputElement;
+                const v = el.value.trim().replace(/[^\w:]/g, '');
+                if (v) { addLane(v); el.value = ''; }
+              }}
+            />
           </div>
         )}
       </div>
