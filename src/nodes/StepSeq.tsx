@@ -6,7 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, bankExempt, buildSeq, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, splitArrange, spliceArm, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, bankExempt, buildSeq, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, seedSilent, splitArrange, spliceArm, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
@@ -95,13 +95,23 @@ const PERC_PALETTE: { s: string; label: string }[] = [
 
 // Rejilla sobre UN patrón plano. `wrap` (opcional) re-envuelve el código emitido antes
 // de guardarlo en el nodo — lo usa el modo SECCIONES para empalmar el brazo editado
-// dentro del arrange sin tocar el resto.
-function StepGrid({ id, code, wrap }: { id: string; code: string; wrap?: (c: string) => string }) {
+// dentro del arrange sin tocar el resto. `seedFrom` (opcional): si el código no tiene
+// pistas (sección en silencio), la rejilla SIEMBRA las pistas de esa referencia con
+// cero pasos — ves la instrumentación de siempre y pintar entra al instante.
+function StepGrid({ id, code, wrap, seedFrom }: { id: string; code: string; wrap?: (c: string) => string; seedFrom?: string }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const emit = (c: string) => update(id, { code: wrap ? wrap(c) : c });
   const parsed = useMemo(() => parseSeq(code), [code]);
-  const [steps, setSteps] = useState(() => parsed?.steps || 8);
-  const [lanes, setLanes] = useState<Lane[]>(() => parsed?.lanes ?? []);
+  const seeded = useMemo(() => {
+    if (!seedFrom) return null;
+    const p = parseSeq(seedFrom);
+    if (!p || p.complex || !p.lanes.length) return null;
+    return { lanes: p.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) })), steps: p.steps };
+  }, [seedFrom]);
+  // sin pistas en el código pero con referencia → arranca sembrado.
+  const useSeed = () => !!(seeded && parsed && !parsed.complex && parsed.lanes.length === 0);
+  const [steps, setSteps] = useState(() => (useSeed() ? seeded!.steps : parsed?.steps || 8));
+  const [lanes, setLanes] = useState<Lane[]>(() => (useSeed() ? seeded!.lanes : parsed?.lanes ?? []));
   const [head, setHead] = useState(-1);
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState(false);
@@ -120,11 +130,15 @@ function StepGrid({ id, code, wrap }: { id: string; code: string; wrap?: (c: str
   // apuntaría a un sample inexistente y no sonaría nada al probarlos).
   const hitBank = (snd: string) => (bankExempt(snd) ? '' : bank);
 
-  // resincroniza el estado local si el código cambia por fuera (no en complejo)
+  // resincroniza el estado local si el código cambia por fuera (no en complejo);
+  // sin pistas + referencia de siembra → mantiene la instrumentación sembrada.
   useEffect(() => {
-    if (parsed && !parsed.complex) { setLanes(parsed.lanes); setSteps(parsed.steps); }
+    if (parsed && !parsed.complex) {
+      if (!parsed.lanes.length && seeded) { setLanes(seeded.lanes); setSteps(seeded.steps); }
+      else { setLanes(parsed.lanes); setSteps(parsed.steps); }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code]);
+  }, [code, seeded]);
 
   useEffect(() => {
     let raf = 0;
@@ -410,12 +424,22 @@ function StepGrid({ id, code, wrap }: { id: string; code: string; wrap?: (c: str
 // rejilla directa como siempre.
 export function StepSeq({ id, code }: { id: string; code: string }) {
   const arms = useMemo(() => splitArrange(code), [code]);
-  const [sec, setSec] = useState(0);
+  // arranca en la primera sección CON contenido (no en un silencio inicial: abrir el
+  // editor debe mostrar el instrumento "de la forma habitual", listo para tocar).
+  const [sec, setSec] = useState(() => {
+    const i = arms ? arms.findIndex((a) => a.code.trim() !== 'silence') : 0;
+    return i >= 0 ? i : 0;
+  });
   if (!arms) return <StepGrid id={id} code={code} />;
   const k = Math.min(sec, arms.length - 1);
   const arm = arms[k];
   const wrap = (c: string) => spliceArm(code, arm, c);
   const silent = arm.code.trim() === 'silence';
+  // sección en silencio → se SIEMBRA con la instrumentación de la sección de
+  // referencia (primer brazo con patrón): mismas pistas / mismo instrumento, pasos
+  // vacíos. Pre-escuchas al instante y pintar hace entrar el instrumento aquí.
+  const ref = silent ? arms.find((a) => a.code.trim() !== 'silence') : undefined;
+  const seed = ref ? seedSilent(ref.code) : null;
   return (
     <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>
       <div className="seqs-sectabs">
@@ -425,22 +449,23 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
             key={i}
             className={i === k ? 'on' : ''}
             onClick={() => setSec(i)}
-            title={`sección ${i + 1}: ${fmt(a.bars)} compases${a.code.trim() === 'silence' ? ' · en silencio (el instrumento no entra aquí)' : ''}`}
+            title={`sección ${i + 1}: ${fmt(a.bars)} compases${a.code.trim() === 'silence' ? ' · en silencio (pinta pasos y el instrumento entra aquí)' : ''}`}
           >
             {i + 1}<i>·{fmt(a.bars)}c</i>
           </button>
         ))}
       </div>
-      {silent ? (
-        <p className="seqs-none">
-          esta sección está <b>en silencio</b> (el instrumento aún no entra aquí).{' '}
-          <button
-            className="seqs-norm"
-            onClick={() => useGraphStore.getState().updateNodeData(id, { code: wrap(`s("${Array(16).fill('~').join(' ')}")`) })}
-          >
-            activar sección (rejilla vacía de 16)
-          </button>
-        </p>
+      {silent && !seed ? (
+        <p className="seqs-none">todas las secciones están en silencio (o la referencia no es editable): edita el patrón de otra sección primero.</p>
+      ) : silent && seed ? (
+        <>
+          <p className="seqs-seedline">sección en silencio — pinta pasos o notas y el instrumento <b>entra aquí</b> (instrumentación de la sección con patrón)</p>
+          {isMelodicCode(ref!.code) ? (
+            <MelodicSeq key={`s${k}`} id={id} code={seed.code} wrap={wrap} />
+          ) : (
+            <StepGrid key={`s${k}`} id={id} code={seed.code} seedFrom={seed.seedFrom} wrap={wrap} />
+          )}
+        </>
       ) : isMelodicCode(arm.code) ? (
         <MelodicSeq key={k} id={id} code={arm.code} wrap={wrap} />
       ) : (

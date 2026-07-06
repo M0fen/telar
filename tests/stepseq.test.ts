@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSeq, buildSeq, splitArrange, spliceArm, isMelodicCode, type Parsed } from '../src/nodes/stepseqCode.ts';
+import { parseSeq, buildSeq, splitArrange, spliceArm, isMelodicCode, seedSilent, type Parsed } from '../src/nodes/stepseqCode.ts';
 import { URBAN_KITS } from '../src/graph/instrumentKits.ts';
 
 // Round-trip de la rejilla (P0.1d, auditoría dancehall): lo que la rejilla no modela
@@ -229,4 +229,46 @@ test('isMelodicCode: melodías sí, rejillas/loops/arranges no', () => {
   assert.equal(isMelodicCode('stack(note("c2 ~").s("cb"))'), false);
   assert.equal(isMelodicCode('s("bd*4")'), false);
   assert.equal(isMelodicCode('note("c2").s("x").loopAt(4)'), false);
+});
+
+// --- SIEMBRA de secciones en silencio (fix UX reportado: "no aparecen los pasos") ----
+
+test('seedSilent melódico: piano roll vacío de 16 con el MISMO instrumento/FX', () => {
+  const ref = 'note("c5 eb5 g5 ~ f5 eb5 ~ c5").s("triangle").decay(0.22).sustain(0).room(0.25).gain("1 0.8 1 1 1 1 1 1").mul(gain(0.45))';
+  const seed = seedSilent(ref);
+  assert.ok(seed);
+  assert.equal(seed!.seedFrom, undefined); // melódico: el piano roll no necesita siembra aparte
+  assert.match(seed!.code, /note\("(?:~ ){15}~"\)/); // 16 silencios
+  assert.match(seed!.code, /\.s\("triangle"\)\.decay\(0\.22\)/); // instrumento y FX intactos
+  assert.match(seed!.code, /\.mul\(gain\(0\.45\)\)/); // nivel de la sección conservado
+  assert.doesNotMatch(seed!.code, /\.gain\("1 0\.8/); // la lane de vel de la ref NO se arrastra
+});
+
+test('seedSilent de rejilla: base sin golpes con banco/cola + pistas sembradas de la referencia', () => {
+  const ref = 'stack(s("bd ~ ~ ~ bd ~ ~ ~").bank("RolandTR808"), s("~ ~ ~ sd ~ ~ sd ~").bank("RolandTR808").mul(gain(0.85)))';
+  const seed = seedSilent(ref);
+  assert.ok(seed);
+  assert.equal(seed!.seedFrom, ref);
+  assert.match(seed!.code, /^s\("~"\)\.bank\("RolandTR808"\)/); // suena a nada, banco conservado
+  // la UI siembra las pistas desde seedFrom con cero pasos:
+  const p = parseSeq(seed!.seedFrom!)!;
+  assert.deepEqual(p.lanes.map((l) => l.sound), ['bd', 'sd']);
+});
+
+test('seedSilent: referencia inservible → null (cae al mensaje protegido)', () => {
+  assert.equal(seedSilent('arrange([4, s("bd")])'), null); // anidado raro
+});
+
+test('flujo sección callada COMPLETO: sembrar, pintar una nota y empalmar sin romper', () => {
+  const codeFull = 'arrange([4, silence], [12, note("c5 eb5 g5 ~").s("triangle").decay(0.22).sustain(0)])';
+  const arms = splitArrange(codeFull)!;
+  const ref = arms.find((a) => a.code.trim() !== 'silence')!;
+  const seed = seedSilent(ref.code)!;
+  // "pinta" la primera nota del piano roll sembrado (equivale a place() en la UI)
+  const painted = seed.code.replace(/^note\("~/, 'note("c5');
+  const out = spliceArm(codeFull, arms[0], painted);
+  new Function(`return 0 && (${out})`); // sintaxis válida
+  const arms2 = splitArrange(out)!;
+  assert.match(arms2[0].code, /^note\("c5 (?:~ ){14}~"\)\.s\("triangle"\)/); // el instrumento ENTRÓ en la sección
+  assert.equal(arms2[1].code, ref.code); // la sección original quedó intacta
 });

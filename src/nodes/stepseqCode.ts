@@ -369,6 +369,31 @@ export function isMelodicCode(code: string): boolean {
   return /\b(?:note|n)\(\s*["'`]/.test(code) && !/\.loopAt\(/.test(code) && !code.includes('arrange');
 }
 
+// SIEMBRA de una sección en silencio (P0.3 UX): a partir de la sección de REFERENCIA
+// (el primer brazo con patrón) construye la base editable de la sección callada con
+// LA MISMA instrumentación pero sin golpes/notas → al abrirla ves las pistas o el
+// piano roll de siempre, pre-escuchas el instrumento, y pintar lo hace entrar. Nada
+// de rejillas vacías sin pistas ni pasos intermedios de "activar".
+export function seedSilent(ref: string): { code: string; seedFrom?: string } | null {
+  const r = ref.trim();
+  if (isMelodicCode(r)) {
+    // melodía: mismo instrumento/FX, contenido del note() → 16 silencios. Se quitan
+    // las lanes de vel/dur de la referencia (no aplican a una sección vacía).
+    const rests = Array(16).fill('~').join(' ');
+    const code = r
+      .replace(/\.gain\(\s*"[^"]*"\s*\)/, '')
+      .replace(/\.clip\(\s*"[^"]*"\s*\)/, '')
+      .replace(/\b(note|n)\(\s*(["'`])[^"'`]*\2\s*\)/, (_m, fn, q) => `${fn}(${q}${rests}${q})`);
+    return /\b(?:note|n)\(/.test(code) ? { code } : null;
+  }
+  const p = parseSeq(r);
+  if (!p || p.complex) return null;
+  // rejilla: base emitible con el banco/cola de la referencia y CERO pasos activos;
+  // las pistas (con sus niveles/sfx) las siembra la UI desde `seedFrom`.
+  const zero = p.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) }));
+  return { code: buildSeq(p, zero, p.steps), seedFrom: r };
+}
+
 // ¿la pista está afinada? (algún paso encendido tiene nota)
 export function lanePitched(l: Lane, steps: number): boolean {
   return l.steps.slice(0, steps).some((v, i) => v > 0 && !!l.notes[i]);

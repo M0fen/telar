@@ -779,6 +779,8 @@ body {
 .seqs-sectabs button i { font-style: normal; opacity: 0.65; font-size: 8px; }
 .seqs-sectabs button:hover { color: var(--accent); border-color: var(--accent-dim); }
 .seqs-sectabs button.on { color: var(--accent); border-color: var(--accent); background: rgba(74,163,255,0.10); }
+.seqs-seedline { margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
+.seqs-seedline b { color: var(--accent); }
 .seqs-hint { margin: 0; font-size: 8px; color: var(--faint); line-height: 1.4; }
 /* onda en vivo del secuenciador */
 .seq-scope { background: rgba(2,5,8,0.6); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
