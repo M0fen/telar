@@ -10,6 +10,7 @@ import phonkTrap from '../../telar-phonk-trap.json';
 import edm from '../../telar-edm-bigroom.json';
 import hardtechno from '../../telar-hardtechno-rave.json';
 import dancehall from '../../telar-latin-dancehall.json';
+import dancehallEdit from '../../telar-latin-dancehall-editable.json';
 import reggaeton from '../../telar-reggaeton-oldschool.json';
 import postpunk from '../../telar-postpunk.json';
 import berghain from '../../telar-berghain-hardtechno.json';
@@ -38,7 +39,8 @@ export const DEMOS: Demo[] = [
   { id: 'phonk-trap', title: 'phonk / trap', note: 'Memphis · cencerro melódico (808) · 808 distorsión+glide (EQ) · snare lo-fi crate · hats rolls · vinilo · 140bpm', snap: as(phonkTrap) },
   { id: 'edm-bigroom', title: 'EDM big-room', note: 'festival · supersaw pluck · sidechain · 128bpm · 75s', snap: as(edm) },
   { id: 'hardtechno-rave', title: 'hardtechno rave', note: 'kick distorsionado · hoover · acid · 155bpm · 62s', snap: as(hardtechno) },
-  { id: 'latin-dancehall', title: 'latin dancehall', note: 'riddim · skank offbeat · swing · 102bpm · 66s', snap: as(dancehall) },
+  { id: 'latin-dancehall', title: 'latin dancehall', note: 'riddim ARREGLADO por secciones (arrange: se edita en código) · skank offbeat · swing · 102bpm · 66s', snap: as(dancehall) },
+  { id: 'latin-dancehall-editable', title: 'latin dancehall · editable', note: 'el riddim del tutorial, TODO editable en el secuenciador: dembow 16 pasos · conga/shaker · skank dub · bajo · 102bpm', snap: as(dancehallEdit) },
   { id: 'reggaeton-oldschool', title: 'reggaetón old school', note: 'dembow crudo · 808 · lead menor · 92bpm · 73s', snap: as(reggaeton) },
   { id: 'postpunk', title: 'post-punk', note: 'bajo motriz · guitarra chorus · pad · 148bpm · 65s', snap: as(postpunk) },
   { id: 'berghain', title: 'berghain hardtechno', note: 'oscuro · contundente · 150bpm · 51s', snap: as(berghain) },

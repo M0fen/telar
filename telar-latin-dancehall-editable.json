@@ -1,0 +1,141 @@
+{
+ "cps": 0.425,
+ "beatsPerCycle": 4,
+ "transpose": 0,
+ "master": {
+  "gain": 1,
+  "filter": 0,
+  "room": 0.1,
+  "space": "",
+  "drive": 0.05,
+  "delay": 0,
+  "crush": 0,
+  "swing": 0.12,
+  "humanize": 0.15,
+  "limit": 0.25,
+  "glue": 0.2,
+  "sat": 0,
+  "width": 1,
+  "punch": 0.15,
+  "eqLow": 0,
+  "eqMid": 0,
+  "eqHigh": 0
+ },
+ "mode": "standard",
+ "djOrientation": "vertical",
+ "vizMode": 0,
+ "vizHeight": 236,
+ "vizVisible": true,
+ "vizHeadless": false,
+ "vizMilkStyle": "telar",
+ "nodes": [
+  {
+   "id": "src_1",
+   "type": "source",
+   "position": {
+    "x": 60,
+    "y": 40
+   },
+   "data": {
+    "kind": "source",
+    "name": "riddim",
+    "code": "stack(s(\"bd ~ ~ ~ ~ ~ ~ ~ bd ~ ~ ~ ~ ~ ~ ~\"), s(\"~ ~ ~ sd ~ ~ sd ~ ~ ~ ~ sd ~ ~ sd ~\").mul(gain(0.85)), s(\"hh ~ hh ~ hh ~ hh ~ hh ~ hh ~ hh ~ hh ~\").mul(gain(0.4))).bank(\"RolandTR808\")",
+    "gain": 1
+   }
+  },
+  {
+   "id": "src_2",
+   "type": "source",
+   "position": {
+    "x": 60,
+    "y": 210
+   },
+   "data": {
+    "kind": "source",
+    "name": "perc latina",
+    "code": "stack(s(\"~ ~ crate_conga ~ ~ ~ ~ crate_conga ~ ~ crate_conga ~ ~ ~ ~ ~\").mul(gain(0.55)), s(\"crate_sh*16\").mul(gain(0.3)))",
+    "gain": 0.9
+   }
+  },
+  {
+   "id": "src_3",
+   "type": "source",
+   "position": {
+    "x": 60,
+    "y": 380
+   },
+   "data": {
+    "kind": "source",
+    "name": "skank",
+    "code": "note(\"~ [c4,eb4,g4] ~ [c4,eb4,g4] ~ [c4,eb4,g4] ~ [c4,eb4,g4]\").s(\"square\").lpf(1500).lpq(4).attack(0.005).decay(0.12).sustain(0).delay(0.25).delayfeedback(0.5).room(0.15).mul(gain(0.5))",
+    "gain": 0.85
+   }
+  },
+  {
+   "id": "src_4",
+   "type": "source",
+   "position": {
+    "x": 60,
+    "y": 550
+   },
+   "data": {
+    "kind": "source",
+    "name": "bajo",
+    "code": "note(\"c2 ~ ~ c2 ~ ~ g1 ~\").s(\"sine\").lpf(600).shape(0.2)",
+    "gain": 1
+   }
+  },
+  {
+   "id": "src_5",
+   "type": "source",
+   "position": {
+    "x": 60,
+    "y": 720
+   },
+   "data": {
+    "kind": "source",
+    "name": "melodía",
+    "code": "note(\"~ ~ c5 ~ ~ eb5 ~ ~ ~ ~ g4 ~ ~ ~ f5 ~\").s(\"triangle\").decay(0.2).sustain(0).room(0.25).mul(gain(0.45))",
+    "gain": 0.8
+   }
+  },
+  {
+   "id": "out_1",
+   "type": "out",
+   "position": {
+    "x": 560,
+    "y": 380
+   },
+   "data": {
+    "kind": "out"
+   }
+  }
+ ],
+ "edges": [
+  {
+   "id": "e1",
+   "source": "src_1",
+   "target": "out_1"
+  },
+  {
+   "id": "e2",
+   "source": "src_2",
+   "target": "out_1"
+  },
+  {
+   "id": "e3",
+   "source": "src_3",
+   "target": "out_1"
+  },
+  {
+   "id": "e4",
+   "source": "src_4",
+   "target": "out_1"
+  },
+  {
+   "id": "e5",
+   "source": "src_5",
+   "target": "out_1"
+  }
+ ]
+}
