@@ -91,6 +91,10 @@ export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => vo
     ev.stopPropagation();
     dragging.current = id;
     const area = areaRef.current!;
+    // BASELINE: el EQ manual del canal al empezar. El tilt se aplica SOBRE él (no lo pisa):
+    // en el centro (tilt 0) el EQ queda idéntico al que tenías; arrastrar inclina alrededor.
+    const base = { ...DEFAULT_CHANNEL_EQ, ...(useGraphStore.getState().nodes.find((n) => n.id === id)?.data.eq ?? {}) };
+    const clampDb = (v: number) => Math.max(-15, Math.min(15, v));
     const move = (m: PointerEvent) => {
       const r = area.getBoundingClientRect();
       const x = Math.max(0, Math.min(1, (m.clientX - r.left) / r.width));
@@ -99,15 +103,13 @@ export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => vo
       if (el) { el.style.left = `${x * 100}%`; el.style.top = `${y * 100}%`; }
       // X → paneo. Y → tilt de EQ: arriba (y→0) = agudo (high+ / low−); abajo = grave.
       const tilt = (0.5 - y) * 2; // -1..1
-      const prev = useGraphStore.getState().nodes.find((n) => n.id === id)?.data.eq;
       update(id, {
         chPan: Number(x.toFixed(3)),
         eq: {
-          ...DEFAULT_CHANNEL_EQ,
-          ...prev,
+          ...base,
           on: true,
-          low: Number((-tilt * TILT_DB).toFixed(1)),
-          high: Number((tilt * TILT_DB).toFixed(1)),
+          low: Number(clampDb((base.low ?? 0) - tilt * TILT_DB).toFixed(1)),
+          high: Number(clampDb((base.high ?? 0) + tilt * TILT_DB).toFixed(1)),
         },
       });
     };

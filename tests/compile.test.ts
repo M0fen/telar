@@ -206,7 +206,19 @@ test('U · perf por source: roll/rev/gate(mul, P0.1)/echo/wash emitidos por ESTE
   assert.match(c, /\.ply\(4\)/); // roll (patrón)
   assert.match(c, /\.rev\(\)/); // reverse (patrón)
   assert.match(c, /\.delay\(0\.55\)/); // echo (audio)
-  assert.match(c, /\.room\(0\.70\)/); // wash (audio)
+  assert.match(c, /\.room\(0\.70\)/); // wash (audio) — unificado en el send del canal
+});
+
+test('V3 · reverb del canal: chRoom y wash se unifican en UN solo .room (max), sin pisado', () => {
+  const r = C([src('s', 's("bd*4")', { chRoom: 0.3, perf: { wash: 0.7 } }), out()], [E('s', 'o')]);
+  const c = code(r);
+  assert.equal((c.match(/\.room\(/g) ?? []).length, 1, 'un solo .room() por source (no se pisan)');
+  assert.match(c, /\.room\(0\.70\)/); // max(chRoom 0.3, wash 0.7)
+});
+
+test('V3 · chRoom sin wash → .room(chRoom)', () => {
+  const r = C([src('s', 's("bd")', { chRoom: 0.4 }), out()], [E('s', 'o')]);
+  assert.match(code(r), /\.room\(0\.40\)/);
 });
 
 test('P0.1 invariante: la mezcla nunca emite un .gain( escalar que pise', () => {

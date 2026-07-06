@@ -629,7 +629,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
             if (perf.rev) inner += `.rev()`;
             if (perf.gate && perf.gate > 0) inner += `.mul(gain(square.range(0, 1).fast(${Math.round(perf.gate)})))`;
             if (perf.echo && perf.echo > 0.02) inner += `.delay(${Math.min(0.9, perf.echo).toFixed(2)})`;
-            if (perf.wash && perf.wash > 0.02) inner += `.room(${Math.min(0.9, perf.wash).toFixed(2)})`;
+            // el reverb `wash` NO se emite aquí: se unifica con chRoom en UN solo `.room()`
+            // (dos `.room()` en la misma voz se pisan) — ver la llamada a applyMaster abajo.
           }
           // EQ por canal: enruta el source a su orbit propio; el motor inserta el EQ
           // Biquad real sobre ese bus (setChannelEqs).
@@ -641,11 +642,15 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           if (Math.abs(chPan - 0.5) > 0.01) inner += `.pan(${chPan.toFixed(2)})`;
           // crossfader DJ: multiplica el gain del canal por la curva del lado asignado.
           const xf = xfaderGain(node.data.xfa as 'a' | 'b' | undefined, xfader);
+          // reverb del canal en UN solo send: el máximo entre el chRoom persistente (V3 ·
+          // halo de la superficie de mezcla, 0..0.8) y el wash momentáneo (fila de
+          // performance). Así el throw de wash SIEMPRE se oye, aunque el canal tenga reverb.
+          const chRoom = Math.max(0, Math.min(0.8, Number(node.data.chRoom) || 0));
+          const perfWash = perf?.wash && perf.wash > 0.02 ? Math.min(0.9, perf.wash) : 0;
           let text = applyMaster(`(${inner})`, {
             gain: (node.data.gain ?? 1) * xf,
             filter: node.data.chFilter ?? 0,
-            // reverb send del canal (V3 · halo de la superficie de mezcla). 0..0.8.
-            room: Math.max(0, Math.min(0.8, Number(node.data.chRoom) || 0)),
+            room: Math.max(chRoom, perfWash),
           });
           // tap del analyser del instrumento (no altera el sonido): alimenta el VU
           // por canal (siempre) y el osciloscopio inline (cuando está activo).
