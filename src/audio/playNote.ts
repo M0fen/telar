@@ -3,6 +3,20 @@ import type { SynthParams, VoiceParams } from '../graph/types';
 import { SYNTH_WAVES } from '../graph/types';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureEngine, ensureAudioReady } from './engine';
+import { toast } from '../store/useNotifyStore';
+
+// Reporta un fallo de audición SIN spamear: con throttle (una vez cada ~4 s) e ignorando
+// el típico "contexto no listo / autoplay" (benigno, se resuelve con el 1er gesto). Así
+// las audiciones (synth, secuenciador, voz) avisan de fallos REALES en vez de callar.
+let lastAudioErrAt = 0;
+function reportAudioErr(where: string, err: unknown): void {
+  const m = err instanceof Error ? err.message : String(err);
+  if (/not allowed|autoplay|suspend|InvalidState|user gesture|was interrupted/i.test(m)) return;
+  const now = Date.now();
+  if (now - lastAudioErrAt < 4000) return;
+  lastAudioErrAt = now;
+  toast.err(`Audio (${where}): ${m}`.slice(0, 180));
+}
 
 // Convierte SynthParams al objeto-valor que entiende superdough (mismas CLAVES de
 // control que emite applySynth, verificadas en @strudel/core/controls.mjs) y dispara
@@ -172,8 +186,8 @@ export async function playSourceSound(
   const ctx = getAudioContext();
   try {
     await superdough(sourceAuditionValue(code, syn, synthOn, note, nodeId, begin, end), ctx.currentTime + 0.03, holdSec, 0.5, 0.5);
-  } catch {
-    /* contexto no listo */
+  } catch (err) {
+    reportAudioErr('source', err);
   }
 }
 
@@ -229,8 +243,8 @@ export async function playVoiceSample(name: string, v: VoiceParams, begin = 0, e
   const ctx = getAudioContext();
   try {
     await superdough(voiceToValue(v, name, begin, end), ctx.currentTime + 0.03, holdSec, 0.5, 0.5);
-  } catch {
-    /* contexto no listo */
+  } catch (err) {
+    reportAudioErr('voz', err);
   }
 }
 
@@ -247,8 +261,8 @@ export async function playVoiceNote(name: string, v: VoiceParams, note: string, 
     const val = voiceToValue(v, name, begin, end);
     val.note = note; // superdough transpone el sample: transpose = midi(note) − 36
     await superdough(val, ctx.currentTime + 0.02, holdSec, 0.5, 0.5);
-  } catch {
-    /* contexto no listo */
+  } catch (err) {
+    reportAudioErr('voz', err);
   }
 }
 
@@ -264,8 +278,8 @@ export async function playDrumHit(sound: string, bank?: string, note?: string | 
     if (bank) val.bank = bank;
     if (note != null) val.note = note;
     await superdough(val, ctx.currentTime + 0.02, holdSec, 0.5, 0.5);
-  } catch {
-    /* contexto no listo */
+  } catch (err) {
+    reportAudioErr('secuenciador', err);
   }
 }
 
@@ -282,7 +296,7 @@ export async function playSynthNote(
   try {
     // superdough MUTA el value (le añade duration) → pasamos un objeto fresco.
     await superdough(synthToValue(syn, note, nodeId), ctx.currentTime + 0.03, holdSec, 0.5, 0.5);
-  } catch {
-    /* contexto no listo */
+  } catch (err) {
+    reportAudioErr('synth', err);
   }
 }
