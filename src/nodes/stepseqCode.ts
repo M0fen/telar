@@ -189,6 +189,11 @@ function parseStackForm(code: string): Parsed | null {
   if (close < 0) return null;
   const inner = code.slice(open + 1, close);
   const { bank, tail, tailGain } = splitTail(code.slice(close + 1));
+  // RED DE SEGURIDAD: si la cola tras el stack no es una cadena de métodos válida,
+  // el código tiene estructura que NO modelamos (p.ej. este stack es un brazo de un
+  // arrange(...)) → patrón avanzado: la rejilla no se ofrece a editarlo (reconstruirlo
+  // lo rompería con un error de sintaxis y silenciaría la pista).
+  const tailOk = validSfx(tail);
   const segs = splitTop(inner, ',').map((s) => s.trim()).filter(Boolean);
   const toks: string[][] = [];
   const gains: (number[] | null)[] = [];
@@ -235,7 +240,7 @@ function parseStackForm(code: string): Parsed | null {
     extras.push({ groove, level: lv.level, sfx });
   }
   const parsed = lanesFromToks(toks, gains, notes, extras);
-  return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || badSfx };
+  return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || badSfx || !tailOk };
 }
 
 // forma SIMPLE: s("a ~, ~ b")<tail>
@@ -252,10 +257,15 @@ function parseSimpleForm(code: string): Parsed | null {
   while (j < code.length && /\s/.test(code[j])) j++;
   if (code[j] === ')') j++;
   const { bank, tail, tailGain } = splitTail(code.slice(j));
+  // RED DE SEGURIDAD: si hay CABEZA antes del s("…") (p.ej. `arrange([4, s(…)` de las
+  // demos, o `note("…").s("sine")` — melodía cuyo editor es el de notas) o la cola no
+  // es una cadena de métodos reconstruible, editar aquí ROMPERÍA el código (error de
+  // sintaxis → pista muda) o descartaría la melodía → patrón avanzado, no se toca.
+  const structOk = !code.slice(0, om.index).trim() && validSfx(tail);
   const sublanes = splitTop(content, ',').map((s) => s.trim()).filter((s) => s.length);
   const toks = sublanes.map(expand);
   const parsed = lanesFromToks(toks, toks.map(() => null), toks.map(() => null), toks.map(() => null));
-  return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex };
+  return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || !structOk };
 }
 
 export function parseSeq(code: string): Parsed | null {

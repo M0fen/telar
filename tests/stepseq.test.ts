@@ -95,6 +95,37 @@ test('residuo irreconstruible → patrón avanzado (no se toca)', () => {
   assert.equal(p!.complex, true);
 });
 
+// --- RED DE SEGURIDAD: la rejilla no se ofrece a editar lo que va a romper ---------
+// (bug real: las demos usan arrange(...) por secciones; la rejilla mostraba solo el
+// primer brazo como editable y el PRIMER clic rompía el patrón con error de sintaxis)
+
+test('SEGURIDAD: source arrange() de las demos → avanzado (antes: 1 clic lo silenciaba)', () => {
+  const hats = 'arrange([4, s("hh*8").bank("RolandTR808").gain(0.2)], [12, s("hh*16").bank("RolandTR808").gain(saw.range(0.1,0.3))], [12, s("hh*16").bank("RolandTR808").gain(saw.range(0.1,0.35))])';
+  const p = parseSeq(hats);
+  assert.ok(p);
+  assert.equal(p!.complex, true);
+});
+
+test('SEGURIDAD: stack que es un brazo de arrange (cola con "], [") → avanzado', () => {
+  const p = parseSeq('stack(s("bd ~ bd ~"))], [4, stack(s("bd*4"))]');
+  assert.ok(p);
+  assert.equal(p!.complex, true);
+});
+
+test('SEGURIDAD: melodía note("…").s("sine") → avanzado (antes: editar descartaba la melodía)', () => {
+  const p = parseSeq('note("c1 ~ c1 ~ g0 ~ c1 ~").s("sine").lpf(480).shape(0.25)');
+  assert.ok(p);
+  assert.equal(p!.complex, true);
+});
+
+test('SEGURIDAD: los patrones normales con cola de FX siguen siendo editables', () => {
+  for (const c of ['s("bd*4")', 's("bd ~ bd ~, hh*4").room(0.2).lpf(1800)', 's("hh*8").bank("RolandTR808").gain(0.35)']) {
+    const p = parseSeq(c);
+    assert.ok(p, c);
+    assert.equal(p!.complex, false, `se volvió avanzado sin razón: ${c}`);
+  }
+});
+
 test('editar un paso NO pierde los extras (flujo real de la rejilla)', () => {
   const kit = 'stack(s("bd ~ ~ ~").bank("RolandTR808").gain(0.9))';
   const p = parsed(kit);
