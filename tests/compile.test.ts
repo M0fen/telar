@@ -166,6 +166,19 @@ test('P1.3 delay del synth: delaysync solo se emite si difiere del 3/16 del moto
   assert.match(code(negra), /\.delaysync\(0\.25\)/);
 });
 
+test('AUDICIÓN DE SECCIÓN: con solo + seqPreviewCode se compila el brazo (en loop)', () => {
+  const arrange = 'arrange([4, s("hh*8")], [12, s("hh*16")])';
+  const r = C([src('s', arrange, { solo: true, seqPreviewCode: 's("hh*8")' }), out()], [E('s', 'o')]);
+  assert.match(code(r), /s\("hh\*8"\)/);
+  assert.doesNotMatch(code(r), /arrange/); // suena la sección, no el arreglo entero
+});
+
+test('AUDICIÓN DE SECCIÓN: sin solo, un seqPreviewCode rancio NO altera nada', () => {
+  const arrange = 'arrange([4, s("hh*8")], [12, s("hh*16")])';
+  const r = C([src('s', arrange, { seqPreviewCode: 's("hh*8")' }), out()], [E('s', 'o')]);
+  assert.match(code(r), /arrange/);
+});
+
 test('P0.2 swing del máster: semicorcheas (n=8) — el tumbao del dembow', () => {
   const m = applyMaster('s("hh*16")', { gain: 1, filter: 0, room: 0, swing: 0.3 });
   assert.match(m, /\.swingBy\(0\.30, 8\)/);

@@ -92,7 +92,9 @@ interface Row { val: string; midi: number; acc: boolean; root: boolean }
 
 // `wrap` (opcional): re-envuelve el código emitido antes de guardarlo — lo usa el modo
 // SECCIONES del secuenciador para empalmar el brazo editado dentro de un arrange.
-export function MelodicSeq({ id, code, wrap }: { id: string; code: string; wrap?: (c: string) => string }) {
+// `previewCode`/`headOff`: audición de sección (▶ toca el brazo en loop al instante) y
+// playhead apagado cuando la sección editada no es la que suena. Igual que StepGrid.
+export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: string; code: string; wrap?: (c: string) => string; previewCode?: string; headOff?: boolean }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const parsed = useMemo(() => parseMel(code), [code]);
   const [oct, setOct] = useState(3);
@@ -111,18 +113,23 @@ export function MelodicSeq({ id, code, wrap }: { id: string; code: string; wrap?
     let raf = 0;
     const tick = () => {
       const now = getScheduler()?.now?.();
-      setHead(typeof now === 'number' ? Math.floor((((now % 1) + 1) % 1) * steps) % steps : -1);
+      setHead(typeof now === 'number' && !(headOff && !preview) ? Math.floor((((now % 1) + 1) % 1) * steps) % steps : -1);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [steps]);
+  }, [steps, headOff, preview]);
   useEffect(() => {
     const up = () => { drawing.current = null; dragLane.current = null; };
     window.addEventListener('pointerup', up);
     return () => window.removeEventListener('pointerup', up);
   }, []);
-  useEffect(() => () => { if (preview) useGraphStore.getState().updateNodeData(id, { solo: false }); }, [id, preview]);
+  useEffect(() => () => { if (preview) useGraphStore.getState().updateNodeData(id, { solo: false, seqPreviewCode: undefined }); }, [id, preview]);
+  // con ▶ activo, cambiar de sección (o editarla) refresca la audición al brazo actual.
+  useEffect(() => {
+    if (preview && previewCode) useGraphStore.getState().updateNodeData(id, { seqPreviewCode: previewCode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCode]);
 
   const cells = useMemo(() => {
     const arr = (parsed?.tokens ?? []).slice(0, steps);
@@ -168,7 +175,7 @@ export function MelodicSeq({ id, code, wrap }: { id: string; code: string; wrap?
     commit(nc, alignNums(vels, c, 1), alignNums(gates, c, 1));
     setSteps(c);
   };
-  const togglePreview = () => { const s = useGraphStore.getState(); const nx = !preview; setPreview(nx); s.updateNodeData(id, { solo: nx }); if (nx && !s.playing) void s.play(); };
+  const togglePreview = () => { const s = useGraphStore.getState(); const nx = !preview; setPreview(nx); s.updateNodeData(id, { solo: nx, seqPreviewCode: nx && previewCode ? previewCode : undefined }); if (nx && !s.playing) void s.play(); };
   const clearAll = () => commit(Array(steps).fill('~'), Array(steps).fill(1), Array(steps).fill(1));
 
   // arrastre de una barra de automatización: valor por posición vertical dentro de la

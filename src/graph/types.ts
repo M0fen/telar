@@ -257,6 +257,11 @@ export interface NodeData {
   gain?: number; // 0..1.5
   mute?: boolean;
   solo?: boolean; // aislado: si algún source tiene solo, los demás se silencian
+  // AUDICIÓN DE SECCIÓN (transitorio, no debe sobrevivir a una carga): mientras el
+  // source está en solo (preview del secuenciador), el compilador toca ESTE patrón
+  // (el brazo del arrange que se edita, en loop) en vez del código completo — se
+  // escucha la sección al instante, sin esperar a que el arreglo llegue a ella.
+  seqPreviewCode?: string;
   chFilter?: number; // -1..1 : <0 lpf baja, >0 hpf sube
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)

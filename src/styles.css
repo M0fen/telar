@@ -779,6 +779,14 @@ body {
 .seqs-sectabs button i { font-style: normal; opacity: 0.65; font-size: 8px; }
 .seqs-sectabs button:hover { color: var(--accent); border-color: var(--accent-dim); }
 .seqs-sectabs button.on { color: var(--accent); border-color: var(--accent); background: rgba(74,163,255,0.10); }
+/* sección SONANDO ahora en el arreglo: punto pulsante en su pestaña */
+.seqs-sectabs button.live { position: relative; }
+.seqs-sectabs button.live::after {
+  content: ''; position: absolute; top: -2px; right: -2px; width: 6px; height: 6px;
+  border-radius: 50%; background: #ffd166; box-shadow: 0 0 6px rgba(255,209,102,0.7);
+  animation: seqs-live 1s ease-in-out infinite;
+}
+@keyframes seqs-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .seqs-seedline { margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
 .seqs-seedline b { color: var(--accent); }
 .seqs-hint { margin: 0; font-size: 8px; color: var(--faint); line-height: 1.4; }

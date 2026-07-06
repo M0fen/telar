@@ -402,6 +402,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         'opId' in patch ||
         'mute' in patch ||
         'solo' in patch ||
+        'seqPreviewCode' in patch || // audición de sección: cambiar de pestaña con ▶ activo hot-swapea al instante
         'showScope' in patch ||
         'synthOn' in patch ||
         'showVoice' in patch
@@ -758,7 +759,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // Al CARGAR un proyecto/demo, los Source aparecen COLAPSADOS: lienzo limpio y
       // legible de un vistazo (se expanden con clic). Pedido del usuario.
       const nodes = rawNodes.map((n) =>
-        n.data.kind === 'source' ? { ...n, data: { ...n.data, collapsed: true } } : n,
+        // seqPreviewCode es TRANSITORIO (audición de sección): jamás debe sobrevivir
+        // a una carga — un valor rancio con solo activo tocaría el patrón equivocado.
+        n.data.kind === 'source' ? { ...n, data: { ...n.data, collapsed: true, seqPreviewCode: undefined } } : n,
       );
       const edges = snap.edges ?? get().edges;
       idCounter = maxIdCounter(nodes);

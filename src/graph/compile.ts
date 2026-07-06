@@ -539,7 +539,13 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         // Marcadores de viz inline (`._scope()` / `._pianoroll()`): los dibuja el
         // editor entre las líneas; NO son métodos reales del runtime, así que se
         // quitan del código emitido.
-        const raw = (node.data.code ?? '').trim();
+        //
+        // AUDICIÓN DE SECCIÓN: con el source en SOLO y un seqPreviewCode activo
+        // (preview del secuenciador sobre un brazo de arrange), se compila ESE
+        // patrón en loop en vez del código completo — la sección editada suena al
+        // instante. Gateado por `solo` para que un valor rancio jamás altere la mezcla.
+        const preview = node.data.solo && typeof node.data.seqPreviewCode === 'string' && node.data.seqPreviewCode.trim();
+        const raw = (preview ? (node.data.seqPreviewCode as string) : node.data.code ?? '').trim();
         const code = raw.replace(INLINE_VIZ_RE, '').trim();
         if (!code) {
           firstError ??= 'Source vacío';

@@ -98,7 +98,10 @@ const PERC_PALETTE: { s: string; label: string }[] = [
 // dentro del arrange sin tocar el resto. `seedFrom` (opcional): si el código no tiene
 // pistas (sección en silencio), la rejilla SIEMBRA las pistas de esa referencia con
 // cero pasos — ves la instrumentación de siempre y pintar entra al instante.
-function StepGrid({ id, code, wrap, seedFrom }: { id: string; code: string; wrap?: (c: string) => string; seedFrom?: string }) {
+// `previewCode` (opcional, modo secciones): al activar ▶, este patrón (el brazo que se
+// edita) suena EN LOOP al instante — sin esperar a que el arreglo llegue a la sección.
+// `headOff`: apaga el playhead cuando la sección editada no es la que está sonando.
+function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: string; code: string; wrap?: (c: string) => string; seedFrom?: string; previewCode?: string; headOff?: boolean }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const emit = (c: string) => update(id, { code: wrap ? wrap(c) : c });
   const parsed = useMemo(() => parseSeq(code), [code]);
@@ -145,12 +148,14 @@ function StepGrid({ id, code, wrap, seedFrom }: { id: string; code: string; wrap
     let raf = 0;
     const tick = () => {
       const now = getScheduler()?.now?.();
-      setHead(typeof now === 'number' ? Math.floor((((now % 1) + 1) % 1) * steps) % steps : -1);
+      // headOff: la sección que se edita NO es la que suena → sin playhead (marcaría
+      // pasos que no corresponden a lo que se oye). En preview (loop de la sección) sí.
+      setHead(typeof now === 'number' && !(headOff && !preview) ? Math.floor((((now % 1) + 1) % 1) * steps) % steps : -1);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [steps]);
+  }, [steps, headOff, preview]);
   useEffect(() => {
     const up = () => { drawing.current = null; dragPitch.current = null; };
     window.addEventListener('pointerup', up);
@@ -159,15 +164,22 @@ function StepGrid({ id, code, wrap, seedFrom }: { id: string; code: string; wrap
 
   // preview: aísla este source (solo) y reproduce. El ESPACIO global reproduce/para
   // el transporte, así que con el source aislado el espacio ya previsualiza sin conflicto.
+  // En modo SECCIONES (previewCode) además el compilador toca ESE brazo en loop →
+  // escuchas la sección editada al instante, sin esperar a que el arreglo la alcance.
   const togglePreview = () => {
     const s = useGraphStore.getState();
     const next = !preview;
     setPreview(next);
-    s.updateNodeData(id, { solo: next });
+    s.updateNodeData(id, { solo: next, seqPreviewCode: next && previewCode ? previewCode : undefined });
     if (next && !s.playing) void s.play();
   };
-  // al cerrar el panel, quita el aislado (solo) que hubiera puesto el preview.
-  useEffect(() => () => { if (preview) useGraphStore.getState().updateNodeData(id, { solo: false }); }, [id, preview]);
+  // con ▶ activo, cambiar de sección (o editarla) refresca la audición al brazo actual.
+  useEffect(() => {
+    if (preview && previewCode) useGraphStore.getState().updateNodeData(id, { seqPreviewCode: previewCode });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewCode]);
+  // al cerrar el panel, quita el aislado (solo) y la audición de sección del preview.
+  useEffect(() => () => { if (preview) useGraphStore.getState().updateNodeData(id, { solo: false, seqPreviewCode: undefined }); }, [id, preview]);
 
   if (!parsed) return <p className="seqs-none nodrag">este source no tiene un patrón <code>s("…")</code> editable en rejilla</p>;
   if (parsed.complex) {
@@ -435,8 +447,30 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   // por defecto — el flujo preferido del usuario en todas partes; el piano roll queda
   // como disposición alternativa del MISMO código (toggle).
   const [view, setView] = useState<'grid' | 'roll'>('grid');
-  // editor de un código dado: toggle rejilla/piano roll cuando es melódico.
-  const editorFor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, key?: string) => {
+  // qué sección está SONANDO ahora en el arreglo (punto en la pestaña): posición del
+  // reloj módulo el total de compases del arrange → el "entra después" se VE.
+  const [live, setLive] = useState(-1);
+  useEffect(() => {
+    if (!arms) return;
+    const total = arms.reduce((s, a) => s + Math.max(1, a.bars), 0) || 1;
+    let raf = 0;
+    const tick = () => {
+      const now = getScheduler()?.now?.();
+      if (typeof now === 'number') {
+        const pos = ((now % total) + total) % total;
+        let acc = 0, idx = arms.length - 1;
+        for (let i = 0; i < arms.length; i++) { acc += Math.max(1, arms[i].bars); if (pos < acc) { idx = i; break; } }
+        setLive(idx);
+      } else setLive(-1);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [arms]);
+  // editor de un código dado: toggle rejilla/piano roll cuando es melódico. SIN key
+  // por sección: cambiar de pestaña NO remonta el editor → el ▶ (audición de sección)
+  // sigue activo y salta a oír la sección elegida al instante.
+  const editorFor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, previewCode?: string, headOff?: boolean) => {
     const melodic = isMelodicCode(c);
     return (
       <>
@@ -448,8 +482,8 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
           </div>
         )}
         {melodic && view === 'roll'
-          ? <MelodicSeq key={`r${key ?? ''}`} id={id} code={c} wrap={wrapFn} />
-          : <StepGrid key={`g${key ?? ''}`} id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} />}
+          ? <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} />
+          : <StepGrid id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} previewCode={previewCode} headOff={headOff} />}
       </>
     );
   };
@@ -461,6 +495,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   const arm = arms[k];
   const wrap = (c: string) => spliceArm(code, arm, c);
   const silent = arm.code.trim() === 'silence';
+  const headOff = live >= 0 && live !== k; // lo que suena no es lo que editas → sin playhead
   // sección en silencio → se SIEMBRA con la instrumentación de la sección de
   // referencia (primer brazo con patrón): mismas pistas / mismo instrumento, pasos
   // vacíos. Pre-escuchas al instante y pintar hace entrar el instrumento aquí.
@@ -469,13 +504,13 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   return (
     <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>
       <div className="seqs-sectabs">
-        <span className="seqs-sectag" title="este instrumento está ARREGLADO por secciones (arrange): cada pestaña es una sección de N compases. Editas la sección activa; las demás no se tocan.">secciones</span>
+        <span className="seqs-sectag" title="este instrumento está ARREGLADO por secciones (arrange): cada pestaña es una sección de N compases. Editas la sección activa (las demás no se tocan); el punto marca la que SUENA ahora. Con ▶ escuchas la sección editada en loop, al instante.">secciones</span>
         {arms.map((a, i) => (
           <button
             key={i}
-            className={i === k ? 'on' : ''}
+            className={`${i === k ? 'on' : ''}${i === live ? ' live' : ''}`}
             onClick={() => setSec(i)}
-            title={`sección ${i + 1}: ${fmt(a.bars)} compases${a.code.trim() === 'silence' ? ' · en silencio (pinta pasos y el instrumento entra aquí)' : ''}`}
+            title={`sección ${i + 1}: ${fmt(a.bars)} compases${a.code.trim() === 'silence' ? ' · en silencio (pinta pasos y el instrumento entra aquí)' : ''}${i === live ? ' · SONANDO ahora en el arreglo' : ''}`}
           >
             {i + 1}<i>·{fmt(a.bars)}c</i>
           </button>
@@ -486,10 +521,10 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       ) : silent && seed ? (
         <>
           <p className="seqs-seedline">sección en silencio — pinta pasos o notas y el instrumento <b>entra aquí</b> (instrumentación de la sección con patrón)</p>
-          {editorFor(seed.code, wrap, seed.seedFrom, `s${k}`)}
+          {editorFor(seed.code, wrap, seed.seedFrom, arm.code, headOff)}
         </>
       ) : (
-        editorFor(arm.code, wrap, undefined, String(k))
+        editorFor(arm.code, wrap, undefined, arm.code, headOff)
       )}
     </div>
   );
