@@ -386,19 +386,29 @@ function applyVoice(code: string, v: VoiceParams): string {
 
 export function applyMaster(code: string, m: MasterFx): string {
   let out = code;
-  // GROOVE primero (afecta el TIEMPO de los eventos): swing sobre semicorcheas
-  // (.swingBy(amt, 4)) + humanize (micro-retraso y micro-ganancia aleatorios por
-  // evento con la señal `rand`). Recto y robótico si ambos son 0.
+  // GROOVE primero (afecta el TIEMPO de los eventos): swing (.swingBy) + humanize
+  // (micro-retraso y micro-dinámica aleatorios por evento con la señal `rand`).
+  // Recto y robótico si ambos son 0.
+  //
+  // OJO semántica de controles (verificado en @strudel/core): dos `.gain()` (o dos
+  // `.velocity()`) encadenados NO se multiplican — el 2º PISA al 1º (controls.mjs
+  // combina con `set`). Por eso aquí toda ganancia de MEZCLA se emite con
+  // `.mul(gain(x))` / `.mul(velocity(x))`: multiplica la clave si el evento ya la
+  // trae (acentos del secuenciador, velocity de lane, fader de canal) y la fija si
+  // no existe (idéntico al comportamiento anterior para eventos sin gain). Antes,
+  // mover el fader de un canal borraba los acentos, y el humanize/gain del máster
+  // aplanaba el balance de TODOS los canales.
   if (m.swing && m.swing > 0.01) out = `${out}.swingBy(${Math.min(0.6, m.swing).toFixed(2)}, 4)`;
   if (m.humanize && m.humanize > 0.01) {
     const h = Math.min(1, m.humanize);
-    out = `${out}.late(rand.range(0, ${(h * 0.02).toFixed(3)})).gain(rand.range(${(1 - h * 0.35).toFixed(2)}, 1))`;
+    out = `${out}.late(rand.range(0, ${(h * 0.02).toFixed(3)})).mul(velocity(rand.range(${(1 - h * 0.35).toFixed(2)}, 1)))`;
   }
   // FX de performance momentáneos (afectan tiempo/estructura del máster):
-  // reverse, loop roll (.ply repite cada evento) y gate rítmico (.gain cuadrada).
+  // reverse, loop roll (.ply repite cada evento) y gate rítmico (gain cuadrada,
+  // multiplicativa para no pisar el balance mientras corta).
   if (m.rev) out = `${out}.rev()`;
   if (m.roll && m.roll > 1) out = `${out}.ply(${Math.round(m.roll)})`;
-  if (m.gate && m.gate > 0) out = `${out}.gain(square.range(0, 1).fast(${Math.round(m.gate)}))`;
+  if (m.gate && m.gate > 0) out = `${out}.mul(gain(square.range(0, 1).fast(${Math.round(m.gate)})))`;
   // macros creativos (saturación → lo-fi → eco), antes del filtro/room/gain.
   if (m.drive && m.drive > 0.02) out = `${out}.shape(${Math.min(0.9, m.drive * 0.9).toFixed(2)})`;
   if (m.crush && m.crush > 0.02) out = `${out}.crush(${(16 - m.crush * 12).toFixed(1)})`;
@@ -415,7 +425,8 @@ export function applyMaster(code: string, m: MasterFx): string {
     // muestra ausente (p.ej. IR de usuario no recargado) → cae a reverb algorítmico.
     if (m.space && knownIr(m.space)) out = `${out}.ir("${m.space}").roomsize(${irRoomsize(m.space)})`;
   }
-  if (Math.abs(m.gain - 1) > 0.001) out = `${out}.gain(${m.gain.toFixed(2)})`;
+  // fader (de canal o del máster): multiplicativo — respeta acentos/velocity internos.
+  if (Math.abs(m.gain - 1) > 0.001) out = `${out}.mul(gain(${m.gain.toFixed(2)}))`;
   return out;
 }
 

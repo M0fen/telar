@@ -131,8 +131,44 @@ test('channel EQ routes the source to its own orbit', () => {
 
 test('crossfader: deck A quiet, deck B loud at pos=1', () => {
   const r = C([src('a', 's("bd")', { xfa: 'a' }), src('b', 's("hh")', { xfa: 'b' }), out()], [E('a', 'o'), E('b', 'o')], { xfader: 1 });
-  // A = cos(pi/2) ≈ 0 → gain(0.00); B = sin(pi/2) = 1 → sin side loud
-  assert.match(code(r), /\.gain\(0\.00\)/);
+  // A = cos(pi/2) ≈ 0 → mul(gain(0.00)); B = sin(pi/2) = 1 → sin side loud
+  assert.match(code(r), /\.mul\(gain\(0\.00\)\)/);
+});
+
+// --- P0.1 (auditoría dancehall): la ganancia de MEZCLA compone, no pisa ---------
+// Dos `.gain()` encadenados en Strudel se combinan con `set` (el 2º gana), así que
+// el fader/humanize/gate deben emitirse con `.mul(gain|velocity)` para multiplicar
+// los acentos/velocity internos en vez de borrarlos. (verificado contra @strudel/core)
+
+test('P0.1a fader de canal: .mul(gain) — los acentos del patrón sobreviven', () => {
+  const r = C([src('s', 's("bd sd").gain("1 1.4")', { gain: 0.5 }), out()], [E('s', 'o')]);
+  assert.match(code(r), /\.mul\(gain\(0\.50\)\)/);
+  assert.match(code(r), /\.gain\("1 1\.4"\)/); // los acentos siguen intactos
+});
+
+test('P0.1b humanize del máster: .mul(velocity(rand…)) — no borra el balance de canales', () => {
+  const m = applyMaster('stack(s("bd").gain(0.9), s("hh").gain(0.2))', { gain: 1, filter: 0, room: 0, humanize: 0.5 });
+  assert.match(m, /\.mul\(velocity\(rand\.range\(0\.82, 1\)\)\)/);
+  assert.doesNotMatch(m, /\.gain\(rand/);
+});
+
+test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
+  const m = applyMaster('s("bd")', { gain: 1.3, filter: 0, room: 0 });
+  assert.match(m, /\.mul\(gain\(1\.30\)\)/);
+});
+
+test('P0.1 gate del máster: corte multiplicativo (mantiene el balance mientras corta)', () => {
+  const m = applyMaster('s("bd")', { gain: 1, filter: 0, room: 0, gate: 4 });
+  assert.match(m, /\.mul\(gain\(square\.range\(0, 1\)\.fast\(4\)\)\)/);
+});
+
+test('P0.1 invariante: la mezcla nunca emite un .gain( escalar que pise', () => {
+  const r = C([src('s', 's("bd sd").gain("1 1.4 0.5 1")', { gain: 0.7 }), out()], [E('s', 'o')]);
+  const m = applyMaster(code(r), { gain: 1.2, filter: 0, room: 0, humanize: 0.3 });
+  // .gain( sin comilla tras el paréntesis = escalar/señal de mezcla → prohibido.
+  // (el .gain("…") de acentos del propio patrón sí es legítimo)
+  const scalar = m.match(/\.gain\((?!")[^)]*\)/g) ?? [];
+  assert.equal(scalar.length, 0, `emisiones que pisan: ${scalar.join(' · ')}`);
 });
 
 test('isSampleSource distinguishes samples from oscillators', () => {
