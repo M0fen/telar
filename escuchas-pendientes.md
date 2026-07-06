@@ -42,3 +42,11 @@ Marca cada punto al probarlo; si algo suena mal, ese punto manda sobre el roadma
 - [ ] **Autotune sin congelar**: aplicar autotune a una toma larga (30 s+) no congela la interfaz (corre en worker).
 - [ ] **Calidad R3**: A/B del autotune/warp aplicado — debe sonar más limpio (menos artefactos) que antes.
 - [ ] **Tiempo del eco de voz**: el delay de la voz cae al tempo con la subdivisión elegida (dub 3/16).
+
+## Split del estudio de voz + paleta única (sesión 2026-07-06)
+El split NO debía cambiar nada: esta pasada es para confirmar que el estudio se comporta idéntico.
+- [ ] **Recorrido completo del estudio**: grabar/cargar voz → onda con manijas → ▶ / ⟳ / ◈ con FX / ◎ en el tempo / ◆ warp RB → todo suena y se detiene como antes.
+- [ ] **Piano roll**: pintar melodía, escala, armonía, glide/vibrato — audición al poner nota igual que antes.
+- [ ] **Autotune real + ✧ limpiar + ✂ recortar**: probar → aplicar hornea; mensajes de estado aparecen bajo el transporte.
+- [ ] **Comping**: grabar 2 tomas, elegir tramos, componer; cerrar y REABRIR el estudio → las tomas siguen ahí (el estado sobrevive al cierre del panel).
+- [ ] **Paleta única**: el texto del editor de código de los nodos ahora coincide con el resto de la UI (antes era un pelín más apagado); cables y puntos del lienzo se ven igual que siempre.
