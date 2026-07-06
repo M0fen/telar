@@ -19,13 +19,19 @@ export const DEFAULT_NOTE = 'c3'; // nota por defecto al afinar una pista
 export const SWING_MAX = 0.34; // amount máx de .swingBy (~ tresillo a fondo)
 export const HUMAN_LATE = 0.02; // desfase máx (fracción de ciclo) del .late(rand…)
 export const HUMAN_GAIN = 0.3; // caída de dinámica máx del humanize (rand.range(1-x,1))
+// P1.2 — MICRO-TIMING por paso (el pocket): empuje/arrastre DETERMINISTA de cada golpe
+// (la caja que respira, el shaker que empuja). Se emite como patrón paralelo
+// `.late("0 0.01 0 -0.006 …")` alineado a los pasos; negativo = adelanta (verificado
+// contra el parser krill: la mini-notación acepta números negativos).
+export const NUDGE_MAX = 0.02; // ± fracción de ciclo por paso (~±20 ms a 96 BPM)
 
 export interface Lane {
   sound: string;
-  steps: number[]; // 0(off) | gain del paso (1 / 1.4 / 0.5)
+  steps: number[]; // 0(off) | gain del paso (1 / 1.4 / 0.5 o valor continuo)
   notes: (string | null)[]; // nota por paso (pista afinada) | null
   ratchet: number[]; // 1|2|3|4 (roll/tresillo → snd*N)
   prob: number[]; // 1|0.75|0.5|0.25 (probabilidad → snd?p)
+  nudge?: number[]; // micro-timing por paso (±NUDGE_MAX, fracción de ciclo) → .late("…")
   swing?: number; // groove por pista 0..1
   human?: number;
   level?: number; // nivel escalar del segmento (kit: .gain(0.35)) → se emite .mul(gain(x))
@@ -141,6 +147,7 @@ function lanesFromToks(
   toks: string[][],
   gainsPerSub: (number[] | null)[],
   notesPerSub: ((string | null)[] | null)[],
+  nudgesPerSub: (number[] | null)[],
   extrasPerSub: (SegExtras | null)[],
 ): { lanes: Lane[]; steps: number; complex: boolean } {
   const steps = Math.max(1, ...toks.map((t) => t.length));
@@ -153,20 +160,23 @@ function lanesFromToks(
   const noteMap = new Map<string, (string | null)[]>();
   const ratchMap = new Map<string, number[]>();
   const probMap = new Map<string, number[]>();
+  const nudgeMap = new Map<string, number[]>();
   const extraMap = new Map<string, SegExtras>();
   if (!complex) {
     toks.forEach((t, si) => {
       const gains = gainsPerSub[si];
       const notes = notesPerSub[si];
+      const nudges = nudgesPerSub[si];
       const extras = extrasPerSub[si];
       for (let i = 0; i < steps; i++) {
         const tk = t[i];
         if (!tk || tk === '~') continue;
         const snd = soundOf(tk);
         if (!snd) continue;
-        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); probMap.set(snd, Array(steps).fill(1)); }
+        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); probMap.set(snd, Array(steps).fill(1)); nudgeMap.set(snd, Array(steps).fill(0)); }
         laneMap.get(snd)![i] = gains && isFinite(gains[i]) ? gains[i] : NORMAL;
         if (notes && notes[i]) noteMap.get(snd)![i] = notes[i];
+        if (nudges && isFinite(nudges[i])) nudgeMap.get(snd)![i] = Math.max(-NUDGE_MAX, Math.min(NUDGE_MAX, nudges[i]));
         if (extras && !extraMap.has(snd)) extraMap.set(snd, extras); // extras son de segmento → 1ª pista del sub
         const rm = /\*(\d+)/.exec(tk); if (rm) ratchMap.get(snd)![i] = Math.max(1, Math.min(8, Number(rm[1]))); // roll por paso
         const pm = /\?([\d.]*)/.exec(tk); if (pm) probMap.get(snd)![i] = pm[1] ? Math.max(0, Math.min(1, Number(pm[1]))) : 0.5; // probabilidad por paso (hh? = 0.5)
@@ -175,8 +185,10 @@ function lanesFromToks(
   }
   const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => {
     const ex = extraMap.get(sound);
+    const nudge = nudgeMap.get(sound)!;
     return {
       sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)!, prob: probMap.get(sound)!,
+      nudge: nudge.some((v) => Math.abs(v) > 0.0005) ? nudge : undefined,
       swing: ex?.groove?.swing, human: ex?.groove?.human,
       level: ex && Math.abs(ex.level - 1) > 0.001 ? ex.level : undefined,
       sfx: ex?.sfx || undefined,
@@ -207,6 +219,7 @@ function parseStackForm(code: string): Parsed | null {
   const toks: string[][] = [];
   const gains: (number[] | null)[] = [];
   const notes: ((string | null)[] | null)[] = [];
+  const nudges: (number[] | null)[] = [];
   const extras: (SegExtras | null)[] = [];
   const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
   let badSfx = false;
@@ -215,13 +228,19 @@ function parseStackForm(code: string): Parsed | null {
   for (const seg of segs) {
     let rest = seg; // copia de la que vamos RETIRANDO lo que sí modelamos → el resto es sfx
     const cut = (m: RegExpExecArray | null) => { if (m) rest = rest.replace(m[0], ''); };
-    // groove por segmento (A5): .swingBy(x,n) y/o .late(rand.range(0,h)) + .velocity(rand…)
+    // groove por segmento (A5): .swingBy(x,n) y/o humanize .late(rand.range(a,b)) —
+    // centrado (-h/2,h/2) o legado (0,h) — + .velocity(rand…)
     const swM = /\.swingBy\(\s*([\d.]+)\s*,\s*\d+\s*\)/.exec(seg);
-    const laM = /\.late\(\s*rand\.range\(\s*0\s*,\s*([\d.]+)\s*\)\s*\)/.exec(seg);
+    const laM = /\.late\(\s*rand\.range\(\s*(-?[\d.]+)\s*,\s*([\d.]+)\s*\)\s*\)/.exec(seg);
     cut(swM); cut(laM);
     cut(/\.velocity\(\s*rand\.range\([^)]*\)\s*\)/.exec(rest)); // dinámica del humanize (se re-emite)
     cut(/\.gain\(\s*rand\.range\([^)]*\)\s*\)/.exec(rest)); // humanize legado por .gain (superseded)
-    const groove: Groove | null = (swM || laM) ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: laM ? clamp01(Number(laM[1]) / HUMAN_LATE) : undefined } : null;
+    const humanOf = (m: RegExpExecArray | null) => (m ? clamp01((Number(m[1]) < 0 ? 2 * Number(m[2]) : Number(m[2])) / HUMAN_LATE) : undefined);
+    const groove: Groove | null = (swM || laM) ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: humanOf(laM) } : null;
+    // micro-timing por paso (P1.2): patrón paralelo entrecomillado .late("0 0.01 …")
+    const nuM = /\.late\(\s*"([^"]*)"\s*\)/.exec(rest);
+    cut(nuM);
+    const nudge = nuM ? nuM[1].trim().split(/\s+/).map((x) => (x === '~' ? 0 : Number(x))).map((n) => (isFinite(n) ? n : 0)) : null;
     // gain "de acento" por segmento (entrecomillado; NO el rand del humanize)
     const gM = /\.gain\(\s*"([^"]*)"\s*\)/.exec(rest);
     cut(gM);
@@ -236,6 +255,7 @@ function parseStackForm(code: string): Parsed | null {
       toks.push(nt.map((t) => (t === '~' ? '~' : sM[1] + (/\*\d+/.exec(t)?.[0] ?? '') + (/\?[\d.]*/.exec(t)?.[0] ?? '')))); // conserva *N (roll) y ?p (prob) en la presencia
       notes.push(nt.map((t) => (t === '~' ? null : t.replace(/\*\d+/, '').replace(/\?[\d.]*/, ''))));
       gains.push(gain);
+      nudges.push(nudge);
     } else {
       const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(rest);
       if (!sM) return null; // segmento no es un s("…") → deja el patrón como avanzado
@@ -243,6 +263,7 @@ function parseStackForm(code: string): Parsed | null {
       toks.push(expand(sM[1]));
       notes.push(null);
       gains.push(gain);
+      nudges.push(nudge);
     }
     // banco por segmento: se extrae para unificarlo como banco de la rejilla (si es
     // coherente) o re-adjuntarlo al residuo (si cada pista trae el suyo).
@@ -269,7 +290,7 @@ function parseStackForm(code: string): Parsed | null {
     if (coherent) gridBank = withBank[0];
     else segBanks.forEach((b, i) => { const ex = extras[i]; if (b && ex) ex.sfx += `.bank("${b}")`; });
   }
-  const parsed = lanesFromToks(toks, gains, notes, extras);
+  const parsed = lanesFromToks(toks, gains, notes, nudges, extras);
   return { bank: gridBank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || badSfx || !tailOk };
 }
 
@@ -294,7 +315,7 @@ function parseSimpleForm(code: string): Parsed | null {
   const structOk = !code.slice(0, om.index).trim() && validSfx(tail);
   const sublanes = splitTop(content, ',').map((s) => s.trim()).filter((s) => s.length);
   const toks = sublanes.map(expand);
-  const parsed = lanesFromToks(toks, toks.map(() => null), toks.map(() => null), toks.map(() => null));
+  const parsed = lanesFromToks(toks, toks.map(() => null), toks.map(() => null), toks.map(() => null), toks.map(() => null));
   return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || !structOk };
 }
 
@@ -308,12 +329,15 @@ function parseMelodicForm(code: string): Parsed | null {
   const cut = (m: RegExpExecArray | null) => { if (m) rest = rest.replace(m[0], ''); };
   const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
   const swM = /\.swingBy\(\s*([\d.]+)\s*,\s*\d+\s*\)/.exec(rest); cut(swM);
-  const laM = /\.late\(\s*rand\.range\(\s*0\s*,\s*([\d.]+)\s*\)\s*\)/.exec(rest); cut(laM);
+  const laM = /\.late\(\s*rand\.range\(\s*(-?[\d.]+)\s*,\s*([\d.]+)\s*\)\s*\)/.exec(rest); cut(laM);
   cut(/\.velocity\(\s*rand\.range\([^)]*\)\s*\)/.exec(rest));
   cut(/\.gain\(\s*rand\.range\([^)]*\)\s*\)/.exec(rest));
   const groove: { swing?: number; human?: number } | null = (swM || laM)
-    ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: laM ? clamp01(Number(laM[1]) / HUMAN_LATE) : undefined }
+    ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: laM ? clamp01((Number(laM[1]) < 0 ? 2 * Number(laM[2]) : Number(laM[2])) / HUMAN_LATE) : undefined }
     : null;
+  // micro-timing por paso (P1.2): patrón paralelo entrecomillado .late("0 0.01 …")
+  const nuM = /\.late\(\s*"([^"]*)"\s*\)/.exec(rest); cut(nuM);
+  const nudge = nuM ? nuM[1].trim().split(/\s+/).map((x) => (x === '~' ? 0 : Number(x))).map((n) => (isFinite(n) ? n : 0)) : null;
   const gM = /\.gain\(\s*"([^"]*)"\s*\)/.exec(rest); cut(gM);
   const gain = gM ? gM[1].trim().split(/\s+/).map((x) => Number(x)).map((n) => (isFinite(n) ? n : 1)) : null;
   const noteM = /\bnote\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(rest);
@@ -328,7 +352,7 @@ function parseMelodicForm(code: string): Parsed | null {
   const nt = expand(noteM[1]);
   const toks = nt.map((t) => (t === '~' ? '~' : sound + (/\*\d+/.exec(t)?.[0] ?? '') + (/\?[\d.]*/.exec(t)?.[0] ?? '')));
   const notes = nt.map((t) => (t === '~' ? null : t.replace(/\*\d+/, '').replace(/\?[\d.]*/, '')));
-  const parsed = lanesFromToks([toks], [gain], [notes], [{ groove, level: lv.level, sfx }]);
+  const parsed = lanesFromToks([toks], [gain], [notes], [nudge], [{ groove, level: lv.level, sfx }]);
   let lanes = parsed.lanes;
   const steps = Math.max(parsed.steps, nt.length || 1);
   // melodía toda en silencio: la pista se crea IGUAL (el instrumento no se pierde y
@@ -475,9 +499,20 @@ function grooveSfx(l: Lane, steps: number): string {
   if ((l.swing ?? 0) > 0.01) s += `.swingBy(${fmt3((l.swing as number) * SWING_MAX)}, ${Math.max(2, Math.round(steps / 2))})`;
   // dinámica aleatoria por .velocity (NO .gain): superdough hace gain*=velocity, así se
   // MULTIPLICA con el .gain de los acentos en vez de pisarlo (dos .gain encadenados =
-  // el 2º gana, borraría los acentos).
-  if ((l.human ?? 0) > 0.01) { const h = l.human as number; s += `.late(rand.range(0,${fmt3(h * HUMAN_LATE)})).velocity(rand.range(${fmt3(1 - h * HUMAN_GAIN)},1))`; }
+  // el 2º gana, borraría los acentos). Timing CENTRADO (±h/2): la variación humana
+  // rodea el grid — el rango (0,h) anterior arrastraba todo el patrón hacia tarde.
+  if ((l.human ?? 0) > 0.01) { const h = l.human as number; s += `.late(rand.range(${fmt3(-h * HUMAN_LATE / 2)},${fmt3(h * HUMAN_LATE / 2)})).velocity(rand.range(${fmt3(1 - h * HUMAN_GAIN)},1))`; }
   return s;
+}
+// micro-timing por paso (P1.2): patrón paralelo .late("0 0.01 0 -0.006 …") alineado a
+// los pasos — el push/pull determinista del pocket (negativo = adelanta el golpe).
+function nudgeSfx(l: Lane, steps: number): string {
+  const n = l.nudge;
+  // solo cuenta el nudge de pasos ACTIVOS (el de un silencio no suena → no se emite;
+  // emitirlo dejaba el round-trip inestable). Posiciones inactivas se escriben 0.
+  if (!n || !n.slice(0, steps).some((v, i) => Math.abs(v) > 0.0005 && (l.steps[i] ?? 0) > 0)) return '';
+  const vals = Array.from({ length: steps }, (_, i) => ((l.steps[i] ?? 0) > 0 ? fmt3(Math.max(-NUDGE_MAX, Math.min(NUDGE_MAX, n[i] ?? 0))) : '0'));
+  return `.late("${vals.join(' ')}")`;
 }
 // nivel escalar del segmento: SIEMPRE `.mul(gain(x))` (multiplica los acentos; un
 // `.gain(x)` a secas los pisaría — P0.1d).
@@ -496,7 +531,7 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
     const bk = p.bank && !bankExempt(l.sound) ? `.bank("${p.bank}")` : '';
-    return `note("${body}").s("${l.sound}")${g}${grooveSfx(l, steps)}${bk}${l.sfx ?? ''}${levelSfx(l)}`;
+    return `note("${body}").s("${l.sound}")${g}${nudgeSfx(l, steps)}${grooveSfx(l, steps)}${bk}${l.sfx ?? ''}${levelSfx(l)}`;
   }
   if (!active.length) return `s("~")${p.bank ? `.bank("${p.bank}")` : ''}${tail}`; // vacía: conserva el banco elegido
   // BANCO: global (en la cola) solo si NINGUNA pista es exenta. Con mezcla de pistas
@@ -509,7 +544,8 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const hasAccent = active.some((l) => l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01));
   const anyPitched = active.some((l) => lanePitched(l, steps));
   const anyGroove = active.some(laneGroove);
-  const anyExtra = active.some(laneExtra) || mixedBank; // nivel/residuo/banco-mixto → stack
+  const anyNudge = active.some((l) => !!nudgeSfx(l, steps)); // micro-timing → necesita stack
+  const anyExtra = active.some(laneExtra) || mixedBank || anyNudge; // nivel/residuo/banco-mixto → stack
   if (!hasAccent && !anyPitched && !anyGroove && !anyExtra) {
     const body = active.map((l) => laneBody(l, steps)).join(', ');
     return `s("${body}")${bankSfx}${tail}`;
@@ -517,7 +553,7 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const parts = active.map((l) => {
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
-    const gr = grooveSfx(l, steps);
+    const gr = nudgeSfx(l, steps) + grooveSfx(l, steps);
     const bk = mixedBank && !bankExempt(l.sound) ? `.bank("${p.bank}")` : '';
     const extra = (l.sfx ?? '') + levelSfx(l); // residuo verbatim + nivel multiplicativo
     // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").

@@ -789,6 +789,16 @@ body {
 @keyframes seqs-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
 .seqs-seedline { margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
 .seqs-seedline b { color: var(--accent); }
+/* sub-filas del panel ≋: vel continua (barras) y micro-timing (punto centrado) */
+.seqs-bars { display: grid; gap: 2px; position: relative; margin-top: 3px; padding-left: 34px; height: 26px; }
+.seqs-bars-tag { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 30px; color: var(--dim); font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; text-align: right; padding-right: 4px; }
+.seqs-bar { position: relative; background: rgba(10,16,22,0.6); border: 1px solid var(--line); border-radius: 2px; cursor: ns-resize; overflow: hidden; touch-action: none; }
+.seqs-bar.beat { border-left-color: var(--accent-dim); }
+.seqs-bar.rest { opacity: 0.25; cursor: default; }
+.seqs-bar-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent-dim); }
+.seqs-bars.nudge .seqs-bar::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed rgba(255,255,255,0.12); }
+.seqs-bar-dot { position: absolute; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
+.seqs-bar-dot.on { background: #ffd166; box-shadow: 0 0 5px rgba(255,209,102,0.5); }
 .seqs-hint { margin: 0; font-size: 8px; color: var(--faint); line-height: 1.4; }
 /* onda en vivo del secuenciador */
 .seq-scope { background: rgba(2,5,8,0.6); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }

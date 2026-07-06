@@ -310,3 +310,55 @@ test('flujo sección callada COMPLETO: sembrar, pintar una nota y empalmar sin r
   assert.match(arms2[0].code, /^note\("c5 (?:~ ){14}~"\)\.s\("triangle"\)/); // el instrumento ENTRÓ en la sección
   assert.equal(arms2[1].code, ref.code); // la sección original quedó intacta
 });
+
+// --- P1.2 micro-timing por paso + humanize centrado · P1.5 velocity continua --------
+
+test('P1.2 nudge: se emite .late("…") alineado a los pasos y hace round-trip', () => {
+  const p = parsed('stack(s("bd ~ sd ~"))');
+  const lanes = p.lanes.map((l) => ({ ...l, nudge: [0, 0, 0.012, 0] }));
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /\.late\("0 0 0\.012 0"\)/);
+  const p2 = parseSeq(out)!;
+  assert.equal(p2.complex, false);
+  assert.deepEqual(p2.lanes.find((l) => l.sound === 'sd')?.nudge ?? p2.lanes[0].nudge, [0, 0, 0.012, 0]);
+  assert.equal(buildSeq(p2, p2.lanes, p2.steps), out, 'inestable');
+});
+
+test('P1.2 nudge negativo (adelanta) válido y con tope ±NUDGE_MAX', () => {
+  const p = parsed('stack(s("bd ~ bd ~"))');
+  const lanes = p.lanes.map((l) => ({ ...l, nudge: [-0.5, 0, 0.009, 0] })); // -0.5 se recorta
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /\.late\("-0\.02 0 0\.009 0"\)/);
+  new Function(`return 0 && (${out})`); // sintaxis válida con negativos
+});
+
+test('P1.2 humanize centrado: rand.range(-h/2, h/2) y round-trip de ambas formas', () => {
+  const p = parsed('stack(s("hh*8"))');
+  const lanes = p.lanes.map((l) => ({ ...l, human: 0.5 }));
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /\.late\(rand\.range\(-0\.005,0\.005\)\)/); // centrado, no (0, h)
+  // forma nueva re-parsea al mismo human…
+  const p2 = parseSeq(out)!;
+  assert.ok(Math.abs((p2.lanes[0].human ?? 0) - 0.5) < 0.01);
+  // …y la forma LEGADA (0, h) también se entiende
+  const leg = parseSeq('stack(s("hh*8").late(rand.range(0,0.01)).velocity(rand.range(0.85,1)))')!;
+  assert.ok(Math.abs((leg.lanes[0].human ?? 0) - 0.5) < 0.01);
+});
+
+test('P1.2 nudge en forma melódica: la melodía también tiene pocket', () => {
+  const p = parsed('note("c2 ~ eb2 ~").s("sine").lpf(600)');
+  const lanes = p.lanes.map((l) => ({ ...l, nudge: [0, 0, -0.008, 0] }));
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /^note\("c2 ~ eb2 ~"\)\.s\("sine"\)\.late\("0 0 -0\.008 0"\)\.lpf\(600\)$/);
+  const p2 = parseSeq(out)!;
+  assert.deepEqual(p2.lanes[0].nudge, [0, 0, -0.008, 0]);
+});
+
+test('P1.5 velocity continua: valores exactos en .gain("…") round-trip', () => {
+  const p = parsed('stack(s("sh sh sh sh"))');
+  const lanes = p.lanes.map((l) => ({ ...l, steps: [0.35, 0.62, 0.88, 1.2] })); // crescendo
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /\.gain\("0\.35 0\.62 0\.88 1\.2"\)/);
+  const p2 = parseSeq(out)!;
+  assert.deepEqual(p2.lanes[0].steps, [0.35, 0.62, 0.88, 1.2]);
+});

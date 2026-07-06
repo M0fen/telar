@@ -407,8 +407,10 @@ export function applyMaster(code: string, m: MasterFx): string {
   // dembow/dancehall). El n=4 anterior swingueaba corcheas (subdivisión equivocada).
   if (m.swing && m.swing > 0.01) out = `${out}.swingBy(${Math.min(0.6, m.swing).toFixed(2)}, 8)`;
   if (m.humanize && m.humanize > 0.01) {
+    // timing CENTRADO (±h/2): la variación rodea el grid; el rango (0,h) anterior
+    // arrastraba el patrón entero hacia tarde. (P1.2)
     const h = Math.min(1, m.humanize);
-    out = `${out}.late(rand.range(0, ${(h * 0.02).toFixed(3)})).mul(velocity(rand.range(${(1 - h * 0.35).toFixed(2)}, 1)))`;
+    out = `${out}.late(rand.range(${(-h * 0.01).toFixed(3)}, ${(h * 0.01).toFixed(3)})).mul(velocity(rand.range(${(1 - h * 0.35).toFixed(2)}, 1)))`;
   }
   // FX de performance momentáneos (afectan tiempo/estructura del máster):
   // reverse, loop roll (.ply repite cada evento) y gate rítmico (gain cuadrada,

@@ -6,7 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, bankExempt, buildSeq, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, seedSilent, splitArrange, spliceArm, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, bankExempt, buildSeq, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, seedSilent, splitArrange, spliceArm, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
@@ -103,6 +103,7 @@ const PERC_PALETTE: { s: string; label: string }[] = [
 // `headOff`: apaga el playhead cuando la sección editada no es la que está sonando.
 function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: string; code: string; wrap?: (c: string) => string; seedFrom?: string; previewCode?: string; headOff?: boolean }) {
   const update = useGraphStore((s) => s.updateNodeData);
+  const cps = useGraphStore((s) => s.cps); // para mostrar el timing por paso en ms
   const emit = (c: string) => update(id, { code: wrap ? wrap(c) : c });
   const parsed = useMemo(() => parseSeq(code), [code]);
   const seeded = useMemo(() => {
@@ -157,7 +158,7 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     return () => cancelAnimationFrame(raf);
   }, [steps, headOff, preview]);
   useEffect(() => {
-    const up = () => { drawing.current = null; dragPitch.current = null; };
+    const up = () => { drawing.current = null; dragPitch.current = null; dragBar.current = null; };
     window.addEventListener('pointerup', up);
     return () => window.removeEventListener('pointerup', up);
   }, []);
@@ -244,7 +245,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
       const nt = l.notes.slice(0, c); while (nt.length < c) nt.push(null);
       const rt = l.ratchet.slice(0, c); while (rt.length < c) rt.push(1);
       const pr = (l.prob ?? []).slice(0, c); while (pr.length < c) pr.push(1);
-      return { ...l, steps: s, notes: nt, ratchet: rt, prob: pr };
+      const nu = l.nudge ? l.nudge.slice(0, c) : undefined; if (nu) while (nu.length < c) nu.push(0);
+      return { ...l, steps: s, notes: nt, ratchet: rt, prob: pr, nudge: nu };
     });
     setLanes(nl); setSteps(c); commit(nl, c);
   };
@@ -273,9 +275,32 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     setLanes(nl); commit(nl);
   };
   const clearGroove = (li: number) => {
-    const nl = lanes.map((l, i) => (i === li ? { ...l, swing: 0, human: 0 } : l));
+    const nl = lanes.map((l, i) => (i === li ? { ...l, swing: 0, human: 0, nudge: undefined } : l));
     setLanes(nl); commit(nl);
   };
+  // P1.5 — VELOCITY CONTINUA por paso (arrastre vertical en el panel ≋): escribe el
+  // valor exacto en el .gain("…") de la pista (la percusión viva no tiene 3 niveles).
+  const setVelAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+    if (lanes[li].steps[si] <= 0) return; // solo pasos activos
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
+    const v = Math.round(Math.max(0.05, t * 1.5) * 100) / 100;
+    const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((x, j) => (j === si ? v : x)) } : l));
+    setLanes(nl); commit(nl);
+  };
+  // P1.2 — MICRO-TIMING por paso (push/pull del pocket): arrastre vertical centrado —
+  // abajo = atrás (late +), arriba = adelanta (−). Snap a 0 cerca del centro.
+  const setNudgeAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+    if (lanes[li].steps[si] <= 0) return;
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, (clientY - r.top) / r.height)); // 0 arriba .. 1 abajo
+    let v = (t - 0.5) * 2 * NUDGE_MAX;
+    if (Math.abs(v) < 0.0015) v = 0; // imán al grid
+    v = Math.round(v * 1000) / 1000;
+    const nl = lanes.map((l, i) => (i === li ? { ...l, nudge: (l.nudge ?? Array(steps).fill(0)).map((x, j) => (j === si ? v : x)) } : l));
+    setLanes(nl); commit(nl);
+  };
+  const dragBar = useRef<'vel' | 'nudge' | null>(null); // arrastre activo en las sub-filas del panel ≋
   // afinar por paso: CLIC + ARRASTRE VERTICAL relativo (tipo perilla). Con captura de
   // puntero se arrastra libremente arriba/abajo y el pitch sube/baja fluido. scale-lock engancha.
   const setNoteAt = (li: number, si: number, nn: string) => {
@@ -386,11 +411,47 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
                   </>
                 )}
                 {grooveOpen[l.sound] && (
+                  <>
                   <div className="seqs-groove">
                     <MiniSlider label="swing" value={l.swing ?? 0} min={0} max={1} step={0.02} onChange={(v) => setGroove(li, 'swing', v)} />
                     <MiniSlider label="human" value={l.human ?? 0} min={0} max={1} step={0.02} onChange={(v) => setGroove(li, 'human', v)} />
-                    <button className="seqs-pitch-x" onClick={() => clearGroove(li)} title="quitar el groove de esta pista">✕</button>
+                    <button className="seqs-pitch-x" onClick={() => clearGroove(li)} title="quitar groove, vel y timing de esta pista">✕</button>
                   </div>
+                  {/* P1.5 — velocity CONTINUA por paso (arrastra ↕; escribe el valor exacto) */}
+                  <div className="seqs-bars" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }} title="vel: volumen exacto por paso — arrastra ↕ (la percusión viva no tiene 3 niveles)">
+                    <span className="seqs-bars-tag">vel</span>
+                    {l.steps.slice(0, steps).map((v, si) => (
+                      <div
+                        key={si}
+                        className={`seqs-bar${v > 0 ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
+                        onPointerDown={(e) => { dragBar.current = 'vel'; setVelAt(li, si, e.clientY, e.currentTarget); }}
+                        onPointerEnter={(e) => { if (dragBar.current === 'vel') setVelAt(li, si, e.clientY, e.currentTarget); }}
+                        title={v > 0 ? `vel paso ${si + 1}: ${v}` : ''}
+                      >
+                        {v > 0 && <span className="seqs-bar-fill" style={{ height: `${Math.max(6, Math.min(100, (v / 1.5) * 100))}%` }} />}
+                      </div>
+                    ))}
+                  </div>
+                  {/* P1.2 — micro-timing por paso: el pocket (abajo = atrás · arriba = adelanta) */}
+                  <div className="seqs-bars nudge" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }} title="timing: empuja/arrastra cada golpe — abajo = atrás (late), arriba = adelanta. El pocket determinista.">
+                    <span className="seqs-bars-tag">timing</span>
+                    {l.steps.slice(0, steps).map((v, si) => {
+                      const nu = l.nudge?.[si] ?? 0;
+                      const ms = Math.round((nu / Math.max(0.05, cps)) * 1000);
+                      return (
+                        <div
+                          key={si}
+                          className={`seqs-bar${v > 0 ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
+                          onPointerDown={(e) => { dragBar.current = 'nudge'; setNudgeAt(li, si, e.clientY, e.currentTarget); }}
+                          onPointerEnter={(e) => { if (dragBar.current === 'nudge') setNudgeAt(li, si, e.clientY, e.currentTarget); }}
+                          title={v > 0 ? `timing paso ${si + 1}: ${ms > 0 ? `+${ms} ms (atrás)` : ms < 0 ? `${ms} ms (adelanta)` : 'en el grid'}` : ''}
+                        >
+                          {v > 0 && <span className={`seqs-bar-dot${Math.abs(nu) > 0.0005 ? ' on' : ''}`} style={{ top: `${Math.max(4, Math.min(92, ((nu + NUDGE_MAX) / (2 * NUDGE_MAX)) * 100 - 4))}%` }} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  </>
                 )}
               </div>
             </div>
