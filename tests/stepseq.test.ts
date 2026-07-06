@@ -75,6 +75,20 @@ test('groove por pista se re-emite (no se duplica el velocity del humanize)', ()
   assert.match(out, /\.swingBy\(/);
 });
 
+test('P0.2 swing por pista: n sigue la resolución de la rejilla (16 pasos → semicorcheas)', () => {
+  const p16 = parsed('stack(s("hh*16"))');
+  const l16 = p16.lanes.map((l) => ({ ...l, swing: 0.5 }));
+  assert.match(buildSeq(p16, l16, 16), /\.swingBy\(0\.17, 8\)/); // 16 pasos → n=8 (pares de semicorcheas)
+  const p8 = parsed('stack(s("hh*8"))');
+  const l8 = p8.lanes.map((l) => ({ ...l, swing: 0.5 }));
+  assert.match(buildSeq(p8, l8, 8), /\.swingBy\(0\.17, 4\)/); // 8 pasos → n=4
+});
+
+test('P0.2 swing: round-trip conserva el amount con cualquier n', () => {
+  const out = rebuild('stack(s("hh ~ hh ~ hh ~ hh ~").swingBy(0.17, 8))');
+  assert.match(out, /\.swingBy\(0\.17, 4\)/); // 8 pasos → re-emite con su n correcto
+});
+
 test('residuo irreconstruible → patrón avanzado (no se toca)', () => {
   const p = parseSeq('stack(s("bd") + algoRaro)');
   assert.ok(p);

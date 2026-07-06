@@ -281,9 +281,15 @@ export const laneGroove = (l: Lane) => (l.swing ?? 0) > 0.01 || (l.human ?? 0) >
 const laneExtra = (l: Lane) => !!l.sfx || Math.abs((l.level ?? 1) - 1) > 0.001;
 // sufijo de groove por pista (A5). swing = balanceo del tumbao; humanize = micro-timing
 // + micro-dinámica aleatorios (rand por golpe). Se emite como método sobre el segmento.
-function grooveSfx(l: Lane): string {
+//
+// P0.2: swingBy(x, n) parte el ciclo en n rebanadas y retrasa la 2ª mitad de cada una
+// (verificado en @strudel/core/pattern.mjs). El shuffle debe ir en el PAR de pasos
+// adyacentes → n = pasos/2 (16 pasos → 8 = swing de semicorcheas, el tumbao del
+// dembow; 8 pasos → 4). Antes iba fijo en 4: con 16 pasos swingueaba corcheas y
+// arrastraba los pasos 3-4 de cada negra en bloque — ningún riddim suena así.
+function grooveSfx(l: Lane, steps: number): string {
   let s = '';
-  if ((l.swing ?? 0) > 0.01) s += `.swingBy(${fmt3((l.swing as number) * SWING_MAX)}, 4)`;
+  if ((l.swing ?? 0) > 0.01) s += `.swingBy(${fmt3((l.swing as number) * SWING_MAX)}, ${Math.max(2, Math.round(steps / 2))})`;
   // dinámica aleatoria por .velocity (NO .gain): superdough hace gain*=velocity, así se
   // MULTIPLICA con el .gain de los acentos en vez de pisarlo (dos .gain encadenados =
   // el 2º gana, borraría los acentos).
@@ -311,7 +317,7 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const parts = active.map((l) => {
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
-    const gr = grooveSfx(l);
+    const gr = grooveSfx(l, steps);
     const extra = (l.sfx ?? '') + levelSfx(l); // residuo verbatim + nivel multiplicativo
     // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").
     if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}${gr}${extra}`;

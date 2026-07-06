@@ -398,7 +398,10 @@ export function applyMaster(code: string, m: MasterFx): string {
   // no existe (idéntico al comportamiento anterior para eventos sin gain). Antes,
   // mover el fader de un canal borraba los acentos, y el humanize/gain del máster
   // aplanaba el balance de TODOS los canales.
-  if (m.swing && m.swing > 0.01) out = `${out}.swingBy(${Math.min(0.6, m.swing).toFixed(2)}, 4)`;
+  // P0.2: swingBy(x, n) = n rebanadas por ciclo, retrasa la 2ª mitad de cada una.
+  // n=8 → swing de SEMICORCHEAS con el compás estándar de 16 pasos (el tumbao del
+  // dembow/dancehall). El n=4 anterior swingueaba corcheas (subdivisión equivocada).
+  if (m.swing && m.swing > 0.01) out = `${out}.swingBy(${Math.min(0.6, m.swing).toFixed(2)}, 8)`;
   if (m.humanize && m.humanize > 0.01) {
     const h = Math.min(1, m.humanize);
     out = `${out}.late(rand.range(0, ${(h * 0.02).toFixed(3)})).mul(velocity(rand.range(${(1 - h * 0.35).toFixed(2)}, 1)))`;

@@ -157,6 +157,11 @@ test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
   assert.match(m, /\.mul\(gain\(1\.30\)\)/);
 });
 
+test('P0.2 swing del máster: semicorcheas (n=8) — el tumbao del dembow', () => {
+  const m = applyMaster('s("hh*16")', { gain: 1, filter: 0, room: 0, swing: 0.3 });
+  assert.match(m, /\.swingBy\(0\.30, 8\)/);
+});
+
 test('P0.1 gate del máster: corte multiplicativo (mantiene el balance mientras corta)', () => {
   const m = applyMaster('s("bd")', { gain: 1, filter: 0, room: 0, gate: 4 });
   assert.match(m, /\.mul\(gain\(square\.range\(0, 1\)\.fast\(4\)\)\)/);
