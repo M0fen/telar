@@ -644,7 +644,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           let text = applyMaster(`(${inner})`, {
             gain: (node.data.gain ?? 1) * xf,
             filter: node.data.chFilter ?? 0,
-            room: 0,
+            // reverb send del canal (V3 · halo de la superficie de mezcla). 0..0.8.
+            room: Math.max(0, Math.min(0.8, Number(node.data.chRoom) || 0)),
           });
           // tap del analyser del instrumento (no altera el sonido): alimenta el VU
           // por canal (siempre) y el osciloscopio inline (cuando está activo).

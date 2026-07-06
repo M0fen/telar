@@ -267,6 +267,7 @@ export interface NodeData {
   seqPreviewCode?: string;
   chFilter?: number; // -1..1 : <0 lpf baja, >0 hpf sube
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
+  chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)
   // --- DJ mode (mixer de performance) ---
   xfa?: 'a' | 'b'; // asignación al crossfader (A/B); undefined = siempre suena (fuera del fader)

@@ -2325,6 +2325,44 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .devpanel-flags input { accent-color: var(--accent); cursor: pointer; }
 .devpanel-hint { margin: 7px 0 0; font-size: 8.5px; line-height: 1.4; color: var(--faint); }
 
+/* --- V3 · superficie de mezcla espacial (pan × frecuencia) --- */
+.sm-backdrop { position: fixed; inset: 0; z-index: 80; background: rgba(2, 4, 6, 0.6); backdrop-filter: blur(2px); }
+.sm-panel {
+  position: fixed; z-index: 81; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(560px, 92vw); background: var(--panel-solid); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: var(--hud-shadow); padding: 14px; font-family: var(--mono);
+}
+.sm-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; }
+.sm-title { font-size: 13px; color: var(--text); letter-spacing: 0.04em; }
+.sm-sub { font-size: 9px; color: var(--faint); letter-spacing: 0.06em; }
+.sm-x { margin-left: auto; background: none; border: none; color: var(--dim); font-size: 18px; cursor: pointer; line-height: 1; padding: 0 2px; }
+.sm-x:hover { color: var(--warn); }
+.sm-warn { font-size: 9.5px; color: var(--warn); margin-bottom: 8px; }
+.sm-empty { padding: 40px; text-align: center; color: var(--faint); font-size: 11px; }
+.sm-area {
+  position: relative; width: 100%; aspect-ratio: 1; touch-action: none; overflow: hidden;
+  background: radial-gradient(circle at 50% 50%, rgba(61, 240, 208, 0.04), transparent 70%), #04070a;
+  border: 1px solid var(--line); border-radius: 5px;
+}
+.sm-mid-h { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.05); }
+.sm-mid-v { position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: rgba(255, 255, 255, 0.05); }
+.sm-axis-y, .sm-axis-x { position: absolute; font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); pointer-events: none; }
+.sm-axis-hi { top: 4px; left: 50%; transform: translateX(-50%); }
+.sm-axis-lo { bottom: 4px; left: 50%; transform: translateX(-50%); }
+.sm-axis-l { left: 5px; top: 50%; transform: translateY(-50%); }
+.sm-axis-r { right: 5px; top: 50%; transform: translateY(-50%); }
+.sm-dot { position: absolute; transform: translate(-50%, -50%); cursor: grab; touch-action: none; }
+.sm-dot:active { cursor: grabbing; }
+.sm-dot-core {
+  display: block; width: var(--sz, 14px); height: var(--sz, 14px); border-radius: 50%;
+  background: hsl(var(--hue, 160) 80% 55%);
+  box-shadow: 0 0 var(--halo, 0px) hsl(var(--hue, 160) 75% 55%), 0 0 9px hsl(var(--hue, 160) 80% 60% / calc(var(--lvl, 0) * 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.25); transition: width 70ms linear, height 70ms linear;
+}
+.sm-dot-label { position: absolute; left: 50%; top: 100%; transform: translateX(-50%); margin-top: 3px; font-size: 8px; color: var(--dim); white-space: nowrap; pointer-events: none; text-shadow: 0 0 3px #000; }
+.sm-dot.collide .sm-dot-core { box-shadow: 0 0 var(--halo, 0px) hsl(var(--hue, 160) 75% 55%), 0 0 0 2px var(--warn), 0 0 11px var(--warn); }
+.sm-hint { margin: 10px 0 0; font-size: 9px; line-height: 1.5; color: var(--faint); }
+
 /* "hilo activo": punto que se enciende con el nivel real del source (concepto telar).
    Apagado ≈ invisible; al sonar brilla y crece su halo. Lo mueve --lvl (meterEngine). */
 .tn-live {

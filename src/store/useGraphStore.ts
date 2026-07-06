@@ -386,6 +386,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
         'params' in patch ||
         'gain' in patch ||
         'chFilter' in patch ||
+        'chPan' in patch || // paneo de canal (superficie de mezcla V3) → .pan()
+        'chRoom' in patch || // reverb send de canal (V3) → .room()
         'begin' in patch ||
         'end' in patch ||
         'code' in patch ||

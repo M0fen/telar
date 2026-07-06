@@ -7,6 +7,7 @@ import { AiSong } from './AiSong';
 import { AiSfx } from './AiSfx';
 import { Tutorial } from './Tutorial';
 import { PackGenerator } from './PackGenerator';
+import { SpatialMix } from './SpatialMix';
 import { useSamplePacksStore } from '../store/useSamplePacksStore';
 import { loadSamplePack } from '../audio/engine';
 
@@ -66,6 +67,7 @@ export function ToolsMenu() {
   const [sfxOpen, setSfxOpen] = useState(false);
   const [tutOpen, setTutOpen] = useState(false);
   const [pgOpen, setPgOpen] = useState(false);
+  const [mixOpen, setMixOpen] = useState(false);
   // se abre solo la PRIMERA vez (invita a hacer música); luego, desde este menú.
   useEffect(() => {
     try {
@@ -117,6 +119,16 @@ export function ToolsMenu() {
               <span>sfx IA · texto → sonido</span>
             </button>
             <div className="tools-sep" />
+            <button className="tools-row" onClick={() => { setMixOpen(true); setOpen(false); }} title="superficie de mezcla espacial: cada instrumento es un punto (paneo × frecuencia); arrástralos para que no choquen">
+              {/* diana = superficie espacial (paneo × frecuencia) */}
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <circle cx="12" cy="12" r="4" />
+                <line x1="12" y1="1" x2="12" y2="4" /><line x1="12" y1="20" x2="12" y2="23" />
+                <line x1="1" y1="12" x2="4" y2="12" /><line x1="20" y1="12" x2="23" y2="12" />
+              </svg>
+              <span>superficie de mezcla · pan × frecuencia</span>
+            </button>
             <button className="tools-row" onClick={() => { setPgOpen(true); setOpen(false); }} title="generar packs de sonido: arrastra tus .wav y quedan como s(&quot;nombre&quot;), persisten y se exportan">
               {/* cajas/paquete = pack de sonidos */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
@@ -147,6 +159,7 @@ export function ToolsMenu() {
       <AiSfx open={sfxOpen} onClose={() => setSfxOpen(false)} />
       <Tutorial open={tutOpen} onClose={() => setTutOpen(false)} />
       <PackGenerator open={pgOpen} onClose={() => setPgOpen(false)} />
+      <SpatialMix open={mixOpen} onClose={() => setMixOpen(false)} />
     </div>
   );
 }
