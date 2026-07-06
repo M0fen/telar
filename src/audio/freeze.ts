@@ -26,7 +26,9 @@ export async function freezeSource(sourceId: string, cycles: number): Promise<Fr
 
   const cps = store.cps || 0.5;
   const secPerCycle = 1 / cps;
-  const cyc = Math.max(1, Math.min(16, Math.round(cycles)));
+  // hasta 64 ciclos (P2.5): una sección completa de 16 compases (o la canción corta)
+  // cabe en un solo freeze — antes el tope de 16 se quedaba corto para stems reales.
+  const cyc = Math.max(1, Math.min(64, Math.round(cycles)));
 
   // 1) guardar el estado de solo y AISLAR la fuente objetivo (recompila 1 vez).
   const prevSolo = new Map<string, boolean>();

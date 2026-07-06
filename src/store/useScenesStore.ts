@@ -1,12 +1,14 @@
 import { create } from 'zustand';
-import type { NodeData } from '../graph/types';
+import type { ChannelEq, NodeData } from '../graph/types';
+import type { MasterFx } from '../graph/compile';
 import { useGraphStore } from './useGraphStore';
 
 // Escenas / bancos de patrones disparables (Fase A — performance en vivo). Una
 // escena NO recarga el grafo (eso es la galería): captura el ESTADO de mezcla de
-// cada nodo —mute, solo, gain, filtro de canal y params de fx/transform— y al
-// dispararla lo reaplica de golpe. Así saltas entre "intro / drop / break" al
-// instante con las teclas 1–9. Persistido en localStorage por proyecto vivo.
+// cada nodo —mute, solo, gain, filtro, pan, EQ de canal y params de fx/transform—
+// MÁS el estado del MÁSTER (P2.1: un "drop" puede abrir el filtro del máster o
+// cambiar su groove), y al dispararla lo reaplica de golpe. Teclas 1–9.
+// Persistido en localStorage por proyecto vivo.
 
 // Parche de estado por nodo que guarda una escena.
 export interface SceneState {
@@ -14,6 +16,8 @@ export interface SceneState {
   solo?: boolean;
   gain?: number;
   chFilter?: number;
+  chPan?: number;
+  eq?: ChannelEq;
   params?: Record<string, number | string>;
 }
 
@@ -21,6 +25,7 @@ export interface Scene {
   slot: number; // 1..9
   name: string;
   state: Record<string, SceneState>; // por nodeId
+  master?: MasterFx; // estado del máster al capturar (escenas viejas no lo traen → no se toca)
   savedAt: number;
 }
 
@@ -51,6 +56,8 @@ function snapshotState(): Record<string, SceneState> {
     const s: SceneState = { mute: !!d.mute, solo: !!d.solo };
     if (typeof d.gain === 'number') s.gain = d.gain;
     if (typeof d.chFilter === 'number') s.chFilter = d.chFilter;
+    if (typeof d.chPan === 'number') s.chPan = d.chPan;
+    if (d.eq) s.eq = { ...d.eq };
     if (d.params && Object.keys(d.params).length) s.params = { ...d.params };
     out[n.id] = s;
   }
@@ -76,6 +83,7 @@ export const useScenesStore = create<ScenesStore>((set, get) => ({
       slot,
       name: name ?? prev?.name ?? `escena ${slot}`,
       state: snapshotState(),
+      master: { ...useGraphStore.getState().master }, // el máster forma parte de la escena
       savedAt: Date.now(),
     };
     const scenes = { ...get().scenes, [slot]: scene };
@@ -87,8 +95,10 @@ export const useScenesStore = create<ScenesStore>((set, get) => ({
     const scene = get().scenes[slot];
     if (!scene) return;
     // SceneState es estructuralmente un Partial<NodeData> (mute/solo/gain/chFilter/
-    // params); el cast salva la firma de índice de NodeData.
+    // chPan/eq/params); el cast salva la firma de índice de NodeData.
     useGraphStore.getState().applyNodeStates(scene.state as Record<string, Partial<NodeData>>);
+    // máster de la escena (si lo capturó): filtro/groove/bus del "drop" saltan también.
+    if (scene.master) useGraphStore.getState().setMaster(scene.master);
     set({ active: slot });
   },
 

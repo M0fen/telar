@@ -38,9 +38,14 @@ export function SongTimeline() {
       let elapsed = now - start;
       if (loop) elapsed = ((elapsed % total) + total) % total;
       else if (elapsed >= total) { setPlaying(false); return; }
+      // P2.3 — ANTICIPACIÓN: el disparo por rAF llegaba hasta un frame + un hot-swap
+      // TARDE respecto a la frontera del compás. Miramos ~90 ms hacia delante (en
+      // ciclos, según el cps real) para que la escena aterrice EN el 1, no después.
+      const lookCyc = 0.09 * (useGraphStore.getState().cps || 0.5);
+      const ahead = loop ? (((elapsed + lookCyc) % total) + total) % total : Math.min(elapsed + lookCyc, total - 1e-6);
       let acc = 0;
       let idx = steps.length - 1;
-      for (let i = 0; i < steps.length; i++) { acc += Math.max(1, steps[i].bars); if (elapsed < acc) { idx = i; break; } }
+      for (let i = 0; i < steps.length; i++) { acc += Math.max(1, steps[i].bars); if (ahead < acc) { idx = i; break; } }
       if (idx !== last) { last = idx; setIndex(idx); useScenesStore.getState().trigger(steps[idx].scene); }
       raf = requestAnimationFrame(tick);
     };
