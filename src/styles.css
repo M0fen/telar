@@ -1384,6 +1384,7 @@ button.pal-item { width: 100%; }
   border: 1px solid var(--line); border-radius: 3px; overflow: hidden; user-select: none;
 }
 .vs-wave-none { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--faint); font-size: 12px; font-style: italic; padding: 0 20px; text-align: center; }
+.vs-wave-err { color: #e46a6a; font-style: normal; }
 .vs-wave-bars { position: absolute; inset: 0; display: flex; align-items: center; gap: 1px; padding: 0 1px; }
 .vs-wave-bars span { flex: 1; min-width: 0; background: var(--line); border-radius: 1px; }
 .vs-wave-bars span.on { background: var(--accent); }

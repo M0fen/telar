@@ -8,6 +8,7 @@ import { MiniSlider } from '../nodes/MiniSlider';
 import { getVoiceUrl, setVoiceUrl } from '../lib/voiceUrls';
 import { audioBufferToWav } from '../lib/wavEncode';
 import { playVoiceSample, playVoiceNote } from '../audio/playNote';
+import { toast } from '../store/useNotifyStore';
 
 // Estudio de voz DEDICADO (área propia, sustituye al mini-panel del nodo). Pro:
 //   • vista previa REPRODUCIBLE de la onda con cabezal (play/loop, clic = scrub),
@@ -242,6 +243,7 @@ export function VoiceStudio() {
   useEffect(() => { setLocalUrl(null); }, [name]); // al cambiar de voz, olvida el recorte local
 
   const [peaks, setPeaks] = useState<number[] | null>(null);
+  const [decodeErr, setDecodeErr] = useState<string | null>(null); // fallo al descargar/decodificar
   const wrapRef = useRef<HTMLDivElement>(null);
   // preview reproducible
   const bufRef = useRef<AudioBuffer | null>(null);
@@ -273,11 +275,14 @@ export function VoiceStudio() {
   useEffect(() => {
     let alive = true;
     setPeaks(null);
+    setDecodeErr(null);
     bufRef.current = null;
     if (!audioUrl) return;
     (async () => {
       try {
-        const ab = await (await fetch(audioUrl)).arrayBuffer();
+        const res = await fetch(audioUrl);
+        if (!res.ok) throw new Error(`no se pudo descargar el audio (HTTP ${res.status})`);
+        const ab = await res.arrayBuffer();
         const buf = await getAudioCtx().decodeAudioData(ab);
         if (!alive) return;
         bufRef.current = buf;
@@ -294,8 +299,8 @@ export function VoiceStudio() {
           p.push(mx);
         }
         if (alive) { setPeaks(p); setHead(bufRef.current ? (node?.data.begin ?? 0) : null); }
-      } catch {
-        if (alive) setPeaks(null);
+      } catch (err) {
+        if (alive) { setPeaks(null); setDecodeErr(err instanceof Error ? err.message : 'no se pudo cargar el audio'); }
       }
     })();
     return () => { alive = false; };
@@ -325,7 +330,7 @@ export function VoiceStudio() {
 
   const playPreview = (from?: number) => {
     const buf = bufRef.current;
-    if (!buf) return;
+    if (!buf) { setWarpMsg(decodeErr ? `⚠ ${decodeErr}` : '⚠ aún no hay audio decodificado para reproducir.'); return; }
     stopPreview();
     const ctx = getAudioCtx();
     if (ctx.state === 'suspended') void ctx.resume();
@@ -443,6 +448,17 @@ export function VoiceStudio() {
     const rect = wrapRef.current!.getBoundingClientRect();
     setHead(clamp01((ev.clientX - rect.left) / rect.width));
   };
+  // «con FX»: audiciona con efectos, PERO antes detecta las causas comunes de silencio y
+  // avisa (en vez de sonar mudo sin explicación): sin sample, gain en 0, o «pos» empujando
+  // el inicio más allá del recorte.
+  const playFx = () => {
+    if (!name) { setWarpMsg('⚠ esta voz no tiene un sample s("…") reconocible → no se puede oír con FX.'); toast.warn('Esta voz no tiene un sample editable (s("…")).'); return; }
+    if (Number(v.gain ?? 1) < 0.001) { setWarpMsg('⚠ «gain» (diseño de sonido → carácter) está en 0 → sin sonido. Súbelo o pulsa «restablecer».'); return; }
+    const pos = clamp01(Number(v.position ?? 0));
+    if (pos >= Math.max(0, e) - 0.004) { setWarpMsg('⚠ «pos» está tan a la derecha que no queda región para sonar. Bájalo.'); return; }
+    setWarpMsg('');
+    void playVoiceSample(name, v, b, e, bufRef.current?.duration ?? 6);
+  };
   // reproduce un AudioBuffer arbitrario (el resultado del warp) directo a la salida.
   const playAudioBuffer = (buf: AudioBuffer) => {
     const ctx = getAudioCtx();
@@ -475,7 +491,7 @@ export function VoiceStudio() {
       else setWarpMsg(`✓ warp OK · ${semi > 0 ? '+' : ''}${semi} semis · ${(warped.length / warped.sampleRate).toFixed(2)}s (misma duración)`);
       playAudioBuffer(warped);
     } catch (err) {
-      setWarpMsg('✗ error: ' + (err instanceof Error ? err.message : String(err)));
+      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ error: ' + m); toast.err('Warp RB: ' + m); }
     } finally {
       setWarpBusy(false);
     }
@@ -498,7 +514,7 @@ export function VoiceStudio() {
       setHead(0);
       setWarpMsg(`✂ recortado a ${(region.length / region.sampleRate).toFixed(2)}s (espacio no usado eliminado).`);
     } catch (err) {
-      setWarpMsg('✗ no se pudo recortar: ' + (err instanceof Error ? err.message : String(err)));
+      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ no se pudo recortar: ' + m); toast.err('Recorte: ' + m); }
     }
   };
   // B2 — AUTOTUNE REAL: corrige el tono de la toma (región recortada) hacia la escala.
@@ -528,7 +544,7 @@ export function VoiceStudio() {
         setWarpMsg(`▶ previa de autotune · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'} (pulsa «aplicar» para hornear)`);
       }
     } catch (err) {
-      setWarpMsg('✗ error de autotune: ' + (err instanceof Error ? err.message : String(err)));
+      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ error de autotune: ' + m); toast.err('Autotune: ' + m); }
     } finally {
       setAtBusy(false);
     }
@@ -553,7 +569,7 @@ export function VoiceStudio() {
       playAudioBuffer(cleaned);
       setWarpMsg('✓ voz limpiada (ruido de fondo silenciado).');
     } catch (err) {
-      setWarpMsg('✗ error al limpiar: ' + (err instanceof Error ? err.message : String(err)));
+      { const m = err instanceof Error ? err.message : String(err); setWarpMsg('✗ error al limpiar: ' + m); toast.err('Limpiar: ' + m); }
     } finally {
       setAtBusy(false);
     }
@@ -588,6 +604,8 @@ export function VoiceStudio() {
         <div className="vs-wave" ref={wrapRef} onPointerDown={scrub}>
           {!audioUrl ? (
             <div className="vs-wave-none">graba una voz (● grabar) o descarga un audio para editarlo aquí</div>
+          ) : decodeErr ? (
+            <div className="vs-wave-none vs-wave-err">⚠ {decodeErr}. Reintenta grabando o recargando el audio.</div>
           ) : !peaks ? (
             <div className="vs-wave-none">decodificando…</div>
           ) : (
@@ -622,7 +640,7 @@ export function VoiceStudio() {
               >⟳</button>
               <button
                 className="vs-fxbtn"
-                onClick={() => { if (name) void playVoiceSample(name, v, b, e, bufRef.current?.duration ?? 6); }}
+                onClick={playFx}
                 title="escuchar la voz CON sus efectos (formante, espacio, afinar, pulir) — disparo estático, al instante. NO muestra al-tempo/granular/melodía (eso es del patrón)."
               >◈ con FX</button>
               <button
