@@ -81,7 +81,9 @@ const GRAPH_FORMAT = `TAREA: traduce la descripción del usuario a un GRAFO JSON
 TEMPO: cps = bpm / 240.
 NODOS: fuente { "id":"src_1","type":"source","data":{"kind":"source","name":"bombo","code":"<Strudel>"} } · efecto { "id":"fx_1","type":"fx","data":{"kind":"fx","opId":"lpf","params":{"cutoff":800}} } · salida ÚNICA obligatoria { "id":"out_1","type":"out","data":{"kind":"out"} }. Cada fuente conecta a out_1 (directa o por efectos); edges: source->target por id.
 opId efectos: lpf{cutoff} hpf{cutoff} room{amt} delay{amt} crush{bits} sidechain{depth,rate} compressor{threshold,ratio,knee,attack,release} gain{amt} pan{pos}. opId transformaciones: fast{n} slow{n} rev chop{n} every{n} euclid{pulses,steps,rot} scale{name} arp{mode} ply{n}.
-Entre 5 y 7 instrumentos con ROLES claros (bombo, caja, hats, sub/bajo y 1-2 melódicos del género), UNA escala/tono coherente, MEZCLA base en el propio código (gain/pan/lpf/hpf/shape con headroom, hats ~0.4, graves al centro) y EVOLUCIÓN con arrange. Nombra cada fuente en español. Si te doy un grafo actual, edítalo solo si te lo piden; si piden algo nuevo, ignóralo.`;
+Entre 5 y 7 instrumentos con ROLES claros (bombo, caja, hats, sub/bajo y 1-2 melódicos del género), UNA escala/tono coherente, MEZCLA base en el propio código (gain/pan/lpf/hpf/shape con headroom, hats ~0.4, graves al centro) y EVOLUCIÓN con arrange.
+ARRANQUE COMPLETO (CRÍTICO — al dar PLAY debe sonar LLENO desde el compás 1): la PRIMERA sección del arrange trae YA la base rítmica completa (kick + hats + caja/perc). PROHIBIDO abrir con silence o solo un kick disperso/sincopado: eso suena a "no suena" y el usuario cree que está roto. Las entradas con silence al principio se reservan para elementos MELÓDICOS (stab/lead/pad/bajo) o breakdowns POSTERIORES, NUNCA para la percusión base. Si el kick es sincopado/ralo, los hats o una perc rellenan el hueco para que el groove se sostenga desde el inicio.
+TRADUCE EN LAPTOP: desde el compás 1 tiene que haber energía en MEDIOS (200 Hz–2 kHz), no solo sub grave + hats hiper-filtrados con hpf alto — o en altavoces chicos no se oye nada. Nombra cada fuente en español. Si te doy un grafo actual, edítalo solo si te lo piden; si piden algo nuevo, ignóralo.`;
 
 // SISTEMA compuesto por capas.
 const SPEC = [IDENTITY, SOUND_PRO, INSTRUMENTS, GENRES, STRUDEL, GRAPH_FORMAT].join('\n\n');
@@ -93,7 +95,7 @@ const FEWSHOT_ASSISTANT = JSON.stringify({
   master: { gain: 1, room: 0.12, drive: 0.15 },
   nodes: [
     { id: 'src_1', type: 'source', data: { kind: 'source', name: 'bombo', code: 'arrange([4, s("bd*4").bank("RolandTR909").shape(0.35)],[8, s("bd*4").bank("RolandTR909").shape(0.4).gain(1.05)])' } },
-    { id: 'src_2', type: 'source', data: { kind: 'source', name: 'hats', code: 'arrange([4, silence],[8, s("~ hh ~ hh").bank("RolandTR909").gain(0.5)])' } },
+    { id: 'src_2', type: 'source', data: { kind: 'source', name: 'hats', code: 'arrange([4, s("~ hh ~ hh").bank("RolandTR909").gain(0.4)],[8, s("~ hh ~ hh").bank("RolandTR909").gain(0.5)])' } },
     { id: 'src_3', type: 'source', data: { kind: 'source', name: 'sub', code: 'note("c1*4").s("sine").lpf(200)' } },
     { id: 'src_4', type: 'source', data: { kind: 'source', name: 'stab', code: 'arrange([4, silence],[8, note("[c3,eb3,gb3] ~ ~ ~").s("sawtooth").lpf(1400).lpq(8).shape(0.2).gain(0.5)])' } },
     { id: 'out_1', type: 'out', data: { kind: 'out' } },
