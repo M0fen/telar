@@ -16,6 +16,8 @@ import { registerLocalSample } from './audio/engine';
 import { sampleDuration, sampleSourceCode } from './lib/audioMeta';
 import { readSharedProject, clearShareHash } from './lib/share';
 import { nodeTypes } from './nodes/nodeTypes';
+import { SignalEdge } from './nodes/SignalEdge';
+import { setFlowTopology } from './nodes/signalFlow';
 import { Visualizer } from './viz/Visualizer';
 import { Transport } from './ui/Transport';
 import { Palette, type PaletteDrag } from './ui/Palette';
@@ -54,6 +56,10 @@ function distToSeg(p: XYPosition, a: XYPosition, b: XYPosition): number {
   const cy = a.y + t * dy;
   return Math.hypot(p.x - cx, p.y - cy);
 }
+
+// Cables como conducto de señal (V1a). Referencia estable a nivel de módulo (React Flow
+// exige que edgeTypes no cambie de identidad entre renders).
+const edgeTypes = { signal: SignalEdge };
 
 export default function App() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -398,16 +404,22 @@ export default function App() {
     [addNode, insertOnEdge, replaceOp, nearestEdge, nodeAt, setHoverEdge, setDragItem, onDropFiles]
   );
 
-  // Inyecta el resaltado "imán" en el cable destino mientras se arrastra.
+  // Inyecta el resaltado "imán" en el cable destino mientras se arrastra. Todos los
+  // cables usan el edge de señal (V1a): la energía viaja por ellos hacia el Out.
   const displayEdges = useMemo<Edge[]>(
     () =>
       edges.map((ed) =>
         ed.id === hoverEdgeId
-          ? { ...ed, className: 'edge-magnet', animated: true, style: { stroke: tokens.accent, strokeWidth: 3 } }
-          : ed
+          ? { ...ed, type: 'signal', className: 'edge-magnet', animated: true, style: { stroke: tokens.accent, strokeWidth: 3 } }
+          : { ...ed, type: 'signal' }
       ),
     [edges, hoverEdgeId]
   );
+
+  // V1a: fija la topología del grafo en signalFlow para propagar el pulso source→out.
+  // Solo recalcula al cambiar la ESTRUCTURA (no al arrastrar): setFlowTopology compara
+  // una firma y sale temprano si no cambió.
+  useEffect(() => { setFlowTopology(nodes, edges); }, [nodes, edges]);
 
   return (
     <div className="app" style={{ background: tokens.bg, ['--viz-h' as string]: `${vizVisible ? vizHeight : 0}px` }}>
@@ -420,6 +432,7 @@ export default function App() {
               nodes={nodes}
               edges={displayEdges}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}

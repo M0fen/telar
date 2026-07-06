@@ -14,6 +14,7 @@ import { Decoration, type DecorationSet, EditorView } from '@codemirror/view';
 import type { SourceSpan } from '../graph/compile';
 import { getScheduler } from '../audio/engine';
 import { tokens } from '../theme/tokens';
+import { bumpPulse } from './signalFlow';
 
 const FLASH_MS = 150;
 
@@ -108,6 +109,7 @@ function tick() {
             const arr = active.get(sp.nodeId) ?? [];
             arr.push({ from: loc.start - sp.start, to: loc.end - sp.start, until: nowMs + FLASH_MS });
             active.set(sp.nodeId, arr);
+            bumpPulse(sp.nodeId); // V1a: el mismo onset enciende el pulso del grafo
           }
         }
       } catch {

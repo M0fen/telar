@@ -402,6 +402,26 @@ body {
 }
 @keyframes magnet-flow { to { stroke-dashoffset: -12; } }
 
+/* V1a — "el grafo como señal viva": traza que corre del source hacia el Out sobre el
+   cable base. signalFlow escribe opacidad/grosor por frame según el pulso que llega. */
+.signal-edge-flow {
+  fill: none; stroke: var(--accent); stroke-linecap: round;
+  stroke-dasharray: 1 9; filter: drop-shadow(0 0 3px var(--accent));
+  pointer-events: none; animation: signal-flow 0.55s linear infinite;
+}
+@keyframes signal-flow { to { stroke-dashoffset: -10; } }
+
+/* Halo del nodo al disparar/propagar señal (V1a). --pulse (0..1) lo escribe signalFlow;
+   el nodo muteado/en silencio decae a 0 → sin halo. No captura el puntero. */
+.tn::before {
+  content: ''; position: absolute; inset: -1px; border-radius: inherit; pointer-events: none;
+  box-shadow: 0 0 calc(6px + var(--pulse, 0) * 18px) rgba(61, 240, 208, 0.55);
+  opacity: var(--pulse, 0);
+  transition: opacity 60ms linear;
+}
+.tn-fx::before, .tn-transform::before { box-shadow: 0 0 calc(6px + var(--pulse, 0) * 18px) rgba(124, 192, 255, 0.5); }
+.tn-out::before { box-shadow: 0 0 calc(6px + var(--pulse, 0) * 18px) rgba(224, 99, 58, 0.5); }
+
 /* --- Nodos: sobrios, tipo terminal --- */
 .tn {
   position: relative;

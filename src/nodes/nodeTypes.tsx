@@ -39,7 +39,22 @@ function isSeqable(code: string): boolean {
 }
 import { wrapNumberAtCursor } from './sliderWidget';
 import { getEditor } from './highlight';
+import { registerFlowNode, unregisterFlowNode } from './signalFlow';
 import { Vu } from './Vu';
+
+// V1a — "el grafo como señal viva": registra el DOM de este nodo para que signalFlow le
+// escriba la variable CSS `--pulse` (0..1) según lo que dispara/propaga el grafo; el CSS
+// la convierte en un halo. Imperativo, sin re-render por frame.
+function useFlowGlow(id: string) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    registerFlowNode(id, el);
+    return () => unregisterFlowNode(id);
+  }, [id]);
+  return ref;
+}
 
 // Marcadores de viz inline que el botón inserta/quita en el código del Source.
 // El editor los dibuja entre las líneas; el compilador los retira al emitir.
@@ -433,8 +448,10 @@ function SourceNode({ id, data, selected }: NodeProps) {
   // (o si el source está vacío, para poder escribir el patrón).
   const emptyCode = !(d.code ?? '').trim();
   const codeVisible = !collapsed && (!!d.showCode || emptyCode);
+  const glowRef = useFlowGlow(id);
   return (
     <div
+      ref={glowRef}
       className={`tn tn-source${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}${d.solo ? ' is-solo' : ''}${dimmed ? ' is-dim' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -632,6 +649,7 @@ function OpNode({ id, data, selected }: NodeProps) {
 
   return (
     <div
+      ref={useFlowGlow(id)}
       className={`tn ${isFx ? 'tn-fx' : 'tn-transform'}${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -714,6 +732,7 @@ function OutNode({ id, data, selected }: NodeProps) {
   const update = useGraphStore((s) => s.updateNodeData);
   return (
     <div
+      ref={useFlowGlow(id)}
       className={`tn tn-out${selected ? ' sel' : ''}${d.mute ? ' is-cut' : ''}`}
       title="arrastrar: mover sólo el out · Alt+arrastrar: mover todo el patch · clic derecho: mute"
       onContextMenu={(e) => {
