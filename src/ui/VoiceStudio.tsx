@@ -26,6 +26,19 @@ const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 const AT_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const AT_SCALE_NAMES = ['cromática', 'mayor', 'menor', 'menor arm', 'menor pent', 'mayor pent', 'dórica', 'frigia'];
 
+// picos (máximos por bloque) del canal 0 de un buffer, para dibujar la onda. HILO B / B4.
+function peaksOf(buf: AudioBuffer, N = 160): number[] {
+  const dch = buf.getChannelData(0);
+  const step = Math.max(1, Math.floor(dch.length / N));
+  const p: number[] = [];
+  for (let i = 0; i < N; i++) {
+    let mx = 0;
+    for (let j = 0; j < step; j++) { const a = Math.abs(dch[i * step + j] || 0); if (a > mx) mx = a; }
+    p.push(mx);
+  }
+  return p;
+}
+
 // extrae la región [b,e] (fracciones 0..1) de un AudioBuffer como buffer nuevo, para
 // warpear solo lo recortado (más rápido y coincide con lo que se oye). HILO B / B1.
 function sliceBuffer(buf: AudioBuffer, b: number, e: number): AudioBuffer {
@@ -270,6 +283,12 @@ export function VoiceStudio() {
   const [atSpeed, setAtSpeed] = useState(0); // 0 = duro (T-Pain) · 1 = natural
   const [atBusy, setAtBusy] = useState(false);
   const [gateAmt, setGateAmt] = useState(0.4); // B5 — noise gate (limpiar fondo)
+  // B4 — comping: varias tomas + qué toma suena en cada tramo
+  const [takes, setTakes] = useState<{ id: number; buf: AudioBuffer; peaks: number[] }[]>([]);
+  const [nSeg, setNSeg] = useState(4);
+  const [selection, setSelection] = useState<number[]>([0, 0, 0, 0]);
+  const [recording, setRecording] = useState(false);
+  const takeRecRef = useRef<{ rec: MediaRecorder; stream: MediaStream } | null>(null);
 
   // decodifica el audio → ~360 picos para el trazo + guarda el buffer para el preview
   useEffect(() => {
@@ -324,6 +343,8 @@ export function VoiceStudio() {
   useEffect(() => {
     if (audioUrl) void import('../audio/rubberband').then((m) => m.preloadRubberband()).catch(() => {});
   }, [audioUrl]);
+  // B4 — detener la grabación de tomas y soltar el micrófono al desmontar el estudio.
+  useEffect(() => () => { try { takeRecRef.current?.rec.stop(); takeRecRef.current?.stream.getTracks().forEach((t) => t.stop()); } catch { /* ya parado */ } }, []);
   // detener el preview al cerrar / cambiar de voz
   useEffect(() => stopPreview, [voiceEditId]);
   useEffect(() => { loopRef.current = loopPrev; }, [loopPrev]);
@@ -575,6 +596,65 @@ export function VoiceStudio() {
     }
   };
 
+  // B4 — COMPING: grabar tomas (mic), elegir por tramo, componer la final.
+  const emsg = (err: unknown) => (err instanceof Error ? err.message : String(err));
+  const startTakeRec = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const rec = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = async () => {
+        try {
+          stream.getTracks().forEach((t) => t.stop());
+          const ab = await new Blob(chunks, { type: 'audio/webm' }).arrayBuffer();
+          const buf = await getAudioCtx().decodeAudioData(ab);
+          setTakes((ts) => [...ts, { id: Date.now(), buf, peaks: peaksOf(buf) }]);
+          toast.ok('toma grabada');
+        } catch (err) { toast.err('No se pudo procesar la toma: ' + emsg(err)); }
+      };
+      rec.start();
+      takeRecRef.current = { rec, stream };
+      setRecording(true);
+    } catch (err) {
+      toast.err('Micrófono no disponible: ' + emsg(err));
+    }
+  };
+  const stopTakeRec = () => { try { takeRecRef.current?.rec.stop(); } catch { /* ya parado */ } setRecording(false); };
+  const pickSeg = (seg: number, takeIdx: number) => setSelection((sel) => sel.map((v, i) => (i === seg ? takeIdx : v)));
+  const changeNSeg = (n: number) => {
+    const c = Math.max(1, Math.min(12, n));
+    setNSeg(c);
+    setSelection((sel) => { const s = sel.slice(0, c); while (s.length < c) s.push(0); return s; });
+  };
+  const removeTake = (recIdx: number) => {
+    const ci = recIdx + 1; // índice combinado (0 = voz actual)
+    setTakes((ts) => ts.filter((_, i) => i !== recIdx));
+    setSelection((sel) => sel.map((v) => (v === ci ? 0 : v > ci ? v - 1 : v)));
+  };
+  const composeTakes = async () => {
+    if (!bufRef.current || !name || !voiceEditId) { toast.warn('No hay voz base para componer.'); return; }
+    const bufs = [bufRef.current, ...takes.map((t) => t.buf)];
+    const sel = selection.map((v) => Math.max(0, Math.min(bufs.length - 1, v)));
+    setWarpMsg('componiendo…');
+    try {
+      const { compTakes } = await import('../audio/compTakes');
+      const comp = compTakes(bufs, sel, 0.008);
+      const url = URL.createObjectURL(audioBufferToWav(comp));
+      await registerSample(name, url);
+      setVoiceUrl(name, url);
+      bufRef.current = comp;
+      setLocalUrl(url);
+      update(voiceEditId, { begin: 0, end: 1 });
+      setHead(0);
+      setTakes([]);
+      setSelection(Array(nSeg).fill(0));
+      playAudioBuffer(comp);
+      setWarpMsg('✓ comping aplicado (toma final compuesta por tramos).');
+      toast.ok('Comping aplicado.');
+    } catch (err) { const m = emsg(err); setWarpMsg('✗ comping: ' + m); toast.err('Comping: ' + m); }
+  };
+
   return (
     <>
       <div className="vs-backdrop" onClick={() => setVoiceEdit(null)} />
@@ -718,6 +798,46 @@ export function VoiceStudio() {
               <button className="vs-crop" disabled={atBusy} onClick={() => void applyClean()} title="limpiar: silencia el ruido de fondo / hiss entre frases (noise gate) y lo hornea en la voz. El de-esser (suavizar eses) llegará después.">✧ limpiar</button>
             </div>
             <p className="vs-hint">limpiar = quita el ruido de fondo (noise gate). Sube «ruido» si queda hiss entre frases; bájalo si se come el final de las palabras.</p>
+          </div>
+        )}
+
+        {/* B4 — COMPING: graba varias tomas y arma la mejor eligiendo por tramos */}
+        {audioUrl && (
+          <div className="vs-sec">
+            <h4>comping · tomas <span className="vs-h4sub">(arma la mejor de varias)</span></h4>
+            <div className="vs-at">
+              <button className={`vs-fxbtn${recording ? ' on' : ''}`} onClick={recording ? stopTakeRec : () => void startTakeRec()} title="graba una toma nueva con el micrófono (se añade como carril)">{recording ? '■ detener' : '● grabar toma'}</button>
+              <span className="vs-at-scale" title="en cuántos tramos se divide la toma para elegir">
+                <span>tramos</span>
+                <button className="vs-warpstep" onClick={() => changeNSeg(nSeg - 1)}>−</button>
+                <b className="vs-warpsemi">{nSeg}</b>
+                <button className="vs-warpstep" onClick={() => changeNSeg(nSeg + 1)}>+</button>
+              </span>
+              <button className="vs-crop" onClick={() => void composeTakes()} title="arma la toma final: cada tramo del carril elegido, con crossfades, y la aplica a la voz">componer</button>
+            </div>
+            <div className="vs-comp-lanes">
+              {[{ buf: bufRef.current, peaks: peaks ?? [] }, ...takes.map((t) => ({ buf: t.buf, peaks: t.peaks }))].map((lane, ci) => (
+                lane.buf ? (
+                  <div className="vs-comp-lane" key={ci}>
+                    <span className="vs-comp-name">{ci === 0 ? 'actual' : `toma ${ci}`}</span>
+                    <div className="vs-comp-segs">
+                      {selection.map((selIdx, s) => {
+                        const active = selIdx === ci;
+                        const L = lane.peaks.length;
+                        const segPk = lane.peaks.slice(Math.floor((s / nSeg) * L), Math.floor(((s + 1) / nSeg) * L));
+                        return (
+                          <button key={s} className={`vs-comp-seg${active ? ' on' : ''}`} onClick={() => pickSeg(s, ci)} title={`tramo ${s + 1}: usar ${ci === 0 ? 'la voz actual' : 'la toma ' + ci}`}>
+                            {segPk.map((p, i) => <span key={i} style={{ height: `${Math.max(6, p * 100)}%` }} />)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {ci > 0 && <span className="vs-rm-take" onClick={() => removeTake(ci - 1)} title="quitar esta toma">×</span>}
+                  </div>
+                ) : null
+              ))}
+            </div>
+            <p className="vs-hint">graba varias tomas (mic) · en cada TRAMO, clic en el carril de la toma que quieres que suene ahí (se resalta) · «componer» arma la final con crossfades y la aplica. La «actual» es tu voz de ahora.</p>
           </div>
         )}
 
