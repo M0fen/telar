@@ -375,7 +375,12 @@ export function applyMasterBus(): void {
       const sideSum = new GainNode(ctx, { gain: 1 });
       const gLs = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gLs, 0); gLs.connect(sideSum);
       const gRs = new GainNode(ctx, { gain: -0.5 }); splitter.connect(gRs, 1); gRs.connect(sideSum);
-      const sideW = new GainNode(ctx, { gain: 1 }); sideSum.connect(sideW);
+      // MONO-BAJO (P1.1 auditoría dancehall): el canal side pasa por un highpass a
+      // 120 Hz — por debajo, la señal es SOLO mid (mono por construcción). Es la regla
+      // nº1 de la mezcla de sound-system: el sub pega idéntico en mono/club/teléfono y
+      // no se cancela; el width ensancha pads/hats sin des-monoizar jamás el bajo.
+      const sideHP = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 120, Q: 0.5 });
+      const sideW = new GainNode(ctx, { gain: 1 }); sideSum.connect(sideHP); sideHP.connect(sideW);
       const Lout = new GainNode(ctx, { gain: 1 }); midSum.connect(Lout); sideW.connect(Lout);
       const Rout = new GainNode(ctx, { gain: 1 }); midSum.connect(Rout);
       const sideNeg = new GainNode(ctx, { gain: -1 }); sideW.connect(sideNeg); sideNeg.connect(Rout);
