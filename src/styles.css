@@ -797,6 +797,14 @@ body {
 }
 .seqs-secops button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-dim); }
 .seqs-secops button:disabled { opacity: 0.35; cursor: default; }
+/* caja PROPIA por pista (panel ≋): override del banco de la rejilla */
+.seqs-lanebank { display: inline-flex; align-items: center; gap: 4px; }
+.seqs-lanebank span { color: var(--dim); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; }
+.seqs-lanebank select {
+  background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--fg);
+  font-size: 9px; padding: 2px 4px; border-radius: 3px; max-width: 110px;
+}
+.seqs-lanebank select:disabled { opacity: 0.4; }
 .seqs-seedline { margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
 .seqs-seedline b { color: var(--accent); }
 /* sub-filas del panel ≋: vel continua (barras) y micro-timing (punto centrado) */

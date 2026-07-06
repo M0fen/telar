@@ -6,7 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, wrapAsArrange, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, laneGroove, laneOwnBank, lanePitched, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
@@ -132,8 +132,13 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   const pulseSaved = () => { setSaved(true); clearTimeout(savedT.current); savedT.current = window.setTimeout(() => setSaved(false), 700); };
   const bank = parsed?.bank || '';
   // audición: los sonidos exentos (packs) NO llevan el banco de la rejilla (el prefijo
-  // apuntaría a un sample inexistente y no sonaría nada al probarlos).
-  const hitBank = (snd: string) => (bankExempt(snd) ? '' : bank);
+  // apuntaría a un sample inexistente y no sonaría nada al probarlos); una pista con
+  // caja PROPIA (P2.2) se audiciona con ella.
+  const hitBank = (snd: string) => {
+    if (bankExempt(snd)) return '';
+    const lane = lanes.find((x) => x.sound === snd);
+    return (lane && laneOwnBank(lane)) || bank;
+  };
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo);
   // sin pasos activos + referencia de siembra → mantiene la instrumentación sembrada.
@@ -415,6 +420,19 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
                   <div className="seqs-groove">
                     <MiniSlider label="swing" value={l.swing ?? 0} min={0} max={1} step={0.02} onChange={(v) => setGroove(li, 'swing', v)} />
                     <MiniSlider label="human" value={l.human ?? 0} min={0} max={1} step={0.02} onChange={(v) => setGroove(li, 'human', v)} />
+                    {/* P2.2 — caja PROPIA de esta pista: kick 808 + caja LinnDrum en la misma rejilla */}
+                    <label className="seqs-lanebank" title={bankExempt(l.sound) ? 'sonido de pack: no usa cajas de ritmos (el prefijo lo silenciaría)' : 'caja SOLO de esta pista (override): mezcla máquinas en la misma rejilla. «rejilla» = hereda el banco general.'}>
+                      <span>caja</span>
+                      <select
+                        className="nodrag"
+                        value={laneOwnBank(l)}
+                        disabled={bankExempt(l.sound)}
+                        onChange={(e) => { const nl = lanes.map((x, i) => (i === li ? withLaneBank(x, e.target.value) : x)); setLanes(nl); commit(nl); }}
+                      >
+                        <option value="">rejilla{bank ? ` (${bank})` : ''}</option>
+                        {DRUM_MACHINES.map((b) => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                    </label>
                     <button className="seqs-pitch-x" onClick={() => clearGroove(li)} title="quitar groove, vel y timing de esta pista">✕</button>
                   </div>
                   {/* P1.5 — velocity CONTINUA por paso (arrastra ↕; escribe el valor exacto) */}

@@ -423,3 +423,29 @@ test('ALINEAR: plano → envuelto · igual nº → redimensiona · menos → com
   // más brazos que la canción → no se toca
   assert.equal(alignArrangeToBars(ARR, [4]), null);
 });
+
+// --- P2.2: banco PROPIO por pista (mezclar máquinas en la misma rejilla) ------------
+
+import { laneOwnBank, withLaneBank } from '../src/nodes/stepseqCode.ts';
+
+test('P2.2 caja por pista: el override vive en el sfx y el resto hereda POR SEGMENTO', () => {
+  const p = parsed('stack(s("bd ~ bd ~"), s("~ sd ~ sd")).bank("RolandTR808")');
+  // la caja pasa a LinnDrum SOLO en la pista sd
+  const lanes = p.lanes.map((l) => (l.sound === 'sd' ? withLaneBank(l, 'LinnDrum') : l));
+  assert.equal(laneOwnBank(lanes.find((l) => l.sound === 'sd')!), 'LinnDrum');
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /s\("bd ~ bd ~"\)\.bank\("RolandTR808"\)/); // bd hereda, por segmento
+  assert.match(out, /s\("~ sd ~ sd"\)[^,]*\.bank\("LinnDrum"\)/); // sd con su caja
+  assert.doesNotMatch(out, /\)\)\.bank\(/); // SIN banco global en la cola (pisaría el override)
+  // round-trip estable y el override sobrevive
+  const p2 = parseSeq(out)!;
+  assert.equal(p2.complex, false);
+  assert.equal(buildSeq(p2, p2.lanes, p2.steps), out);
+  assert.equal(laneOwnBank(p2.lanes.find((l) => l.sound === 'sd')!), 'LinnDrum');
+});
+
+test('P2.2 quitar el override: la pista vuelve a heredar el banco de la rejilla', () => {
+  const l = withLaneBank({ sound: 'sd', steps: [1], notes: [null], ratchet: [1], prob: [1], sfx: '.room(0.2).bank("LinnDrum")' }, '');
+  assert.equal(laneOwnBank(l), '');
+  assert.equal(l.sfx, '.room(0.2)'); // el resto del residuo queda intacto
+});

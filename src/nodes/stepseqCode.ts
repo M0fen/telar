@@ -585,6 +585,19 @@ function nudgeSfx(l: Lane, steps: number): string {
 // nivel escalar del segmento: SIEMPRE `.mul(gain(x))` (multiplica los acentos; un
 // `.gain(x)` a secas los pisaría — P0.1d).
 const levelSfx = (l: Lane) => (Math.abs((l.level ?? 1) - 1) > 0.001 ? `.mul(gain(${fmt(l.level as number)}))` : '');
+
+// P2.2 — banco PROPIO por pista (mezclar kick 808 con caja LinnDrum en la misma
+// rejilla): vive como `.bank("X")` en el residuo de la pista (Lane.sfx). Cuando alguna
+// pista trae banco propio, el banco de la rejilla se emite POR SEGMENTO en las demás
+// (un banco global en la cola PISARÍA los overrides — set-semantics).
+export function laneOwnBank(l: Lane): string {
+  const m = /\.bank\(\s*["'`]([^"'`]+)["'`]\s*\)/.exec(l.sfx ?? '');
+  return m ? m[1] : '';
+}
+export function withLaneBank(l: Lane, bank: string): Lane {
+  const sfx = (l.sfx ?? '').replace(/\.bank\(\s*["'`][^"'`]+["'`]\s*\)/, '');
+  return { ...l, sfx: (sfx + (bank ? `.bank("${bank}")` : '')) || undefined };
+}
 const tailGainSfx = (g: number) => (Math.abs(g - 1) > 0.001 ? `.mul(gain(${fmt(g)}))` : '');
 
 export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
@@ -598,17 +611,18 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
     const body = l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + stepSfx(l, i) : '~')).join(' ');
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
-    const bk = p.bank && !bankExempt(l.sound) ? `.bank("${p.bank}")` : '';
+    const bk = p.bank && !bankExempt(l.sound) && !laneOwnBank(l) ? `.bank("${p.bank}")` : '';
     return `note("${body}").s("${l.sound}")${g}${nudgeSfx(l, steps)}${grooveSfx(l, steps)}${bk}${l.sfx ?? ''}${levelSfx(l)}`;
   }
   if (!active.length) return `s("~")${p.bank ? `.bank("${p.bank}")` : ''}${tail}`; // vacía: conserva el banco elegido
-  // BANCO: global (en la cola) solo si NINGUNA pista es exenta. Con mezcla de pistas
-  // de caja de ritmos + packs, el banco va POR SEGMENTO en las bancables (a las exentas
-  // el prefijo las silenciaría). Si todas son exentas, el banco no se emite.
-  const anyExempt = active.some((l) => bankExempt(l.sound));
-  const allExempt = active.every((l) => bankExempt(l.sound));
-  const bankSfx = p.bank && !anyExempt ? `.bank("${p.bank}")` : '';
-  const mixedBank = !!p.bank && anyExempt && !allExempt; // banco por segmento → necesita stack
+  // BANCO: global (en la cola) solo si NINGUNA pista es exenta NI trae banco propio.
+  // Con mezcla (packs exentos, o una pista con su propia caja — P2.2), el banco de la
+  // rejilla va POR SEGMENTO en las pistas que lo heredan (un global en la cola pisaría
+  // los overrides y silenciaría los packs). Si nadie lo hereda, no se emite.
+  const inherits = (l: Lane) => !bankExempt(l.sound) && !laneOwnBank(l);
+  const anyNoInherit = active.some((l) => !inherits(l));
+  const bankSfx = p.bank && !anyNoInherit ? `.bank("${p.bank}")` : '';
+  const mixedBank = !!p.bank && anyNoInherit && active.some(inherits); // banco por segmento → necesita stack
   const hasAccent = active.some((l) => l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01));
   const anyPitched = active.some((l) => lanePitched(l, steps));
   const anyGroove = active.some(laneGroove);
@@ -622,7 +636,7 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
     const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
     const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
     const gr = nudgeSfx(l, steps) + grooveSfx(l, steps);
-    const bk = mixedBank && !bankExempt(l.sound) ? `.bank("${p.bank}")` : '';
+    const bk = mixedBank && !bankExempt(l.sound) && !laneOwnBank(l) ? `.bank("${p.bank}")` : '';
     const extra = (l.sfx ?? '') + levelSfx(l); // residuo verbatim + nivel multiplicativo
     // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").
     if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}${gr}${bk}${extra}`;
