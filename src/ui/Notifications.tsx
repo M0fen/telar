@@ -34,6 +34,17 @@ export function DialogHost() {
   useEffect(() => {
     if (dialog) { setVal(dialog.defaultValue ?? ''); setTimeout(() => inputRef.current?.select(), 30); }
   }, [dialog]);
+  // Escape = cancelar · Enter = aceptar, a nivel global (cubre el confirm sin input, que
+  // no tiene un campo donde capturar teclas).
+  useEffect(() => {
+    if (!dialog) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); useNotifyStore.getState().resolveDialog(null); }
+      else if (e.key === 'Enter' && !dialog.input) { e.preventDefault(); useNotifyStore.getState().resolveDialog(''); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dialog]);
   if (!dialog) return null;
   const ok = () => resolveDialog(dialog.input ? val : '');
   const cancel = () => resolveDialog(null);
