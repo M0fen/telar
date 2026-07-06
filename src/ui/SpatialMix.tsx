@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useGraphStore } from '../store/useGraphStore';
 import { useVizFlagsStore } from '../store/useVizFlagsStore';
-import { getBranchMetric } from '../audio/branchMeter';
+import { getBranchMetric, requestCentroid, releaseCentroid } from '../audio/branchMeter';
 import { DEFAULT_CHANNEL_EQ } from '../graph/types';
 
 // V3 — SUPERFICIE DE MEZCLA ESPACIAL. Cada source = un punto en una caja:
@@ -33,6 +33,14 @@ export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => vo
   // el rAF lee los sources por REF (no por dep) para no reiniciarse en cada arrastre.
   const sourcesRef = useRef(sources);
   sourcesRef.current = sources;
+
+  // Mientras el panel está abierto, PIDE el cálculo del centroide (meterEngine solo lo
+  // computa bajo demanda → sin costo de frecuencia cuando V3 está cerrado).
+  useEffect(() => {
+    if (!open) return;
+    requestCentroid();
+    return () => releaseCentroid();
+  }, [open]);
 
   // rAF: posiciona cada punto por su medición (Y = centroide, tamaño = nivel) + su chPan
   // (X) + halo (chRoom), y marca las colisiones de frecuencia. Solo con el panel ABIERTO y

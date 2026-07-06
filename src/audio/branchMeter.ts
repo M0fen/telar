@@ -13,12 +13,23 @@ export interface BranchMetric {
 
 const metrics = new Map<string, BranchMetric>();
 let enabled = false;
+// El NIVEL es gratis (meterEngine ya lo calcula para el VU). El CENTROIDE (FFT + barrido
+// de bins) es el costo real y SOLO lo usa V3 (superficie de mezcla) → se calcula únicamente
+// mientras un consumidor lo pide (V3 abierto). Así, en producción con V3 cerrado, no hay
+// costo de frecuencia aunque branchMetering esté on (que es el default).
+let centroidDemand = 0;
 
 export function setBranchMeteringEnabled(on: boolean): void {
   enabled = on;
   if (!on) metrics.clear(); // apagar = no-op real: se libera el mapa y meterEngine deja de escribir
 }
 export function isBranchMeteringOn(): boolean { return enabled; }
+
+// Un consumidor del CENTROIDE (V3) lo pide al montar y lo suelta al desmontar (refcount).
+export function requestCentroid(): void { centroidDemand++; }
+export function releaseCentroid(): void { centroidDemand = Math.max(0, centroidDemand - 1); }
+// ¿hay que calcular el centroide? Solo si la medición está on Y alguien lo pide.
+export function isCentroidWanted(): boolean { return enabled && centroidDemand > 0; }
 
 export function setBranchMetric(id: string, m: BranchMetric): void { metrics.set(id, m); }
 export function getBranchMetric(id: string): BranchMetric | undefined { return metrics.get(id); }

@@ -4,7 +4,7 @@
 // relleno. Reutiliza los analysers que ya existen: getMasterAnalyser (tap del
 // destinationGain) y getSourceAnalyser (tap .analyze por instrumento).
 import { getMasterAnalyser, getSourceAnalyser } from '../audio/engine';
-import { isBranchMeteringOn, setBranchMetric, spectralCentroid } from '../audio/branchMeter';
+import { isBranchMeteringOn, isCentroidWanted, getBranchMetric, setBranchMetric, spectralCentroid } from '../audio/branchMeter';
 
 const MASTER = 'master';
 
@@ -67,16 +67,24 @@ function tick() {
     fills.get(id)?.style.setProperty('--lvl', v);
     dots.get(id)?.style.setProperty('--lvl', v);
 
-    // V-infra — centroide espectral por source: SOLO con branchMetering activo (costo
-    // extra de leer la frecuencia). El nivel ya lo tenemos (next). MASTER no cuenta como
-    // rama. Reusa el mismo analyser (0 analysers extra).
+    // V-infra — medición por rama. El NIVEL (next) ya está calculado (gratis). El
+    // CENTROIDE (FFT + barrido de bins) es el costo real y SOLO se calcula cuando alguien
+    // lo pide (V3 abierto, isCentroidWanted); si no, se conserva el último conocido. Así,
+    // con branchMetering on pero V3 cerrado (el default en prod), no hay costo de frecuencia.
+    // MASTER no es rama. Reusa el mismo analyser (0 analysers extra).
     if (an && id !== MASTER && isBranchMeteringOn()) {
-      const bins = an.frequencyBinCount;
-      let fbuf = freqBuffers.get(id);
-      if (!fbuf || fbuf.length !== bins) { fbuf = new Uint8Array(bins); freqBuffers.set(id, fbuf); }
-      an.getByteFrequencyData(fbuf);
-      const { hz, norm } = spectralCentroid(fbuf, an.context.sampleRate);
-      setBranchMetric(id, { level: next, centroid01: norm, centroidHz: hz });
+      const prev = getBranchMetric(id);
+      let c01 = prev?.centroid01 ?? 0.5;
+      let hz = prev?.centroidHz ?? 0;
+      if (isCentroidWanted()) {
+        const bins = an.frequencyBinCount;
+        let fbuf = freqBuffers.get(id);
+        if (!fbuf || fbuf.length !== bins) { fbuf = new Uint8Array(bins); freqBuffers.set(id, fbuf); }
+        an.getByteFrequencyData(fbuf);
+        const sc = spectralCentroid(fbuf, an.context.sampleRate);
+        c01 = sc.norm; hz = sc.hz;
+      }
+      setBranchMetric(id, { level: next, centroid01: c01, centroidHz: hz });
     }
   }
 }
