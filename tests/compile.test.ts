@@ -203,6 +203,32 @@ test('sanitizeMasterFx es NO-OP para un máster normal (notes vacío)', () => {
   assert.equal((master as any).swing, 0.1);
 });
 
+// --- AISLAMIENTO de fuentes rotas (una fuente rota no silencia el stack entero) -------
+test('fuente con sintaxis rota se AÍSLA (silence) y el resto sigue sonando', () => {
+  const r = C([
+    src('ok', 's("bd*4")', { name: 'bombo' }),
+    src('bad', 's("hh*8").lpf(800', { name: 'roto' }), // paréntesis sin cerrar
+    out(),
+  ], [E('ok', 'o'), E('bad', 'o')]);
+  assert.equal(r.error, null);            // compila igual (no tumba todo)
+  assert.match(code(r), /s\("bd\*4"\)/);  // el bueno suena
+  assert.deepEqual(r.dropped, ['roto']);  // el roto se reporta por nombre
+  assert.doesNotMatch(code(r), /hh\*8\)\.lpf\(800/); // el código roto NO se emite
+});
+
+test('función flecha en una fuente NO se descarta (es Strudel válido)', () => {
+  const r = C([src('a', 's("bd*4").every(4, x => x.rev())', { name: 'arrow' }), out()], [E('a', 'o')]);
+  assert.equal(r.error, null);
+  assert.deepEqual(r.dropped, []);
+  assert.match(code(r), /every\(4, x => x\.rev\(\)\)/);
+});
+
+test('token peligroso (fetch) en una fuente se aísla', () => {
+  const r = C([src('ok', 's("bd*4")'), src('x', 's("bd").speed(fetch("x"))', { name: 'malo' }), out()], [E('ok', 'o'), E('x', 'o')]);
+  assert.deepEqual(r.dropped, ['malo']);
+  assert.match(code(r), /s\("bd\*4"\)/);
+});
+
 test('P1.3 delay del synth: delaysync solo se emite si difiere del 3/16 del motor', () => {
   const base = { kind: 'source', code: 'note("c3").s("sawtooth")', synthOn: true } as Record<string, unknown>;
   const dub = C([src('s', 'note("c3").s("sawtooth")', { ...base, synth: { delay: 0.3, delayfb: 0.5 } }), out()], [E('s', 'o')]);

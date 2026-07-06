@@ -47,6 +47,31 @@ export interface CompileResult {
   error: string | null;
   spans: SourceSpan[];
   channelEqs: ChannelEqRoute[];
+  dropped: string[]; // nombres de fuentes AISLADAS por código roto (ver sourceCompiles)
+}
+
+// Tokens que NO aparecen en la mini-notación de Strudel y sí en código roto/malicioso
+// (escape del sandbox de `sourceCompiles`, que EJECUTA el código con un proxy). NO incluye
+// `=>`: las funciones flecha SÍ son válidas en patrones Strudel (p.ej. .every(4, x=>x.rev())).
+const DANGER_SRC = /\b(import|require|eval|Function|constructor|__proto__|prototype|globalThis|window|document|process|XMLHttpRequest|fetch|localStorage|cookie)\b/;
+
+// ¿el código de una fuente PARSEA (y ejecuta con un proxy inofensivo)? Un source con
+// sintaxis rota (paréntesis/comillas sin cerrar — típico al pegar código de otra IA)
+// rompería el `stack(...)` ENTERO al evaluar → SILENCIO TOTAL. Detectarlo aquí permite
+// AISLAR esa sola fuente (suena `silence`) y dejar sonar el resto. Solo juzga sintaxis,
+// no la semántica de Strudel (una escala inválida solo se ve al evaluar de verdad).
+function sourceCompiles(code: string): boolean {
+  if (!code || code.length > 8000) return false;
+  if (DANGER_SRC.test(code)) return false;
+  try {
+    const proxy: unknown = new Proxy(function () {}, { get: () => proxy, apply: () => proxy });
+    const env = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : proxy) });
+    // eslint-disable-next-line no-new-func
+    new Function('__env', 'with(__env){ return (\n' + code + '\n) }')(env);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Expresión compilada: su texto y los spans de los Source que contiene,
@@ -515,13 +540,14 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   const transpose = Math.round(opts.transpose ?? 0);
   const xfader = typeof opts.xfader === 'number' ? opts.xfader : 0.5;
   const outs = nodes.filter((n) => n.data.kind === 'out');
-  if (outs.length === 0) return { code: null, error: 'sin nodo Out', spans: [], channelEqs: [] };
-  if (hasCycle(nodes, edges)) return { code: null, error: 'ciclo en el grafo', spans: [], channelEqs: [] };
+  if (outs.length === 0) return { code: null, error: 'sin nodo Out', spans: [], channelEqs: [], dropped: [] };
+  if (hasCycle(nodes, edges)) return { code: null, error: 'ciclo en el grafo', spans: [], channelEqs: [], dropped: [] };
 
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const incoming = incomingMap(edges);
   const memo = new Map<string, Expr | null>();
   let firstError: string | null = null;
+  const droppedSources: string[] = []; // fuentes aisladas por código roto (fix aislamiento)
 
   // Solo de mixer: si AL MENOS un source está en solo, los sources NO soloed se
   // silencian (clásico de mesa de mezclas / DJ). El solo "gana" al mute implícito.
@@ -611,6 +637,11 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           firstError ??= 'Source vacío';
         } else if (node.data.mute || (anySolo && !node.data.solo)) {
           // canal en mute, o hay solos activos y éste no es uno: no aporta al máster.
+          expr = { text: 'silence', spans: [] };
+        } else if (!sourceCompiles(code)) {
+          // AÍSLA una fuente con código roto: suena `silence` en vez de tumbar el stack
+          // ENTERO al evaluar. Se reporta (dropped) para avisar al usuario cuál falló.
+          droppedSources.push(String(node.data.name ?? id));
           expr = { text: 'silence', spans: [] };
         } else {
           // (código) — el código real arranca tras el "(" → offset 1.
@@ -776,8 +807,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   };
 
   const outExprs = outs.map((o) => resolve(o.id, new Set())).filter((x): x is Expr => !!x);
-  if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs };
+  if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs, dropped: droppedSources };
 
   const master = combine(outExprs);
-  return { code: master.text, error: null, spans: master.spans, channelEqs };
+  return { code: master.text, error: null, spans: master.spans, channelEqs, dropped: droppedSources };
 }

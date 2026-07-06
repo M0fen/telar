@@ -191,12 +191,20 @@ export const useGraphStore = create<GraphState>((set, get) => {
   // que ya corre tras cada swap mantiene el EQ vivo si un orbit se recrea, así que saltar
   // el re-churn cuando las rutas no cambian es seguro.
   let lastEqKey = '';
+  let lastDroppedKey = '';
   const recompile = () => {
     const { nodes, edges, cps, playing, master, transpose, xfader } = get();
-    const { code, error, spans, channelEqs } = compileGraph(nodes, edges, { transpose, xfader });
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader });
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
     if (eqKey !== lastEqKey) { lastEqKey = eqKey; setChannelEqs(channelEqs); }
+    // fuentes AISLADAS por código roto: avisa UNA vez (no en cada recompile del arrastre)
+    // qué instrumento no suena y por qué; el resto del tema sigue sonando.
+    const dropKey = dropped.join('|');
+    if (dropKey !== lastDroppedKey) {
+      lastDroppedKey = dropKey;
+      if (dropped.length) toast.warn(`No pude leer el código de: ${dropped.join(', ')} → esa(s) pista(s) no suena(n), pero el resto sí. Revísalo en «reparar código».`);
+    }
     set({ compileError: error, lastCode: code });
     if (playing && code) void swapPattern(applyMaster(code, master), cps);
   };
