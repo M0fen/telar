@@ -4,8 +4,8 @@
 // (vía Rubber Band). El control "retune speed" va de duro/robótico (T-Pain, snap
 // instantáneo) a natural (glide suave hacia la nota).
 
-import { detectPitchTrack, hzToMidi } from './pitchDetect';
-import { warpVaryingPitch } from './rubberband';
+import { detectPitchTrackData, hzToMidi } from './pitchDetect';
+import { warpVaryingPitchData } from './rubberband';
 
 // escalas (intervalos en semitonos desde la raíz). 'cromática' = todos los semitonos.
 export const AUTOTUNE_SCALES: Record<string, number[]> = {
@@ -26,6 +26,7 @@ export interface AutotuneOpts {
   retuneSpeed?: number; // 0 = duro/instantáneo (T-Pain) · 1 = natural/lento (~250ms)
   strength?: number; // 0..1 cuánta corrección se mezcla (1 = total)
   formant?: boolean; // preservar formantes (voz natural). Por defecto true.
+  fine?: boolean; // motor R3/Finer de Rubber Band (más limpio). Por defecto true.
 }
 
 // nota MIDI más cercana permitida por la escala (a partir de un midi continuo).
@@ -40,18 +41,19 @@ function snapMidiToScale(midi: number, root: number, intervals: number[]): numbe
   return best;
 }
 
-// Corrige el tono de `buffer` hacia la escala. Devuelve un AudioBuffer nuevo (misma
-// duración). Ante cualquier fallo del motor, warpVaryingPitch devuelve el original.
-export async function autotuneBuffer(buffer: AudioBuffer, opts: AutotuneOpts = {}): Promise<AudioBuffer> {
+// NÚCLEO a nivel de datos (Float32Array[] + sampleRate): usable en el WORKER de voz
+// (los workers no tienen AudioBuffer). Detecta → snap a escala → resíntesis. Devuelve
+// canales nuevos o null si no hay nada que corregir / el motor falla.
+export async function autotuneData(channels: Float32Array[], sr: number, opts: AutotuneOpts = {}): Promise<Float32Array[] | null> {
   const scale = opts.scale ?? 'cromática';
   const root = opts.root ?? 0;
   const retuneSpeed = Math.max(0, Math.min(1, opts.retuneSpeed ?? 0));
   const strength = Math.max(0, Math.min(1, opts.strength ?? 1));
   const intervals = AUTOTUNE_SCALES[scale] ?? AUTOTUNE_SCALES['cromática'];
   const hop = 256;
-  const sr = buffer.sampleRate;
-  const track = detectPitchTrack(buffer, { hop });
-  if (!track.length) return buffer;
+  if (!channels.length || !channels[0]?.length) return null;
+  const track = detectPitchTrackData(channels[0], sr, { hop });
+  if (!track.length) return null;
 
   // suavizado del retune: outMidi persigue a la nota destino a una velocidad ~ retuneSpeed.
   // speed=0 → alpha=1 (snap duro); speed alto → tau grande (glide natural).
@@ -71,5 +73,15 @@ export async function autotuneBuffer(buffer: AudioBuffer, opts: AutotuneOpts = {
     const finalMidi = detMidi + (outMidi - detMidi) * strength;
     ratios[i] = Math.pow(2, (finalMidi - detMidi) / 12);
   }
-  return warpVaryingPitch(buffer, ratios, hop, { formant: opts.formant ?? true });
+  return warpVaryingPitchData(channels, sr, ratios, hop, { formant: opts.formant ?? true, fine: opts.fine ?? true });
+}
+
+// Wrapper AudioBuffer (hilo principal). Ante cualquier fallo devuelve el original.
+export async function autotuneBuffer(buffer: AudioBuffer, opts: AutotuneOpts = {}): Promise<AudioBuffer> {
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  const out = await autotuneData(channels, buffer.sampleRate, opts);
+  if (!out || !out[0]?.length) return buffer;
+  const outBuf = new AudioBuffer({ length: out[0].length, numberOfChannels: out.length, sampleRate: buffer.sampleRate });
+  out.forEach((c, i) => outBuf.getChannelData(i).set(c));
+  return outBuf;
 }

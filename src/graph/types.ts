@@ -197,6 +197,9 @@ export interface VoiceParams {
   scale?: string; // '' | "C:minor" | "C:major" … — escala para el autotune
   room?: number; // 0..0.8 — reverb (espacio vocal)
   delay?: number; // 0..1 — eco / throw vocal
+  // tiempo del eco vocal en FRACCIÓN DE CICLO (delaysync, sincronizado al tempo).
+  // 3/16 = corchea con puntillo — el dub delay del dancehall (default del motor).
+  delaysync?: number;
   polish?: boolean; // "pulir": paso-alto (quita retumbe) + compresor (nivela dinámica)
   harmony?: number; // doblaje/armonía en semitonos sobre la melodía (0 = off; 7=5ª, 12=8ª, -12=8ª↓)
   // GLIDE/portamento entre notas de la melodía (autotune "suave", tipo T-Pain →

@@ -68,12 +68,16 @@ function yinFrame(x: Float32Array, off: number, W: number, tauMin: number, tauMa
 
 // Estima f0 en cada frame del buffer (canal 0). Devuelve una traza temporal.
 export function detectPitchTrack(buffer: AudioBuffer, opts: PitchOpts = {}): PitchFrame[] {
+  return detectPitchTrackData(buffer.getChannelData(0), buffer.sampleRate, opts);
+}
+
+// Variante sobre datos crudos (Float32Array + sampleRate): usable en un WORKER
+// (los workers no tienen AudioBuffer). Misma lógica.
+export function detectPitchTrackData(x: Float32Array, sr: number, opts: PitchOpts = {}): PitchFrame[] {
   const minHz = opts.minHz ?? 70;
   const maxHz = opts.maxHz ?? 1000;
   const hop = opts.hop ?? 256;
   const threshold = opts.threshold ?? 0.15;
-  const sr = buffer.sampleRate;
-  const x = buffer.getChannelData(0);
   const tauMin = Math.max(2, Math.floor(sr / maxHz));
   const tauMax = Math.floor(sr / minHz);
   const W = tauMax; // ventana de integración

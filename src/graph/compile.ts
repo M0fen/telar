@@ -379,7 +379,12 @@ function applyVoice(code: string, v: VoiceParams): string {
   const room = c01(num(v.room, 0));
   if (room > 0.001) out += `.room(${room.toFixed(2)})`;
   const delay = c01(num(v.delay, 0));
-  if (delay > 0.001) out += `.delay(${delay.toFixed(2)})`;
+  if (delay > 0.001) {
+    out += `.delay(${delay.toFixed(2)})`;
+    // tiempo del eco al tempo (dub): solo se emite si difiere del 3/16 del motor.
+    const dsync = num(v.delaysync, 3 / 16);
+    if (Math.abs(dsync - 3 / 16) > 0.0001) out += `.delaysync(${Number(dsync.toFixed(4))})`;
+  }
   const spread = c01(num(v.spread, 0));
   if (spread > 0.001)
     out += `.pan(sine.range(${(0.5 - spread / 2).toFixed(2)}, ${(0.5 + spread / 2).toFixed(2)}).slow(4))`;

@@ -179,6 +179,14 @@ test('AUDICIÓN DE SECCIÓN: sin solo, un seqPreviewCode rancio NO altera nada',
   assert.match(code(r), /arrange/);
 });
 
+test('eco vocal al tempo: delaysync solo se emite si difiere del 3/16 del motor', () => {
+  const base = C([src('s', 's("voz_1")', { voice: { delay: 0.3 } }), out()], [E('s', 'o')]);
+  assert.match(code(base), /\.delay\(0\.30\)/);
+  assert.doesNotMatch(code(base), /\.delaysync\(/); // 3/16 = default del motor
+  const negra = C([src('s', 's("voz_1")', { voice: { delay: 0.3, delaysync: 0.25 } }), out()], [E('s', 'o')]);
+  assert.match(code(negra), /\.delaysync\(0\.25\)/);
+});
+
 test('P0.2 swing del máster: semicorcheas (n=8) — el tumbao del dembow', () => {
   const m = applyMaster('s("hh*16")', { gain: 1, filter: 0, room: 0, swing: 0.3 });
   assert.match(m, /\.swingBy\(0\.30, 8\)/);

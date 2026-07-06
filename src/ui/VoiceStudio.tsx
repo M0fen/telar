@@ -505,9 +505,9 @@ export function VoiceStudio() {
     setWarpBusy(true);
     setWarpMsg('warpeando…');
     try {
-      const { warpBuffer } = await import('../audio/rubberband');
+      const { warpVoz } = await import('../audio/voiceDsp'); // worker + R3: no congela la UI
       const region = sliceBuffer(buf, b, e);
-      const warped = await warpBuffer(region, { semitones: semi, timeRatio: 1, formant: true });
+      const warped = await warpVoz(region, { semitones: semi, timeRatio: 1, formant: true });
       // warpBuffer devuelve el MISMO buffer si no procesó (no-op o fallo del WASM).
       if (warped === region) setWarpMsg('⚠ el WASM no procesó (¿no cargó?) — abre la consola (F12) y busca [rubberband]');
       else setWarpMsg(`✓ warp OK · ${semi > 0 ? '+' : ''}${semi} semis · ${(warped.length / warped.sampleRate).toFixed(2)}s (misma duración)`);
@@ -560,9 +560,9 @@ export function VoiceStudio() {
     setAtBusy(true);
     setWarpMsg(bake ? 'aplicando autotune…' : 'corrigiendo (previa)…');
     try {
-      const { autotuneBuffer } = await import('../audio/autotune');
+      const { autotuneVoz } = await import('../audio/voiceDsp'); // worker + R3: tomas largas sin congelar
       const region = sliceBuffer(buf, b, e);
-      const corrected = await autotuneBuffer(region, { scale: atScale, root: atRoot, retuneSpeed: atSpeed, strength: 1, formant: true });
+      const corrected = await autotuneVoz(region, { scale: atScale, root: atRoot, retuneSpeed: atSpeed, strength: 1, formant: true });
       if (corrected === region) { setWarpMsg('⚠ autotune no procesó (¿voz muy corta o WASM no cargó?) — consola F12'); playAudioBuffer(region); return; }
       playAudioBuffer(corrected);
       if (bake && name && voiceEditId) {
@@ -896,6 +896,19 @@ export function VoiceStudio() {
               <MiniSlider label="delay" value={Number(v.delay ?? 0)} min={0} max={1} step={0.02} onChange={(x) => set({ delay: x })} />
               <MiniSlider label="spread" value={Number(v.spread ?? 0)} min={0} max={1} step={0.01} onChange={(x) => set({ spread: x })} />
             </div>
+            <label className="tn-syn-dsync" title="tiempo del eco vocal, sincronizado al tempo (fracción del compás). Puntillo 3/16 = el dub delay del dancehall — el throw de voz cae en el grid a cualquier BPM.">
+              <span>tiempo eco</span>
+              <select
+                value={String(Number((v.delaysync ?? 3 / 16).toFixed(4)))}
+                onChange={(e) => set({ delaysync: Number(e.target.value) })}
+              >
+                <option value={String(Number((1 / 16).toFixed(4)))}>1/16 semicorchea</option>
+                <option value={String(Number((1 / 8).toFixed(4)))}>1/8 corchea</option>
+                <option value={String(Number((1 / 6).toFixed(4)))}>1/6 tresillo</option>
+                <option value={String(Number((3 / 16).toFixed(4)))}>3/16 puntillo (dub)</option>
+                <option value={String(Number((1 / 4).toFixed(4)))}>1/4 negra</option>
+              </select>
+            </label>
           </div>
         </div>
       </div>
