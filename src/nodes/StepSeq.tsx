@@ -503,7 +503,6 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
           </div>
         )}
       </div>
-      <p className="seqs-hint">clic = golpe (arrastra) · clic der. = acento/ghost · shift+clic = roll/tresillo · alt+clic = probabilidad (75/50/25%) · ♪ = afinar · ≋ = groove · «+ añadir sonido» · ▶/espacio = escuchar</p>
     </div>
   );
 }

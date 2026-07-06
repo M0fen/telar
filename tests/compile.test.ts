@@ -197,6 +197,18 @@ test('P0.1 gate del máster: corte multiplicativo (mantiene el balance mientras 
   assert.match(m, /\.mul\(gain\(square\.range\(0, 1\)\.fast\(4\)\)\)/);
 });
 
+test('U · perf por source: roll/rev/gate(mul, P0.1)/echo/wash emitidos por ESTE source', () => {
+  const r = C([src('s', 's("bd*4")', { perf: { roll: 4, rev: true, gate: 8, echo: 0.55, wash: 0.7 } }), out()], [E('s', 'o')]);
+  const c = code(r);
+  // gate: JAMÁS `.gain(square` (pisaría los acentos del patrón) → SIEMPRE `.mul(gain(square`
+  assert.ok(!/\.gain\(square/.test(c), 'el gate por-source no debe usar .gain(square (PISA los acentos)');
+  assert.match(c, /\.mul\(gain\(square\.range\(0, 1\)\.fast\(8\)\)\)/);
+  assert.match(c, /\.ply\(4\)/); // roll (patrón)
+  assert.match(c, /\.rev\(\)/); // reverse (patrón)
+  assert.match(c, /\.delay\(0\.55\)/); // echo (audio)
+  assert.match(c, /\.room\(0\.70\)/); // wash (audio)
+});
+
 test('P0.1 invariante: la mezcla nunca emite un .gain( escalar que pise', () => {
   const r = C([src('s', 's("bd sd").gain("1 1.4 0.5 1")', { gain: 0.7 }), out()], [E('s', 'o')]);
   const m = applyMaster(code(r), { gain: 1.2, filter: 0, room: 0, humanize: 0.3 });

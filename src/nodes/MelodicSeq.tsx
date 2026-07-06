@@ -262,7 +262,6 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
           ))}
         </div>
       )}
-      <p className="seqs-hint">clic = nota (suena al colocar) · una nota por paso · fila (izq) = probar · «vel/dur» = arrastra volumen y duración · ▶/espacio = escuchar aislado</p>
     </div>
   );
 }

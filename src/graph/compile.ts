@@ -618,13 +618,18 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
             const tgt = duckCfg.orbits.length === 1 ? String(duckCfg.orbits[0]) : `"${duckCfg.orbits.join(':')}"`;
             inner += `.duck(${tgt}).duckattack(${duckCfg.attack.toFixed(3)}).duckdepth(${duckCfg.depth.toFixed(2)}).duckonset(0.006)`;
           }
-          // FX de performance por DECK (modo DJ, momentáneos): roll (.ply), gate rítmico
-          // (.gain cuadrada) y echo throw (.delay). Se aplican solo a ESTE source.
-          const perf = node.data.perf as { roll?: number; gate?: number; echo?: number } | undefined;
+          // FX de performance por SOURCE (momentáneos): roll (.ply), reverse (.rev),
+          // gate rítmico, echo throw (.delay) y reverb wash (.room). Se aplican solo a ESTE
+          // source. PATRÓN (roll/rev, caen en frontera de ciclo) primero; AUDIO después.
+          // gate = `.mul(gain(square…))` MULTIPLICATIVO (P0.1: `.gain(square)` PISABA los
+          // acentos del patrón — igual que el gate del máster ya corregido).
+          const perf = node.data.perf as { roll?: number; gate?: number; echo?: number; rev?: boolean; wash?: number } | undefined;
           if (perf) {
             if (perf.roll && perf.roll > 1) inner += `.ply(${Math.round(perf.roll)})`;
-            if (perf.gate && perf.gate > 0) inner += `.gain(square.range(0, 1).fast(${Math.round(perf.gate)}))`;
+            if (perf.rev) inner += `.rev()`;
+            if (perf.gate && perf.gate > 0) inner += `.mul(gain(square.range(0, 1).fast(${Math.round(perf.gate)})))`;
             if (perf.echo && perf.echo > 0.02) inner += `.delay(${Math.min(0.9, perf.echo).toFixed(2)})`;
+            if (perf.wash && perf.wash > 0.02) inner += `.room(${Math.min(0.9, perf.wash).toFixed(2)})`;
           }
           // EQ por canal: enruta el source a su orbit propio; el motor inserta el EQ
           // Biquad real sobre ese bus (setChannelEqs).

@@ -843,7 +843,6 @@ body {
 .seqs-bars.nudge .seqs-bar::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; border-top: 1px dashed rgba(255,255,255,0.12); }
 .seqs-bar-dot { position: absolute; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
 .seqs-bar-dot.on { background: #ffd166; box-shadow: 0 0 5px rgba(255,209,102,0.5); }
-.seqs-hint { margin: 0; font-size: 8px; color: var(--faint); line-height: 1.4; }
 /* onda en vivo del secuenciador */
 .seq-scope { background: rgba(2,5,8,0.6); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
 .seq-scope-canvas { display: block; width: 100%; min-width: 0; }
@@ -1913,6 +1912,13 @@ button.pal-item { width: 100%; }
 .perf-fx.on { background: var(--accent); color: #02110e; border-color: var(--accent); }
 /* fijado con shift: anillo para distinguir del momentáneo */
 .perf-fx.latched { box-shadow: 0 0 0 2px var(--accent-dim); }
+
+/* Fila de performance POR SOURCE (reemplaza la leyenda de texto). Reusa .perf-fx pero
+   compacta para caber en el nodo (268px); solo visible con el source seleccionado. */
+.tn-perf { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 8px; border-bottom: 1px solid var(--line-soft); }
+.tn-perf-grp { display: flex; align-items: center; gap: 3px; }
+.tn-perf-tag { font-size: 7.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); margin-right: 1px; }
+.tn-perf .perf-fx { font-size: 8.5px; padding: 3px 5px; min-width: 15px; letter-spacing: 0.04em; }
 
 /* --- Consola de canales (banco de faders por source) --- */
 .perf-strips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }

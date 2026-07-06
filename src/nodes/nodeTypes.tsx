@@ -16,6 +16,7 @@ import { ArrangeStrip } from './ArrangeStrip';
 import { GateStrip } from './GateStrip';
 import { PlyStrip } from './PlyStrip';
 import { StepSeq } from './StepSeq';
+import { HoldFx } from '../ui/HoldFx';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 
 // ¿source melódico (note/n) editable en el piano roll inline? Una rejilla de batería
@@ -434,6 +435,34 @@ function InstrumentViz({ nodeId, code }: { nodeId: string; code: string }) {
 }
 
 // --- Source: editor CM6 con mini-notación ---
+// Fila de performance POR SOURCE (reemplaza la vieja leyenda de texto): throws
+// momentáneos análogos a los del máster, aplicados solo a ESTE instrumento. roll/rev son
+// a nivel de PATRÓN → caen en la frontera de ciclo; gate/echo/wash a nivel de AUDIO →
+// responden al instante. Mantener = sostiene; shift+clic = fijar (HoldFx). Compacta; se
+// muestra solo con el nodo seleccionado para no saturar el grafo.
+function SourcePerfRow({ id, perf }: { id: string; perf: NodeData['perf'] }) {
+  const update = useGraphStore((s) => s.updateNodeData);
+  const p = perf ?? {};
+  const set = (patch: Partial<NonNullable<NodeData['perf']>>) => update(id, { perf: { ...p, ...patch } });
+  const prevWash = useRef(0);
+  return (
+    <div className="tn-perf nodrag" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="tn-perf-grp">
+        <span className="tn-perf-tag">roll</span>
+        {[2, 4, 8, 16].map((n) => (
+          <HoldFx key={n} label={`${n}`} title={`loop roll ×${n} — patrón, cae en la frontera de ciclo (mantén)`} active={p.roll === n} onDown={() => set({ roll: n })} onUp={() => set({ roll: 0 })} />
+        ))}
+      </div>
+      <div className="tn-perf-grp">
+        <HoldFx label="gate" title="gate rítmico — audio, al instante (mantén)" active={!!p.gate} onDown={() => set({ gate: 8 })} onUp={() => set({ gate: 0 })} />
+        <HoldFx label="rev" title="reverse — patrón, cae en la frontera de ciclo (mantén)" active={!!p.rev} onDown={() => set({ rev: true })} onUp={() => set({ rev: false })} />
+        <HoldFx label="echo" title="echo throw (dub) — audio, al instante, al tempo 3/16 (mantén)" active={(p.echo ?? 0) > 0.02} onDown={() => set({ echo: 0.55 })} onUp={() => set({ echo: 0 })} />
+        <HoldFx label="wash" title="reverb wash — audio, al instante (mantén)" active={(p.wash ?? 0) > 0.02} onDown={() => { prevWash.current = p.wash ?? 0; set({ wash: 0.7 }); }} onUp={() => set({ wash: prevWash.current })} />
+      </div>
+    </div>
+  );
+}
+
 function SourceNode({ id, data, selected }: NodeProps) {
   const d = data as NodeData;
   const update = useGraphStore((s) => s.updateNodeData);
@@ -469,6 +498,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
       ) : (
         <>
           <SourceToolbar id={id} data={d} />
+          {selected && <SourcePerfRow id={id} perf={d.perf} />}
           {codeVisible
             ? <MiniEditor nodeId={id} value={d.code ?? ''} onChange={(code) => update(id, { code })} />
             : <InstrumentViz nodeId={id} code={d.code ?? ''} />}

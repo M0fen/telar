@@ -273,9 +273,11 @@ export interface NodeData {
   // FX de performance MOMENTÁNEOS por deck (se sostienen mientras pulsas el botón),
   // aplicados por el compilador sobre la expresión de este source:
   perf?: {
-    roll?: number; // .ply(n) — loop roll / beat-repeat (0 = off)
-    gate?: number; // gate rítmico (cortes por ciclo, 0 = off)
-    echo?: number; // .delay(x) — echo throw (0 = off)
+    roll?: number; // .ply(n) — loop roll / beat-repeat (0 = off) · PATRÓN (frontera de ciclo)
+    gate?: number; // gate rítmico (cortes por ciclo, 0 = off) · AUDIO (ganancia, al instante)
+    echo?: number; // .delay(x) — echo throw (0 = off) · AUDIO (send, al instante)
+    rev?: boolean; // .rev() — reverse throw · PATRÓN (frontera de ciclo)
+    wash?: number; // .room(x) — reverb wash (0 = off) · AUDIO (send, al instante)
   };
   [key: string]: unknown;
 }
