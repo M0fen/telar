@@ -10,6 +10,8 @@
 // imperativo (DOM/CSS-var), sin re-render de React por frame — mismo patrón que
 // `meterEngine`/`highlight`.
 
+import { getBranchMetric, isBranchMeteringOn } from '../audio/branchMeter';
+
 const DECAY = 0.86; // caída por frame (~cola visible de 150 ms a 60 fps)
 const FLOOR = 0.004; // por debajo de esto, apagado
 
@@ -108,10 +110,15 @@ function tick() {
     if (nv < FLOOR) pulses.delete(id); else pulses.set(id, nv);
   }
 
-  // 2) propagación aguas abajo: through[n] = max(pulso propio, pulso de sus entradas)
+  // 2) propagación aguas abajo: through[n] = max(señal propia, señal de sus entradas).
+  //    La señal propia de un Source = su pulso de ONSET y, si branchMetering está activo,
+  //    su NIVEL real medido (V1b: el grosor del flujo y el glow del nodo siguen lo FUERTE
+  //    que suena la rama, no solo el disparo). Sin branchMetering = solo el evento (V1a).
+  const measured = isBranchMeteringOn();
   through.clear();
   for (const id of topoOrder) {
     let v = pulses.get(id) ?? 0;
+    if (measured) { const bm = getBranchMetric(id); if (bm && bm.level > v) v = bm.level; }
     for (const u of upstream.get(id) ?? []) { const uv = through.get(u) ?? 0; if (uv > v) v = uv; }
     if (v >= FLOOR) through.set(id, v);
   }
