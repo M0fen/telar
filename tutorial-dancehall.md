@@ -4,7 +4,7 @@ Este tutorial enseña Telar **construyendo un riddim de principio a fin**. Cada 
 
 **La regla de oro (léela dos veces):** el error nº1 del amateur en dancehall es **llenar demasiado y cuantizar duro**. El pro construye ESPACIO. Un riddim son 4–6 elementos con carácter, no 15 capas. Cada vez que dudes si añadir algo, no lo añadas.
 
-> ⚠️ **Estado actual (ver `auditoria-dancehall.md`):** hasta aplicar el fix P0.1, deja el **humanize del máster en 0** (borra el balance de canales) y ten presente que mover el **fader de un canal** borra los acentos/ghosts programados en ese source. Mientras tanto: balancea con el EQ de canal o editando los números dentro del código, y usa el groove POR PISTA (≋), que sí está bien. El tutorial marca estos puntos con ⚠️.
+> ℹ️ Los fixes P0.1 (la mezcla ya no pisa los acentos) y P0.2 (swing de semicorcheas) de `auditoria-dancehall.md` **ya están aplicados**: faders, humanize del máster, auto-master y kits componen bien con tu dinámica programada. Los ⚠️ que quedan en el tutorial señalan lo aún pendiente (P1.x).
 
 ---
 
@@ -39,7 +39,7 @@ La rejilla es tu drum machine:
 2. **Kick (`bombo`)**: pasos **1, 5, 9, 13** te da el "four" plano — bórralo. Dancehall: prueba **1 y 9** (medio tiempo pesado) o **1, 7, 9** (sincopado). El kick del dembow clásico del kit ya trae 1 y 9 con variación: escucha antes de tocar.
 3. **Caja/rim (`caja`)**: el kit trae el patrón dembow (pasos **4, 7, 12, 15**). Ese "y-pa, y-pa" ES el género. No lo cuadres.
 4. **Hats (`hat`)**: semicorcheas suaves. Aplica **ghost** (clic derecho ×2) en las débiles y deja normales las de los beats. Añade `alt+clic` 50% en dos o tres para variación viva.
-5. **Groove**: abre **≋** en los hats → swing ~0.3, human ~0.3. En la caja, human ~0.2. ⚠️ El swing hoy balancea corcheas (no semicorcheas — fix P0.2 pendiente): úsalo con oído; si suena a vaivén raro, bájalo.
+5. **Groove**: abre **≋** en los hats → swing ~0.3, human ~0.3. En la caja, human ~0.2. El swing balancea las semicorcheas par-a-par (el tumbao); a fondo llega al tresillo.
 
 **Por qué:** la batería del dancehall se construye ALREDEDOR del hueco. La caja en 4-7-12-15 crea la síncopa que hace mover la cabeza; el kick escaso deja sitio al bajo (que llega en el paso 3).
 
@@ -176,11 +176,11 @@ arrange([8, s("bd ~ ~ ~ ~ ~ ~ ~ bd ~ ~ ~ ~ ~ ~ ~")], [8, s("bd ~ ~ ~ bd ~ bd ~ b
 - **Hats/shaker**: low fuera del todo, high +2. **Pan**: shaker un poco a la derecha, conga un poco a la izquierda (chPan) — la batería central, el adorno a los lados.
 - **Voz**: el botón "pulir" del estudio (hpf + compresor) + hueco: baja 2 dB el mid del skank donde canta.
 
-⚠️ Recuerda el aviso del inicio: hoy toca los faders de canal con cuidado si esa pista tiene acentos programados (P0.1a) — usa la ganancia del EQ o el gain dentro del código.
+Los faders de canal ya componen con tus acentos (multiplican, no pisan): mezcla con confianza.
 
 **Dónde (máster — panel derecho):**
-- **punch** +0.2 (el transient shaper realza el ataque del kick), **glue** ~0.3 (pega), **sat** ~0.15 (calor), **width** ≤1.2 (⚠️ P1.1: más ancho des-monoiza el sub).
-- **LUFS**: reproduce el drop y mira el medidor. **⚡ auto** te lleva a −14 LUFS (streaming). ⚠️ Hasta el fix P0.1c, auto-master ajusta un gain que aplana el balance: úsalo como referencia de medición y ajusta a mano el gain del máster+limit escuchando.
+- **punch** +0.2 (el transient shaper realza el ataque del kick), **glue** ~0.3 (pega), **sat** ~0.15 (calor), **width** ≤1.2 (⚠️ P1.1 pendiente: más ancho des-monoiza el sub).
+- **LUFS**: reproduce el drop y mira el medidor. **⚡ auto** te lleva a −14 LUFS (streaming) respetando el balance entre canales (el gain del máster es multiplicativo).
 
 **Por qué:** la mezcla dancehall es jerarquía: kick+bajo delante, TODO lo demás les cede el paso. El LUFS te da el "fuerte" objetivo; el sidechain y el EQ te dan el "limpio".
 

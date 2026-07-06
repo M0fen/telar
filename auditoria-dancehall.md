@@ -20,6 +20,8 @@ Telar ya tiene los LADRILLOS de un riddim pro (dembow programable con acentos/ro
 
 ### P0.1 · `[NUEVO]` El `.gain()` de mezcla PISA la dinámica programada (acentos, velocity, balance)
 
+> **✅ APLICADO** — commits `df43e93` (a/b/c) y `670e2f5` (d). Nota de implementación: en vez de `postgain`/bus se usó **`.mul(gain(x))` / `.mul(velocity(x))`** — verificado contra `@strudel/core` que `mul` MULTIPLICA la clave si el evento la trae y la FIJA si falta (= idéntico al comportamiento previo para eventos sin gain propio). Ventajas sobre la propuesta original: auto-master queda correcto sin tocar el motor ni el tap del LUFS, y no colisiona con el `postgain(1.4)` del pulir voz. El caso (d) creció al implementarlo: `parseStackForm` además **descartaba** los sufijos por segmento (`.bank`/`.room`/… de los kits) al reconstruir — ahora se preservan verbatim (`Lane.sfx`, módulo puro `stepseqCode.ts` + 12 tests de round-trip).
+
 **Semántica verificada:** en Strudel los controles encadenados se combinan con `pat.set(...)` (`@strudel/core/controls.mjs:48`) y el operador `set` resuelve colisión de clave como *"el segundo gana"* (`pattern.mjs:1064` zona de ops; verificado antes en `set: [(a,b)=>b]`). **Dos `.gain()` en la misma cadena NO se multiplican: el externo borra al interno.** Este bug ya se corrigió en el groove por pista (StepSeq emite `.velocity()` — superdough hace `gain *= velocity`, `superdough.mjs:611`) pero quedó vivo en **cuatro sitios**:
 
 | Instancia | Emisión | Efecto real |
@@ -43,6 +45,8 @@ Telar ya tiene los LADRILLOS de un riddim pro (dembow programable con acentos/ro
 ---
 
 ### P0.2 · `[NUEVO]` El swing va en corcheas; el dembow vive en semicorcheas
+
+> **✅ APLICADO** — commit `d4a9f62`: rejilla `n = pasos/2` (16 → 8), máster `n = 8`, comentario corregido, tests de emisión y round-trip.
 
 **Verificado:** `swingBy(x, n)` parte el ciclo en `n` rebanadas y retrasa la segunda mitad de cada una (`@strudel/core/pattern.mjs:2178-2184`). Telar emite **siempre `n = 4`** — en el StepSeq por pista (`StepSeq.tsx:280`) y en el máster (`compile.ts:392`, cuyo comentario dice "sobre semicorcheas" y es incorrecto). Con 4 rebanadas por ciclo (= por compás), lo que se retrasa es la **corchea off** — y en una rejilla de 16 pasos arrastra los pasos 3-4 de cada negra JUNTOS, en bloque.
 
@@ -146,8 +150,15 @@ StepSeq cicla normal→acento→ghost (1 / 1.4 / 0.5, `StepSeq.tsx:27`). El shak
 
 ## Orden de ejecución sugerido
 
-1. **P0.1** (compilador + bus; 1 tarea por instancia a-d, con test) — desbloquea que mezclar no destruya el groove.
-2. **P0.2** (2 líneas + tests de emisión) — el shuffle correcto.
-3. **P1.3** y **P1.4** (baratos, retorno alto inmediato para el género).
+1. ~~**P0.1** — desbloquea que mezclar no destruya el groove.~~ **✅ HECHO** (`df43e93`, `670e2f5`).
+2. ~~**P0.2** — el shuffle correcto.~~ **✅ HECHO** (`d4a9f62`).
+3. **P1.3** y **P1.4** (baratos, retorno alto inmediato para el género). ← **SIGUIENTE**
 4. **P0.3** (variantes por sección — la feature grande; diseñarla con plan aparte).
 5. **P1.1, P1.2, P1.5** (mezcla/pocket fino), luego **P1.6** y P2s.
+
+### Cómo ESCUCHAR lo aplicado (revisión del usuario)
+
+1. **Balance con humanize (P0.1b):** carga la demo **"latin dancehall"** → play. Los hats deben oírse DISCRETOS (gain 0.2), no al nivel del kick. Sube/baja "humanize" del máster: el balance no debe moverse (antes los hats saltaban a ~5×).
+2. **Acentos vs fader (P0.1a):** rejilla con acento+ghost en una pista (clic derecho) → baja el fader de ese canal a la mitad → la diferencia acento/ghost debe seguir oyéndose (antes se aplanaba).
+3. **Kits (P0.1d):** suelta el kit "dembow riddim", edita cualquier paso en la rejilla → el banco RolandTR808 y los niveles deben mantenerse (antes: al primer clic todo saltaba al banco por defecto y a todo volumen).
+4. **Swing (P0.2):** hats en 16 pasos, swing ~0.5 en ≋ → shuffle real par-a-par (larga-corta), el kick no se mueve.
