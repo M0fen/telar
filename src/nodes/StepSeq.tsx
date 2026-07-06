@@ -6,6 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, buildSeq, laneGroove, lanePitched, parseSeq, type Lane } from './stepseqCode';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -23,18 +24,10 @@ import { DRUM_MACHINES } from '../docs/catalog';
 // melódico). Cada paso encendido lleva su nota (arrastre vertical en la sub-fila de
 // pitch). Sin pitch la pista queda IDÉNTICA a hoy.
 
-// niveles de velocity (valor de gain). Ghost/normal/acento; el ciclo pasa por estos.
-const NORMAL = 1, ACCENT = 1.4, GHOST = 0.5;
+// La lógica de parse/build vive en stepseqCode.ts (módulo puro, testeable en Node).
 const nextLevel = (v: number) => (Math.abs(v - NORMAL) < 0.01 ? ACCENT : Math.abs(v - ACCENT) < 0.01 ? GHOST : NORMAL);
-const DEFAULT_NOTE = 'c3'; // nota por defecto al afinar una pista
 const PITCH_LO = 36, PITCH_RANGE = 36; // rango de afinación de la sub-fila: c2..c5
 const PX_PER_SEMI = 6; // píxeles de arrastre vertical por semitono (afinado fluido/orgánico)
-// A5 — GROOVE por pista: swing (balanceo/tumbao de las corcheas pares) + humanize
-// (micro-timing y micro-dinámica aleatorios por golpe → quita la rigidez de máquina).
-// Los sliders van 0..1 y se mapean a estos máximos al emitir Strudel.
-const SWING_MAX = 0.34; // amount máx de .swingBy (~ tresillo a fondo)
-const HUMAN_LATE = 0.02; // desfase máx (fracción de ciclo) del .late(rand…)
-const HUMAN_GAIN = 0.3; // caída de gain máx del humanize (rand.range(1-x,1))
 // SCALE-LOCK: al afinar, el arrastre se ENGANCHA a una tonalidad (los bajos/808/stabs no
 // se desafinan). 'libre' = sin bloqueo.
 const ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -79,10 +72,6 @@ function buildChord(rootMidi: number, chord: string, scaleRoot: number, scaleNam
   const names = ns.map((m) => midiToName(m));
   return names.length > 1 ? `[${names.join(',')}]` : names[0];
 }
-function fmt(n: number): string {
-  if (!isFinite(n)) return '1';
-  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
 
 // paleta de sonidos para añadir pistas (nombres del banco de batería).
 const PALETTE: { s: string; label: string }[] = [
@@ -91,221 +80,6 @@ const PALETTE: { s: string; label: string }[] = [
   { s: 'lt', label: 'tom-b' }, { s: 'mt', label: 'tom-m' }, { s: 'ht', label: 'tom-a' },
   { s: 'cb', label: 'cowbell' }, { s: 'cr', label: 'crash' }, { s: 'rd', label: 'ride' },
 ];
-
-interface Lane { sound: string; steps: number[]; notes: (string | null)[]; ratchet: number[]; prob: number[]; swing?: number; human?: number } // steps[i]=0(off)|gain · notes[i]=nota|null · ratchet[i]=1|2|3|4 (roll/tresillo) · prob[i]=1|0.75|0.5|0.25 (probabilidad ?p) · swing/human=groove 0..1
-interface Parsed { bank: string; tail: string; lanes: Lane[]; steps: number; complex: boolean }
-
-function splitTop(s: string, sep: string): string[] {
-  const out: string[] = []; let depth = 0, cur = '';
-  for (const c of s) {
-    if (c === '[' || c === '<' || c === '(') { depth++; cur += c; }
-    else if (c === ']' || c === '>' || c === ')') { depth--; cur += c; }
-    else if (c === sep && depth === 0) { out.push(cur); cur = ''; }
-    else cur += c;
-  }
-  out.push(cur);
-  return out;
-}
-function tokenize(pat: string): string[] {
-  return splitTop(pat.trim().replace(/\s+/g, ' '), ' ').map((t) => t.trim()).filter(Boolean);
-}
-const soundOf = (tok: string) => tok.replace(/\*\d+/, '').replace(/\?[\d.]*/, '').trim(); // quita roll (*N) y probabilidad (?p)
-const isComplex = (tok: string) => /[[\]<>()]/.test(tok);
-
-// A7 — normaliza sub-estructura que SÍ mapea al modelo de rejilla, para no rendirse:
-// `[x x x]` (corchete plano, mismo sonido repetido) → `x*3` (roll, suena idéntico).
-// Acordes `[c,e,g]`, alternancia `<a b>`, euclid `(3,8)` y `[a b]` mixto se dejan como
-// están (siguen marcando "avanzado": forzarlos a la rejilla cambiaría el patrón).
-function normalizeTok(tok: string): string {
-  const m = /^\[([^[\]<>()]+)\]$/.exec(tok); // corchete plano, sin anidar
-  if (!m) return tok;
-  const inner = m[1].trim();
-  if (inner.includes(',')) return tok; // acorde/stack → no tocar
-  const parts = inner.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2 && parts.every((p) => p === parts[0])) return `${parts[0]}*${parts.length}`;
-  return tok;
-}
-
-// tokens de un sublane; expande un único `X*N` a N pasos.
-function expand(sl: string): string[] {
-  let t = tokenize(sl).map(normalizeTok);
-  if (t.length === 1 && /^[A-Za-z][\w:]*\*\d+$/.test(t[0])) {
-    const [, base, n] = /^([A-Za-z][\w:]*)\*(\d+)$/.exec(t[0])!;
-    t = Array.from({ length: Math.min(32, Number(n)) }, () => base);
-  }
-  return t;
-}
-
-// separa el sufijo de FX tras la llamada `s("…")` o `stack(…)`. Extrae el banco (se
-// re-aplica aparte) y devuelve el resto de la cadena tal cual.
-function splitTail(tailRaw: string): { bank: string; tail: string } {
-  const bankM = /\.bank\(\s*["'`]([^"'`]+)["'`]\s*\)/.exec(tailRaw);
-  const bank = bankM ? bankM[1] : '';
-  const tail = bankM ? tailRaw.slice(0, bankM.index) + tailRaw.slice(bankM.index + bankM[0].length) : tailRaw;
-  return { bank, tail: tail.trim() };
-}
-
-// construye lanes agrupando por sonido a partir de sublanes ya tokenizados, con sus
-// niveles de velocity (gains[i]) y notas (notes[i]) por posición. Marca `complex` si hay
-// tokens con corchetes o longitudes dispares.
-type Groove = { swing?: number; human?: number };
-function lanesFromToks(toks: string[][], gainsPerSub: (number[] | null)[], notesPerSub: ((string | null)[] | null)[], groovePerSub: (Groove | null)[]): { lanes: Lane[]; steps: number; complex: boolean } {
-  const steps = Math.max(1, ...toks.map((t) => t.length));
-  let complex = false;
-  for (const t of toks) {
-    if (t.length !== steps) complex = true;
-    for (const tk of t) if (tk !== '~' && isComplex(tk)) complex = true;
-  }
-  const laneMap = new Map<string, number[]>();
-  const noteMap = new Map<string, (string | null)[]>();
-  const ratchMap = new Map<string, number[]>();
-  const probMap = new Map<string, number[]>();
-  const grooveMap = new Map<string, Groove>();
-  if (!complex) {
-    toks.forEach((t, si) => {
-      const gains = gainsPerSub[si];
-      const notes = notesPerSub[si];
-      const groove = groovePerSub[si];
-      for (let i = 0; i < steps; i++) {
-        const tk = t[i];
-        if (!tk || tk === '~') continue;
-        const snd = soundOf(tk);
-        if (!snd) continue;
-        if (!laneMap.has(snd)) { laneMap.set(snd, Array(steps).fill(0)); noteMap.set(snd, Array(steps).fill(null)); ratchMap.set(snd, Array(steps).fill(1)); probMap.set(snd, Array(steps).fill(1)); }
-        laneMap.get(snd)![i] = gains && isFinite(gains[i]) ? gains[i] : NORMAL;
-        if (notes && notes[i]) noteMap.get(snd)![i] = notes[i];
-        if (groove && !grooveMap.has(snd)) grooveMap.set(snd, groove); // groove es de segmento → 1ª pista del sub
-        const rm = /\*(\d+)/.exec(tk); if (rm) ratchMap.get(snd)![i] = Math.max(1, Math.min(8, Number(rm[1]))); // roll por paso
-        const pm = /\?([\d.]*)/.exec(tk); if (pm) probMap.get(snd)![i] = pm[1] ? Math.max(0, Math.min(1, Number(pm[1]))) : 0.5; // probabilidad por paso (hh? = 0.5)
-      }
-    });
-  }
-  const lanes: Lane[] = [...laneMap.entries()].map(([sound, steps2]) => ({ sound, steps: steps2, notes: noteMap.get(sound)!, ratchet: ratchMap.get(sound)!, prob: probMap.get(sound)!, swing: grooveMap.get(sound)?.swing, human: grooveMap.get(sound)?.human }));
-  return { lanes, steps, complex };
-}
-
-// forma STACK: stack(seg, seg, …)<tail>. Cada seg es `s("…")[.gain("…")]` (percusión) o
-// `note("…").s("snd")[.gain("…")]` (pista melódica/afinada).
-function parseStackForm(code: string): Parsed | null {
-  const open = code.indexOf('(');
-  if (open < 0) return null;
-  let depth = 0, close = -1;
-  for (let i = open; i < code.length; i++) {
-    if (code[i] === '(') depth++;
-    else if (code[i] === ')') { depth--; if (depth === 0) { close = i; break; } }
-  }
-  if (close < 0) return null;
-  const inner = code.slice(open + 1, close);
-  const { bank, tail } = splitTail(code.slice(close + 1));
-  const segs = splitTop(inner, ',').map((s) => s.trim()).filter(Boolean);
-  const toks: string[][] = [];
-  const gains: (number[] | null)[] = [];
-  const notes: ((string | null)[] | null)[] = [];
-  const grooves: (Groove | null)[] = [];
-  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
-  for (const seg of segs) {
-    // groove por segmento (A5): .swingBy(x,4) y/o .late(rand.range(0,h))…
-    const swM = /\.swingBy\(\s*([\d.]+)\s*,/.exec(seg);
-    const laM = /\.late\(\s*rand\.range\(\s*0\s*,\s*([\d.]+)\s*\)\s*\)/.exec(seg);
-    grooves.push((swM || laM) ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: laM ? clamp01(Number(laM[1]) / HUMAN_LATE) : undefined } : null);
-    // gain "de acento" por segmento (NO el rand del humanize, que lleva paréntesis dentro)
-    const gM = /\.gain\(\s*"([^"]*)"\s*\)/.exec(seg);
-    const gain = gM ? gM[1].trim().split(/\s+/).map((x) => Number(x)).map((n) => (isFinite(n) ? n : 1)) : null;
-    const noteM = /\bnote\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
-    if (noteM) {
-      // pista afinada: note("…").s("snd") → presencia por posición + notas aparte.
-      const sM = /\.s(?:ound)?\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)/.exec(seg);
-      if (!sM) return null;
-      const nt = expand(noteM[1]);
-      toks.push(nt.map((t) => (t === '~' ? '~' : sM[1] + (/\*\d+/.exec(t)?.[0] ?? '') + (/\?[\d.]*/.exec(t)?.[0] ?? '')))); // conserva *N (roll) y ?p (prob) en la presencia
-      notes.push(nt.map((t) => (t === '~' ? null : t.replace(/\*\d+/, '').replace(/\?[\d.]*/, ''))));
-      gains.push(gain);
-    } else {
-      const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(seg);
-      if (!sM) return null; // segmento no es un s("…") → deja el patrón como avanzado
-      toks.push(expand(sM[1]));
-      notes.push(null);
-      gains.push(gain);
-    }
-  }
-  const { lanes, steps, complex } = lanesFromToks(toks, gains, notes, grooves);
-  return { bank, tail, lanes, steps, complex };
-}
-
-// forma SIMPLE: s("a ~, ~ b")<tail>
-function parseSimpleForm(code: string): Parsed | null {
-  const om = /\b(?:s|sound)\(\s*["'`]/.exec(code);
-  if (!om) return null;
-  const contentStart = om.index + om[0].length;
-  const quote = code[contentStart - 1];
-  const contentEnd = code.indexOf(quote, contentStart);
-  if (contentEnd < 0) return null;
-  const content = code.slice(contentStart, contentEnd);
-  // salta el cierre `")` y toma el resto como cola de FX.
-  let j = contentEnd + 1;
-  while (j < code.length && /\s/.test(code[j])) j++;
-  if (code[j] === ')') j++;
-  const { bank, tail } = splitTail(code.slice(j));
-  const sublanes = splitTop(content, ',').map((s) => s.trim()).filter((s) => s.length);
-  const toks = sublanes.map(expand);
-  const { lanes, steps, complex } = lanesFromToks(toks, toks.map(() => null), toks.map(() => null), toks.map(() => null));
-  return { bank, tail, lanes, steps, complex };
-}
-
-export function parseSeq(code: string): Parsed | null {
-  const t = code.trim();
-  if (/^stack\s*\(/.test(t)) return parseStackForm(t);
-  return parseSimpleForm(code);
-}
-
-// ¿la pista está afinada? (algún paso encendido tiene nota)
-function lanePitched(l: Lane, steps: number): boolean {
-  return l.steps.slice(0, steps).some((v, i) => v > 0 && !!l.notes[i]);
-}
-const ratchSfx = (l: Lane, i: number) => (l.ratchet[i] > 1 ? `*${l.ratchet[i]}` : ''); // roll: hh*3
-const probSfx = (l: Lane, i: number) => ((l.prob?.[i] ?? 1) < 0.999 ? `?${fmt(l.prob[i])}` : ''); // probabilidad: hh?0.5
-const stepSfx = (l: Lane, i: number) => ratchSfx(l, i) + probSfx(l, i); // roll + prob (hh*3?0.5)
-function laneBody(l: Lane, steps: number): string {
-  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? l.sound + stepSfx(l, i) : '~')).join(' ');
-}
-function laneNotesBody(l: Lane, steps: number): string {
-  return l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + stepSfx(l, i) : '~')).join(' ');
-}
-const laneGroove = (l: Lane) => (l.swing ?? 0) > 0.01 || (l.human ?? 0) > 0.01;
-// sufijo de groove por pista (A5). swing = balanceo del tumbao; humanize = micro-timing
-// + micro-dinámica aleatorios (rand por golpe). Se emite como método sobre el segmento.
-const fmt3 = (n: number) => (isFinite(n) ? n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') : '0'); // 3 decimales: los montos de groove son chicos (0..0.34), 2 decimales perdían resolución
-function grooveSfx(l: Lane): string {
-  let s = '';
-  if ((l.swing ?? 0) > 0.01) s += `.swingBy(${fmt3((l.swing as number) * SWING_MAX)}, 4)`;
-  // dinámica aleatoria por .velocity (NO .gain): superdough hace gain*=velocity, así se
-  // MULTIPLICA con el .gain de los acentos en vez de pisarlo (dos .gain encadenados =
-  // el 2º gana, borraría los acentos).
-  if ((l.human ?? 0) > 0.01) { const h = l.human as number; s += `.late(rand.range(0,${fmt3(h * HUMAN_LATE)})).velocity(rand.range(${fmt3(1 - h * HUMAN_GAIN)},1))`; }
-  return s;
-}
-export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
-  const active = lanes.filter((l) => l.steps.slice(0, steps).some((v) => v > 0));
-  const bankSfx = p.bank ? `.bank("${p.bank}")` : '';
-  const tail = p.tail || '';
-  if (!active.length) return `s("~")${bankSfx}${tail}`;
-  const hasAccent = active.some((l) => l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01));
-  const anyPitched = active.some((l) => lanePitched(l, steps));
-  const anyGroove = active.some(laneGroove);
-  if (!hasAccent && !anyPitched && !anyGroove) {
-    const body = active.map((l) => laneBody(l, steps)).join(', ');
-    return `s("${body}")${bankSfx}${tail}`;
-  }
-  const parts = active.map((l) => {
-    const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
-    const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
-    const gr = grooveSfx(l);
-    // pista afinada → note("…").s("snd") (note re-afina el sample); si no, s("…").
-    if (lanePitched(l, steps)) return `note("${laneNotesBody(l, steps)}").s("${l.sound}")${g}${gr}`;
-    return `s("${laneBody(l, steps)}")${g}${gr}`;
-  });
-  return `stack(${parts.join(', ')})${bankSfx}${tail}`;
-}
 
 export function StepSeq({ id, code }: { id: string; code: string }) {
   const update = useGraphStore((s) => s.updateNodeData);
