@@ -546,9 +546,10 @@ export default function App() {
       <ErrorBoundary variant="panel" label="secuenciador" onClose={() => useSequencerStore.getState().setOpen(false)}><StepSequencer /></ErrorBoundary>
       <Toaster />
       <DialogHost />
-      {/* dev-only: panel de flags visuales + HUD de FPS. import.meta.env.DEV es false en
-          producción → Vite elimina esta rama (nunca llega al usuario final). */}
-      {import.meta.env.DEV && <ErrorBoundary variant="panel" label="dev"><DevPanel /></ErrorBoundary>}
+      {/* Panel de flags visuales + HUD de FPS. Disponible también en PRODUCCIÓN (botón
+          «fps» discreto abajo-izquierda) para poder apagar los efectos visuales y medir
+          su costo. Cerrado por defecto → sin coste hasta abrirlo. */}
+      <ErrorBoundary variant="panel" label="visuales"><DevPanel /></ErrorBoundary>
     </div>
   );
 }

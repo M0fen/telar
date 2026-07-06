@@ -57,7 +57,7 @@ export function DevPanel() {
           <div className="devpanel-head">
             <span className={`devpanel-fps${fpsClass}`}>{fps || '—'}<i>fps</i></span>
             <span className="devpanel-ms">{ms || '—'}<i>ms</i></span>
-            <span className="devpanel-tag">dev · visuales</span>
+            <span className="devpanel-tag">efectos visuales</span>
           </div>
           <div className="devpanel-flags">
             {keys.map((k) => (
