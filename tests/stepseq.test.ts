@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSeq, buildSeq, type Parsed } from '../src/nodes/stepseqCode.ts';
+import { parseSeq, buildSeq, splitArrange, spliceArm, isMelodicCode, type Parsed } from '../src/nodes/stepseqCode.ts';
 import { URBAN_KITS } from '../src/graph/instrumentKits.ts';
 
 // Round-trip de la rejilla (P0.1d, auditoría dancehall): lo que la rejilla no modela
@@ -167,4 +167,66 @@ test('editar un paso NO pierde los extras (flujo real de la rejilla)', () => {
   assert.match(out, /s\("bd ~ bd ~"\)/);
   assert.match(out, /\.bank\("RolandTR808"\)/);
   assert.match(out, /\.mul\(gain\(0\.9\)\)/);
+});
+
+// --- SECCIONES (P0.3): el secuenciador edita cada brazo de un arrange ----------------
+
+const DEMO_ARRANGE = 'arrange([4, s("hh*8").bank("RolandTR808").gain(0.2)], [12, silence], [12, s("hh*16").bank("RolandTR808").gain(saw.range(0.1,0.35))])';
+
+test('SECCIONES: splitArrange parte los brazos con compases y spans correctos', () => {
+  const arms = splitArrange(DEMO_ARRANGE);
+  assert.ok(arms);
+  assert.equal(arms!.length, 3);
+  assert.deepEqual(arms!.map((a) => a.bars), [4, 12, 12]);
+  assert.equal(arms![1].code, 'silence');
+  // los spans apuntan EXACTAMENTE al expr dentro del código completo
+  for (const a of arms!) assert.equal(DEMO_ARRANGE.slice(a.start, a.end), a.code);
+});
+
+test('SECCIONES: cada brazo con patrón es editable por la rejilla', () => {
+  const arms = splitArrange(DEMO_ARRANGE)!;
+  for (const a of arms.filter((x) => x.code !== 'silence')) {
+    const p = parseSeq(a.code);
+    assert.ok(p, a.code);
+    assert.equal(p!.complex, false, `brazo no editable: ${a.code}`);
+  }
+});
+
+test('SECCIONES: spliceArm reemplaza SOLO el brazo editado (el resto, byte a byte)', () => {
+  const arms = splitArrange(DEMO_ARRANGE)!;
+  const nuevo = 's("hh ~ hh ~ hh ~ hh ~")';
+  const out = spliceArm(DEMO_ARRANGE, arms[0], nuevo);
+  assert.ok(out.includes(nuevo));
+  // las otras secciones y la estructura quedan intactas
+  assert.ok(out.includes('[12, silence]'));
+  assert.ok(out.includes('gain(saw.range(0.1,0.35))'));
+  assert.match(out, /^arrange\(\[4, /);
+  // y el resultado se vuelve a partir igual (round-trip del modo secciones)
+  const arms2 = splitArrange(out)!;
+  assert.equal(arms2.length, 3);
+  assert.equal(arms2[0].code, nuevo);
+  assert.equal(arms2[2].code, arms[2].code);
+});
+
+test('SECCIONES: flujo completo — editar la rejilla de un brazo no rompe el arrange', () => {
+  const arms = splitArrange(DEMO_ARRANGE)!;
+  const p = parseSeq(arms[0].code)!;
+  const lanes = p.lanes.map((l) => ({ ...l, steps: l.steps.map((v, i) => (i === 0 ? 1.4 : v)) })); // acento en el paso 1
+  const out = spliceArm(DEMO_ARRANGE, arms[0], buildSeq(p, lanes, p.steps));
+  // sintaxis JS válida (lo que antes moría con "Unexpected token ]")
+  new Function(`return 0 && (${out})`);
+  const arms2 = splitArrange(out)!;
+  assert.match(arms2[0].code, /\.gain\("1\.4/);
+});
+
+test('SECCIONES: arrange no estándar → null (la rejilla cae al modo protegido)', () => {
+  assert.equal(splitArrange('arrange(algoRaro)'), null);
+  assert.equal(splitArrange('s("bd*4")'), null);
+});
+
+test('isMelodicCode: melodías sí, rejillas/loops/arranges no', () => {
+  assert.equal(isMelodicCode('note("c1 ~ c1 ~").s("sine").lpf(480)'), true);
+  assert.equal(isMelodicCode('stack(note("c2 ~").s("cb"))'), false);
+  assert.equal(isMelodicCode('s("bd*4")'), false);
+  assert.equal(isMelodicCode('note("c2").s("x").loopAt(4)'), false);
 });

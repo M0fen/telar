@@ -26,10 +26,12 @@ function isMelodicSeq(code: string): boolean {
   if (/^\s*stack\s*\(/.test(code)) return false;
   return /\bnote\(\s*["'`]|\bn\(\s*["'`]/.test(code) && !/\.loopAt\(/.test(code) && !code.includes('arrange');
 }
-// ¿el source es editable en el secuenciador de rejilla? Melódico (note/n) o percusivo
-// (varios pasos o *N). Excluye loops de sample y arrange multi-sección.
+// ¿el source es editable en el secuenciador de rejilla? Melódico (note/n), percusivo
+// (varios pasos o *N) o ARREGLADO por secciones (arrange → el secuenciador muestra
+// pestañas y edita cada brazo; P0.3). Excluye solo loops de sample sueltos.
 function isSeqable(code: string): boolean {
-  if (/\.loopAt\(/.test(code) || code.includes('arrange')) return false;
+  if (/\barrange\s*\(/.test(code)) return true; // secciones: StepSeq edita cada brazo
+  if (/\.loopAt\(/.test(code)) return false;
   if (/^\s*stack\s*\(/.test(code)) return true; // rejilla con acentos o pistas afinadas
   if (isMelodicSeq(code)) return true;
   const m = /\b(?:s|sound)\(\s*["'`]([^"'`]*)/.exec(code);

@@ -6,7 +6,8 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, bankExempt, buildSeq, laneGroove, lanePitched, parseSeq, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, bankExempt, buildSeq, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, splitArrange, spliceArm, type Lane } from './stepseqCode';
+import { MelodicSeq } from './MelodicSeq';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -92,8 +93,12 @@ const PERC_PALETTE: { s: string; label: string }[] = [
   { s: 'darbuka', label: 'darbuka' }, { s: 'sh', label: 'shaker 808' },
 ];
 
-export function StepSeq({ id, code }: { id: string; code: string }) {
+// Rejilla sobre UN patrón plano. `wrap` (opcional) re-envuelve el código emitido antes
+// de guardarlo en el nodo — lo usa el modo SECCIONES para empalmar el brazo editado
+// dentro del arrange sin tocar el resto.
+function StepGrid({ id, code, wrap }: { id: string; code: string; wrap?: (c: string) => string }) {
   const update = useGraphStore((s) => s.updateNodeData);
+  const emit = (c: string) => update(id, { code: wrap ? wrap(c) : c });
   const parsed = useMemo(() => parseSeq(code), [code]);
   const [steps, setSteps] = useState(() => parsed?.steps || 8);
   const [lanes, setLanes] = useState<Lane[]>(() => parsed?.lanes ?? []);
@@ -154,14 +159,14 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     return (
       <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
         <p className="seqs-none">patrón avanzado: usa secciones <code>arrange(…)</code>, melodía <code>note(…)</code>, alternancia <code>&lt;a b&gt;</code>, euclídeo <code>(3,8)</code> u otra estructura que no cabe en una rejilla fija. Tu patrón <b>sigue sonando igual</b> (la rejilla no lo toca). Para editarlo aquí puedes empezar una rejilla nueva:</p>
-        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; update(id, { code: buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8) }); }}>empezar rejilla de 8 pasos (reemplaza el patrón)</button>
+        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; emit(buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8)); }}>empezar rejilla de 8 pasos (reemplaza el patrón)</button>
       </div>
     );
   }
 
-  const commit = (nl: Lane[], ns = steps) => { update(id, { code: buildSeq(parsed, nl, ns) }); pulseSaved(); };
+  const commit = (nl: Lane[], ns = steps) => { emit(buildSeq(parsed, nl, ns)); pulseSaved(); };
   // A8 — cambia la caja de ritmos (.bank) de TODA la rejilla; re-emite con el banco nuevo.
-  const setBank = (b: string) => { update(id, { code: buildSeq({ ...parsed, bank: b }, lanes, steps) }); pulseSaved(); };
+  const setBank = (b: string) => { emit(buildSeq({ ...parsed, bank: b }, lanes, steps)); pulseSaved(); };
   const paint = (li: number, si: number, val: number) => {
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? val : v)) } : l));
     setLanes(nl); commit(nl);
@@ -393,6 +398,54 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
         )}
       </div>
       <p className="seqs-hint">clic = golpe (arrastra) · clic der. = acento/ghost · shift+clic = roll/tresillo · alt+clic = probabilidad (75/50/25%) · ♪ = afinar · ≋ = groove · «+ añadir sonido» · ▶/espacio = escuchar</p>
+    </div>
+  );
+}
+
+// SECUENCIADOR por source (P0.3 — secciones): si el código es un
+// arrange([compases, patrón], …) — las demos arregladas, el copiloto IA — muestra
+// PESTAÑAS de sección y edita el brazo elegido con la rejilla o el piano roll
+// normales. El guardado es un empalme textual por spans (spliceArm): solo cambian
+// los bytes del brazo editado — las demás secciones quedan intactas. Sin arrange,
+// rejilla directa como siempre.
+export function StepSeq({ id, code }: { id: string; code: string }) {
+  const arms = useMemo(() => splitArrange(code), [code]);
+  const [sec, setSec] = useState(0);
+  if (!arms) return <StepGrid id={id} code={code} />;
+  const k = Math.min(sec, arms.length - 1);
+  const arm = arms[k];
+  const wrap = (c: string) => spliceArm(code, arm, c);
+  const silent = arm.code.trim() === 'silence';
+  return (
+    <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="seqs-sectabs">
+        <span className="seqs-sectag" title="este instrumento está ARREGLADO por secciones (arrange): cada pestaña es una sección de N compases. Editas la sección activa; las demás no se tocan.">secciones</span>
+        {arms.map((a, i) => (
+          <button
+            key={i}
+            className={i === k ? 'on' : ''}
+            onClick={() => setSec(i)}
+            title={`sección ${i + 1}: ${fmt(a.bars)} compases${a.code.trim() === 'silence' ? ' · en silencio (el instrumento no entra aquí)' : ''}`}
+          >
+            {i + 1}<i>·{fmt(a.bars)}c</i>
+          </button>
+        ))}
+      </div>
+      {silent ? (
+        <p className="seqs-none">
+          esta sección está <b>en silencio</b> (el instrumento aún no entra aquí).{' '}
+          <button
+            className="seqs-norm"
+            onClick={() => useGraphStore.getState().updateNodeData(id, { code: wrap(`s("${Array(16).fill('~').join(' ')}")`) })}
+          >
+            activar sección (rejilla vacía de 16)
+          </button>
+        </p>
+      ) : isMelodicCode(arm.code) ? (
+        <MelodicSeq key={k} id={id} code={arm.code} wrap={wrap} />
+      ) : (
+        <StepGrid key={k} id={id} code={arm.code} wrap={wrap} />
+      )}
     </div>
   );
 }

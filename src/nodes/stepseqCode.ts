@@ -303,6 +303,72 @@ export function parseSeq(code: string): Parsed | null {
   return parseSimpleForm(code);
 }
 
+// --- SECCIONES (P0.3): editar cada brazo de un arrange([compases, patrón], …) --------
+// Los sources arreglados por secciones (las demos, el copiloto IA) se editan POR BRAZO:
+// el secuenciador muestra pestañas y opera sobre el patrón de la sección elegida. El
+// guardado es un EMPALME TEXTUAL por spans — solo cambian los bytes del brazo editado,
+// el resto del código queda verbatim (imposible romper las otras secciones).
+
+export interface ArrangeArm {
+  bars: number; // compases (ciclos) del brazo
+  code: string; // expresión del patrón del brazo (puede ser `silence`)
+  start: number; // span [start, end) del EXPR dentro del código completo
+  end: number;
+}
+
+// Parte un arrange(...) en sus brazos con spans. Devuelve null si el código no es un
+// arrange editable (sin arrange, brazos no estándar `[n, expr]`, paréntesis rotos…).
+export function splitArrange(code: string): ArrangeArm[] | null {
+  const m = /\barrange\s*\(/.exec(code);
+  if (!m) return null;
+  const open = m.index + m[0].length - 1;
+  let depth = 0, close = -1;
+  for (let i = open; i < code.length; i++) {
+    const c = code[i];
+    if (c === '(') depth++;
+    else if (c === ')') { depth--; if (!depth) { close = i; break; } }
+  }
+  if (close < 0) return null;
+  const inner = code.slice(open + 1, close);
+  const innerOff = open + 1;
+  // trozos al nivel superior (coma fuera de paréntesis/corchetes), con offset.
+  const pieces: { text: string; start: number }[] = [];
+  let d = 0, curStart = 0;
+  for (let k = 0; k < inner.length; k++) {
+    const c = inner[k];
+    if (c === '(' || c === '[' || c === '<') d++;
+    else if (c === ')' || c === ']' || c === '>') d--;
+    else if (c === ',' && d === 0) { pieces.push({ text: inner.slice(curStart, k), start: curStart }); curStart = k + 1; }
+  }
+  pieces.push({ text: inner.slice(curStart), start: curStart });
+  const arms: ArrangeArm[] = [];
+  for (const p of pieces) {
+    const t = p.text;
+    const bm = /^\s*\[\s*([\d.]+)\s*,/.exec(t); // brazo estándar: [n, expr]
+    if (!bm) return null;
+    const closeBr = t.lastIndexOf(']');
+    if (closeBr < bm[0].length) return null;
+    let s = bm[0].length, e = closeBr;
+    while (s < e && /\s/.test(t[s])) s++;
+    while (e > s && /\s/.test(t[e - 1])) e--;
+    if (e <= s) return null;
+    arms.push({ bars: Number(bm[1]), code: t.slice(s, e), start: innerOff + p.start + s, end: innerOff + p.start + e });
+  }
+  return arms.length ? arms : null;
+}
+
+// Reemplaza el patrón de UN brazo dentro del código completo (empalme por span).
+export function spliceArm(code: string, arm: ArrangeArm, newExpr: string): string {
+  return code.slice(0, arm.start) + newExpr + code.slice(arm.end);
+}
+
+// ¿el código es una MELODÍA editable en el piano roll? (note/n con contenido, no una
+// rejilla stack ni un loop de sample). Compartido por el enrutado de editores.
+export function isMelodicCode(code: string): boolean {
+  if (/^\s*stack\s*\(/.test(code)) return false;
+  return /\b(?:note|n)\(\s*["'`]/.test(code) && !/\.loopAt\(/.test(code) && !code.includes('arrange');
+}
+
 // ¿la pista está afinada? (algún paso encendido tiene nota)
 export function lanePitched(l: Lane, steps: number): boolean {
   return l.steps.slice(0, steps).some((v, i) => v > 0 && !!l.notes[i]);

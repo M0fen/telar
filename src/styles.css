@@ -768,6 +768,17 @@ body {
   font-size: 9px; padding: 3px 7px; border-radius: 3px; width: 108px;
 }
 .seqs-pal-input::placeholder { color: var(--dim); }
+/* SECCIONES (P0.3): pestañas de los brazos de un arrange dentro del secuenciador */
+.seqs-secs { display: flex; flex-direction: column; gap: 4px; }
+.seqs-sectabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 2px 0 0; }
+.seqs-sectag { color: var(--dim); font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; margin-right: 4px; }
+.seqs-sectabs button {
+  background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim);
+  cursor: pointer; font-size: 9px; padding: 3px 8px; border-radius: 3px;
+}
+.seqs-sectabs button i { font-style: normal; opacity: 0.65; font-size: 8px; }
+.seqs-sectabs button:hover { color: var(--accent); border-color: var(--accent-dim); }
+.seqs-sectabs button.on { color: var(--accent); border-color: var(--accent); background: rgba(74,163,255,0.10); }
 .seqs-hint { margin: 0; font-size: 8px; color: var(--faint); line-height: 1.4; }
 /* onda en vivo del secuenciador */
 .seq-scope { background: rgba(2,5,8,0.6); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }

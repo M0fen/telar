@@ -90,7 +90,9 @@ function buildMel(p: MelParsed, cells: string[], vels: number[], gates: number[]
 
 interface Row { val: string; midi: number; acc: boolean; root: boolean }
 
-export function MelodicSeq({ id, code }: { id: string; code: string }) {
+// `wrap` (opcional): re-envuelve el código emitido antes de guardarlo — lo usa el modo
+// SECCIONES del secuenciador para empalmar el brazo editado dentro de un arrange.
+export function MelodicSeq({ id, code, wrap }: { id: string; code: string; wrap?: (c: string) => string }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const parsed = useMemo(() => parseMel(code), [code]);
   const [oct, setOct] = useState(3);
@@ -151,7 +153,7 @@ export function MelodicSeq({ id, code }: { id: string; code: string }) {
   };
 
   const slide = parsed?.slide ?? 0; // 808 slide (pitch-env de cada nota)
-  const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) { update(id, { code: buildMel(parsed, nc, nv, ng, sl) }); pulseSaved(); } };
+  const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) { const c = buildMel(parsed, nc, nv, ng, sl); update(id, { code: wrap ? wrap(c) : c }); pulseSaved(); } };
   const place = (col: number, row: Row) => {
     const next = cells.slice();
     const on = noteToMidi(next[col]) === row.midi;
