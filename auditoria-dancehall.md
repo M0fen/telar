@@ -152,9 +152,16 @@ StepSeq cicla normal→acento→ghost (1 / 1.4 / 0.5, `StepSeq.tsx:27`). El shak
 
 1. ~~**P0.1** — desbloquea que mezclar no destruya el groove.~~ **✅ HECHO** (`df43e93`, `670e2f5`).
 2. ~~**P0.2** — el shuffle correcto.~~ **✅ HECHO** (`d4a9f62`).
-3. **P1.3** y **P1.4** (baratos, retorno alto inmediato para el género). ← **SIGUIENTE**
-4. **P0.3** (variantes por sección — la feature grande; diseñarla con plan aparte).
+3. ~~**P1.3** y **P1.4**.~~ **✅ HECHOS** (`205fdd3` eco dub con subdivisión + throw por canal; `813e4b7` percusión latina en paleta + bankExempt + kit "latin dancehall").
+4. **P0.3** (variantes por sección — la feature grande; diseñarla con plan aparte). ← **SIGUIENTE**. Subió de urgencia: el episodio del secuenciador (abajo) demostró que las demos `arrange()` no tienen editor.
 5. **P1.1, P1.2, P1.5** (mezcla/pocket fino), luego **P1.6** y P2s.
+
+### Adenda (mismo día): la mina del arrange en la rejilla
+
+El usuario reportó "el secuenciador ya no sirve" tras cargar la demo latin dancehall. Diagnóstico verificado: la UI no había cambiado (byte a byte) y no hubo regresión en 141 sources; lo que pasó es que **las demos con `arrange()` no ofrecen rejilla** (isSeqable la excluye) y, cuando la rejilla llegaba a montarse sobre uno, mostraba solo el primer brazo y **el primer clic rompía el patrón con error de sintaxis** (bug preexistente). Aplicado:
+- **Red de seguridad** (`e78a044`): cabeza/cola no reconstruibles → "patrón avanzado", la rejilla no toca nada. Invariante testeado: 0 sources del corpus rompen al simular un clic (antes 116/137 eran minas).
+- **bankExempt** (`813e4b7`): `.bank()` prefija a ciegas (superdough.mjs:539) y silenciaba los samples de pack en rejillas con banco — ahora el banco va por segmento y los packs quedan exentos.
+- **Demo "latin dancehall · editable"** (`2865721`): el riddim del tutorial con TODO editable en rejilla/piano roll; la original queda como referencia de arreglo.
 
 ### Cómo ESCUCHAR lo aplicado (revisión del usuario)
 
