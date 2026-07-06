@@ -17,7 +17,9 @@ import { sampleDuration, sampleSourceCode } from './lib/audioMeta';
 import { readSharedProject, clearShareHash } from './lib/share';
 import { nodeTypes } from './nodes/nodeTypes';
 import { SignalEdge } from './nodes/SignalEdge';
-import { setFlowTopology } from './nodes/signalFlow';
+import { setFlowTopology, setFlowEnabled } from './nodes/signalFlow';
+import { useVizFlagsStore } from './store/useVizFlagsStore';
+import { DevPanel } from './dev/DevPanel';
 import { Visualizer } from './viz/Visualizer';
 import { Transport } from './ui/Transport';
 import { Palette, type PaletteDrag } from './ui/Palette';
@@ -404,22 +406,30 @@ export default function App() {
     [addNode, insertOnEdge, replaceOp, nearestEdge, nodeAt, setHoverEdge, setDragItem, onDropFiles]
   );
 
-  // Inyecta el resaltado "imán" en el cable destino mientras se arrastra. Todos los
-  // cables usan el edge de señal (V1a): la energía viaja por ellos hacia el Out.
+  // Flags visuales (dev): con edgeFlow OFF los cables vuelven al edge por defecto (sin la
+  // traza ni su animación → costo real eliminado); nodePulse/edgeFlow gatean signalFlow.
+  const nodePulse = useVizFlagsStore((s) => s.flags.nodePulse);
+  const edgeFlow = useVizFlagsStore((s) => s.flags.edgeFlow);
+
+  // Inyecta el resaltado "imán" en el cable destino mientras se arrastra. Con edgeFlow
+  // activo, los cables usan el edge de señal (V1a): la energía viaja por ellos al Out.
   const displayEdges = useMemo<Edge[]>(
     () =>
-      edges.map((ed) =>
-        ed.id === hoverEdgeId
-          ? { ...ed, type: 'signal', className: 'edge-magnet', animated: true, style: { stroke: tokens.accent, strokeWidth: 3 } }
-          : { ...ed, type: 'signal' }
-      ),
-    [edges, hoverEdgeId]
+      edges.map((ed) => {
+        const type = edgeFlow ? 'signal' : undefined;
+        return ed.id === hoverEdgeId
+          ? { ...ed, type, className: 'edge-magnet', animated: true, style: { stroke: tokens.accent, strokeWidth: 3 } }
+          : { ...ed, type };
+      }),
+    [edges, hoverEdgeId, edgeFlow]
   );
 
   // V1a: fija la topología del grafo en signalFlow para propagar el pulso source→out.
   // Solo recalcula al cambiar la ESTRUCTURA (no al arrastrar): setFlowTopology compara
   // una firma y sale temprano si no cambió.
   useEffect(() => { setFlowTopology(nodes, edges); }, [nodes, edges]);
+  // Empuja el estado de los flags a signalFlow (no-op real en off: bucle/escrituras).
+  useEffect(() => { setFlowEnabled(nodePulse, edgeFlow); }, [nodePulse, edgeFlow]);
 
   return (
     <div className="app" style={{ background: tokens.bg, ['--viz-h' as string]: `${vizVisible ? vizHeight : 0}px` }}>
@@ -531,6 +541,9 @@ export default function App() {
       <ErrorBoundary variant="panel" label="secuenciador" onClose={() => useSequencerStore.getState().setOpen(false)}><StepSequencer /></ErrorBoundary>
       <Toaster />
       <DialogHost />
+      {/* dev-only: panel de flags visuales + HUD de FPS. import.meta.env.DEV es false en
+          producción → Vite elimina esta rama (nunca llega al usuario final). */}
+      {import.meta.env.DEV && <ErrorBoundary variant="panel" label="dev"><DevPanel /></ErrorBoundary>}
     </div>
   );
 }

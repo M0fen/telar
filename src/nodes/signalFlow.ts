@@ -28,18 +28,40 @@ let topoSig = '';
 let running = false;
 let zeroedOnce = false; // evita reescribir 0 en cada frame de silencio
 
-// El bucle no se detiene una vez arrancado (mientras haya nodos en pantalla): en silencio
-// hace early-return casi gratis, como meterEngine. `running` evita doble-arranque.
+// Feature-flags (useVizFlagsStore, vía setFlowEnabled): cuando ambas están off el bucle
+// MUERE del todo (no-op real); con una off se saltan SUS escrituras. Por defecto on
+// (= producción). No importamos el store aquí para no acoplar; App empuja el estado.
+let enNode = true; // nodePulse (glow del nodo)
+let enEdge = true; // edgeFlow (SignalEdge)
+
+// El bucle no se detiene mientras haya algo que dibujar y alguna feature activa; en
+// silencio hace early-return casi gratis. `running` evita doble-arranque.
 function start() { if (!running) { running = true; requestAnimationFrame(tick); } }
 
-// Un onset del Source `id` lo pone al máximo; el rAF lo hace caer.
-export function bumpPulse(id: string): void { pulses.set(id, 1); zeroedOnce = false; start(); }
+export function setFlowEnabled(nodePulse: boolean, edgeFlow: boolean): void {
+  // al APAGAR un canal, resetea sus elementos a 0 UNA vez (no queda nada encendido)
+  try {
+    if (enNode && !nodePulse) for (const el of nodeEls.values()) el.style.setProperty('--pulse', '0');
+    if (enEdge && !edgeFlow) for (const { set } of edgeEls.values()) set(0);
+  } catch { /* defensivo: nunca tumbar por un reset visual */ }
+  const bothWereOff = !enNode && !enEdge;
+  enNode = nodePulse; enEdge = edgeFlow;
+  if (!enNode && !enEdge) { pulses.clear(); through.clear(); zeroedOnce = true; return; } // todo off: nada corre
+  if (bothWereOff) { zeroedOnce = false; start(); } // reencender
+}
+
+// Un onset del Source `id` lo pone al máximo; el rAF lo hace caer. Con todo apagado ni
+// siquiera acumulamos (coste cero).
+export function bumpPulse(id: string): void {
+  if (!enNode && !enEdge) return;
+  pulses.set(id, 1); zeroedOnce = false; start();
+}
 // Pulso propagado de un nodo (lo usan otros visualizadores si lo necesitan).
 export function getPulse(id: string): number { return through.get(id) ?? 0; }
 
-export function registerFlowNode(id: string, el: HTMLElement): void { nodeEls.set(id, el); start(); }
+export function registerFlowNode(id: string, el: HTMLElement): void { nodeEls.set(id, el); if (enNode || enEdge) start(); }
 export function unregisterFlowNode(id: string): void { nodeEls.delete(id); }
-export function registerFlowEdge(edgeId: string, source: string, set: (v: number) => void): void { edgeEls.set(edgeId, { source, set }); start(); }
+export function registerFlowEdge(edgeId: string, source: string, set: (v: number) => void): void { edgeEls.set(edgeId, { source, set }); if (enNode || enEdge) start(); }
 export function unregisterFlowEdge(edgeId: string): void { edgeEls.delete(edgeId); }
 
 // Fija la topología del grafo (barato: solo recalcula si cambió la estructura, no al
@@ -77,6 +99,7 @@ export function setFlowTopology(nodes: { id: string }[], edges: { source: string
 }
 
 function tick() {
+  if (!enNode && !enEdge) { running = false; return; } // ambas features off → el bucle muere
   requestAnimationFrame(tick);
 
   // 1) caída de los pulsos de onset
@@ -93,9 +116,10 @@ function tick() {
     if (v >= FLOOR) through.set(id, v);
   }
 
-  // 3) escribir a nodos y cables (si todo está en 0, escribimos 0 UNA vez y paramos)
+  // 3) escribir a nodos y cables (si todo está en 0, escribimos 0 UNA vez y paramos).
+  //    Cada canal solo escribe si su flag está activo → apagar uno elimina sus escrituras.
   if (through.size === 0 && zeroedOnce) return;
-  for (const [id, el] of nodeEls) el.style.setProperty('--pulse', (through.get(id) ?? 0).toFixed(3));
-  for (const { source, set } of edgeEls.values()) set(through.get(source) ?? 0);
+  if (enNode) for (const [id, el] of nodeEls) el.style.setProperty('--pulse', (through.get(id) ?? 0).toFixed(3));
+  if (enEdge) for (const { source, set } of edgeEls.values()) set(through.get(source) ?? 0);
   zeroedOnce = through.size === 0;
 }
