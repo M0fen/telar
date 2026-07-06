@@ -16,7 +16,6 @@ import { ArrangeStrip } from './ArrangeStrip';
 import { GateStrip } from './GateStrip';
 import { PlyStrip } from './PlyStrip';
 import { StepSeq } from './StepSeq';
-import { MelodicSeq } from './MelodicSeq';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
 
 // ¿source melódico (note/n) editable en el piano roll inline? Una rejilla de batería
@@ -457,7 +456,10 @@ function SourceNode({ id, data, selected }: NodeProps) {
             ? <MiniEditor nodeId={id} value={d.code ?? ''} onChange={(code) => update(id, { code })} />
             : <InstrumentViz nodeId={id} code={d.code ?? ''} />}
           {d.showArrange && (d.code ?? '').includes('arrange') && <ArrangeStrip id={id} code={d.code ?? ''} />}
-          {d.showSeq && (isMelodicSeq(d.code ?? '') ? <MelodicSeq id={id} code={d.code ?? ''} /> : <StepSeq id={id} code={d.code ?? ''} />)}
+          {/* el secuenciador es UNIVERSAL: también las melodías van a StepSeq (rejilla
+              de pasos con afinación por arrastre, la disposición preferida); dentro
+              ofrece el toggle a piano roll como vista alternativa del mismo código. */}
+          {d.showSeq && <StepSeq id={id} code={d.code ?? ''} />}
           {d.showGate && <GateStrip id={id} code={d.code ?? ''} />}
           {d.showPly && <PlyStrip id={id} code={d.code ?? ''} />}
           {showTrim && <SampleTrim nodeId={id} code={d.code ?? ''} begin={d.begin} end={d.end} />}

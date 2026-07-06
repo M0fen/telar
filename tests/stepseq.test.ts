@@ -130,10 +130,48 @@ test('SEGURIDAD: stack que es un brazo de arrange (cola con "], [") → avanzado
   assert.equal(p!.complex, true);
 });
 
-test('SEGURIDAD: melodía note("…").s("sine") → avanzado (antes: editar descartaba la melodía)', () => {
-  const p = parseSeq('note("c1 ~ c1 ~ g0 ~ c1 ~").s("sine").lpf(480).shape(0.25)');
-  assert.ok(p);
-  assert.equal(p!.complex, true);
+// --- FORMA MELÓDICA en la rejilla (pedido del usuario: "el secuenciador en todas ---
+// partes"): una melodía suelta es UNA pista afinada — pasos + afinar arrastrando.
+
+test('MELODÍA: note("…").s("sine") es editable en la rejilla como pista afinada', () => {
+  const p = parsed('note("c1 ~ c1 ~ g0 ~ c1 ~").s("sine").lpf(480).shape(0.25)');
+  assert.equal(p.melodic, true);
+  assert.equal(p.lanes.length, 1);
+  assert.equal(p.lanes[0].sound, 'sine');
+  assert.deepEqual(p.lanes[0].notes.slice(0, 3), ['c1', null, 'c1']);
+  assert.equal(p.lanes[0].sfx, '.lpf(480).shape(0.25)'); // FX preservados verbatim
+});
+
+test('MELODÍA: round-trip bare (sin stack) — compatible con el piano roll', () => {
+  const src = 'note("c1 ~ c1 ~ g0 ~ c1 ~").s("sine").lpf(480).shape(0.25)';
+  const once = rebuild(src);
+  assert.match(once, /^note\("c1 ~ c1 ~ g0 ~ c1 ~"\)\.s\("sine"\)\.lpf\(480\)\.shape\(0\.25\)$/);
+  assert.equal(rebuild(once), once, 'inestable');
+});
+
+test('MELODÍA vaciada: el instrumento NO se pierde (nada de s("~"))', () => {
+  const p = parsed('note("c1 ~ c1 ~").s("sine").lpf(480)');
+  const empty = p.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) }));
+  const out = buildSeq(p, empty, p.steps);
+  assert.match(out, /^note\("~ ~ ~ ~"\)\.s\("sine"\)\.lpf\(480\)$/);
+});
+
+test('MELODÍA con acordes y nivel (kit skank): editable y estable', () => {
+  const skank = URBAN_KITS.find((k) => k.genre === 'latin dancehall')!.items.find((i) => i.label.startsWith('skank'))!.code;
+  const p = parsed(skank);
+  assert.equal(p.melodic, true);
+  assert.match(p.lanes[0].notes[1] ?? '', /^\[c4,eb4,g4\]$/); // el acorde vive en la nota del paso
+  const once = buildSeq(p, p.lanes, p.steps);
+  assert.equal(rebuild(once), once, 'inestable');
+  assert.match(once, /\.mul\(gain\(0\.5\)\)/);
+  assert.match(once, /\.delay\(0\.25\)/); // eco dub preservado
+});
+
+test('MELODÍA: la lane de vel del piano roll (.gain("…")) mapea a niveles y vuelve', () => {
+  const src = 'note("c2 eb2 g1 c2").s("sine").gain("1 0.5 1.4 1")';
+  const p = parsed(src);
+  assert.deepEqual(p.lanes[0].steps, [1, 0.5, 1.4, 1]);
+  assert.match(rebuild(src), /\.gain\("1 0\.5 1\.4 1"\)/);
 });
 
 test('SEGURIDAD: los patrones normales con cola de FX siguen siendo editables', () => {
@@ -237,7 +275,7 @@ test('seedSilent melódico: piano roll vacío de 16 con el MISMO instrumento/FX'
   const ref = 'note("c5 eb5 g5 ~ f5 eb5 ~ c5").s("triangle").decay(0.22).sustain(0).room(0.25).gain("1 0.8 1 1 1 1 1 1").mul(gain(0.45))';
   const seed = seedSilent(ref);
   assert.ok(seed);
-  assert.equal(seed!.seedFrom, undefined); // melódico: el piano roll no necesita siembra aparte
+  assert.equal(seed!.seedFrom, ref); // la rejilla siembra las notas de la referencia
   assert.match(seed!.code, /note\("(?:~ ){15}~"\)/); // 16 silencios
   assert.match(seed!.code, /\.s\("triangle"\)\.decay\(0\.22\)/); // instrumento y FX intactos
   assert.match(seed!.code, /\.mul\(gain\(0\.45\)\)/); // nivel de la sección conservado

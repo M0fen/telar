@@ -108,8 +108,9 @@ function StepGrid({ id, code, wrap, seedFrom }: { id: string; code: string; wrap
     if (!p || p.complex || !p.lanes.length) return null;
     return { lanes: p.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) })), steps: p.steps };
   }, [seedFrom]);
-  // sin pistas en el código pero con referencia → arranca sembrado.
-  const useSeed = () => !!(seeded && parsed && !parsed.complex && parsed.lanes.length === 0);
+  // sin pasos activos en el código pero con referencia → arranca sembrado (cubre la
+  // rejilla vacía s("~") y la melodía toda en silencio: las notas vienen de la ref).
+  const useSeed = () => !!(seeded && parsed && !parsed.complex && parsed.lanes.every((l) => l.steps.every((v) => v <= 0)));
   const [steps, setSteps] = useState(() => (useSeed() ? seeded!.steps : parsed?.steps || 8));
   const [lanes, setLanes] = useState<Lane[]>(() => (useSeed() ? seeded!.lanes : parsed?.lanes ?? []));
   const [head, setHead] = useState(-1);
@@ -131,10 +132,10 @@ function StepGrid({ id, code, wrap, seedFrom }: { id: string; code: string; wrap
   const hitBank = (snd: string) => (bankExempt(snd) ? '' : bank);
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo);
-  // sin pistas + referencia de siembra → mantiene la instrumentación sembrada.
+  // sin pasos activos + referencia de siembra → mantiene la instrumentación sembrada.
   useEffect(() => {
     if (parsed && !parsed.complex) {
-      if (!parsed.lanes.length && seeded) { setLanes(seeded.lanes); setSteps(seeded.steps); }
+      if (useSeed()) { setLanes(seeded!.lanes); setSteps(seeded!.steps); }
       else { setLanes(parsed.lanes); setSteps(parsed.steps); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -430,7 +431,32 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const i = arms ? arms.findIndex((a) => a.code.trim() !== 'silence') : 0;
     return i >= 0 ? i : 0;
   });
-  if (!arms) return <StepGrid id={id} code={code} />;
+  // VISTA para melodías: la REJILLA (pasos + afinar arrastrando + «afinar todo») es la
+  // por defecto — el flujo preferido del usuario en todas partes; el piano roll queda
+  // como disposición alternativa del MISMO código (toggle).
+  const [view, setView] = useState<'grid' | 'roll'>('grid');
+  // editor de un código dado: toggle rejilla/piano roll cuando es melódico.
+  const editorFor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, key?: string) => {
+    const melodic = isMelodicCode(c);
+    return (
+      <>
+        {melodic && (
+          <div className="seqs-sectabs seqs-viewtabs">
+            <span className="seqs-sectag" title="misma melodía, dos disposiciones: la rejilla afina cada paso arrastrando ↕ (con «afinar todo», escala y acorde); el piano roll coloca notas sobre el teclado.">vista</span>
+            <button className={view === 'grid' ? 'on' : ''} onClick={() => setView('grid')} title="rejilla de pasos: afinar arrastrando ↕ · afinar todo · escala/acorde · rolls · probabilidad">▦ rejilla</button>
+            <button className={view === 'roll' ? 'on' : ''} onClick={() => setView('roll')} title="piano roll: notas sobre el teclado · vel/dur · slide 808">🎹 piano roll</button>
+          </div>
+        )}
+        {melodic && view === 'roll'
+          ? <MelodicSeq key={`r${key ?? ''}`} id={id} code={c} wrap={wrapFn} />
+          : <StepGrid key={`g${key ?? ''}`} id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} />}
+      </>
+    );
+  };
+  if (!arms) {
+    if (!isMelodicCode(code)) return <StepGrid id={id} code={code} />;
+    return <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>{editorFor(code)}</div>;
+  }
   const k = Math.min(sec, arms.length - 1);
   const arm = arms[k];
   const wrap = (c: string) => spliceArm(code, arm, c);
@@ -460,16 +486,10 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       ) : silent && seed ? (
         <>
           <p className="seqs-seedline">sección en silencio — pinta pasos o notas y el instrumento <b>entra aquí</b> (instrumentación de la sección con patrón)</p>
-          {isMelodicCode(ref!.code) ? (
-            <MelodicSeq key={`s${k}`} id={id} code={seed.code} wrap={wrap} />
-          ) : (
-            <StepGrid key={`s${k}`} id={id} code={seed.code} seedFrom={seed.seedFrom} wrap={wrap} />
-          )}
+          {editorFor(seed.code, wrap, seed.seedFrom, `s${k}`)}
         </>
-      ) : isMelodicCode(arm.code) ? (
-        <MelodicSeq key={k} id={id} code={arm.code} wrap={wrap} />
       ) : (
-        <StepGrid key={k} id={id} code={arm.code} wrap={wrap} />
+        editorFor(arm.code, wrap, undefined, String(k))
       )}
     </div>
   );

@@ -38,6 +38,7 @@ export interface Parsed {
   lanes: Lane[];
   steps: number;
   complex: boolean;
+  melodic?: boolean; // forma melódica pura (note("…").s("snd") sin stack) → se re-emite SIN stack
 }
 
 export function fmt(n: number): string {
@@ -297,9 +298,59 @@ function parseSimpleForm(code: string): Parsed | null {
   return { bank, tail, tailGain, lanes: parsed.lanes, steps: parsed.steps, complex: parsed.complex || !structOk };
 }
 
+// forma MELÓDICA pura: note("…").s("snd") con sufijos, SIN stack — la rejilla la edita
+// como UNA pista afinada (pasos + sub-fila de pitch arrastrable + «afinar todo» +
+// escala/acorde), el flujo preferido del usuario. El piano roll queda como vista
+// alternativa del mismo código. Duplica a propósito la extracción por-segmento de
+// parseStackForm (el "segmento" aquí es la cadena entera).
+function parseMelodicForm(code: string): Parsed | null {
+  let rest = code.trim();
+  const cut = (m: RegExpExecArray | null) => { if (m) rest = rest.replace(m[0], ''); };
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+  const swM = /\.swingBy\(\s*([\d.]+)\s*,\s*\d+\s*\)/.exec(rest); cut(swM);
+  const laM = /\.late\(\s*rand\.range\(\s*0\s*,\s*([\d.]+)\s*\)\s*\)/.exec(rest); cut(laM);
+  cut(/\.velocity\(\s*rand\.range\([^)]*\)\s*\)/.exec(rest));
+  cut(/\.gain\(\s*rand\.range\([^)]*\)\s*\)/.exec(rest));
+  const groove: { swing?: number; human?: number } | null = (swM || laM)
+    ? { swing: swM ? clamp01(Number(swM[1]) / SWING_MAX) : undefined, human: laM ? clamp01(Number(laM[1]) / HUMAN_LATE) : undefined }
+    : null;
+  const gM = /\.gain\(\s*"([^"]*)"\s*\)/.exec(rest); cut(gM);
+  const gain = gM ? gM[1].trim().split(/\s+/).map((x) => Number(x)).map((n) => (isFinite(n) ? n : 1)) : null;
+  const noteM = /\bnote\(\s*["'`]([^"'`]*)["'`]\s*\)/.exec(rest);
+  if (!noteM) return null;
+  const sM = /\.?\bs(?:ound)?\(\s*["'`]([A-Za-z0-9_]+)["'`]\s*\)/.exec(rest);
+  if (!sM) return null;
+  cut(noteM); cut(sM);
+  const bkM = /\.bank\(\s*["'`]([^"'`]+)["'`]\s*\)/.exec(rest); cut(bkM);
+  const lv = extractLevel(rest);
+  const sfx = lv.rest.trim();
+  const sound = sM[1];
+  const nt = expand(noteM[1]);
+  const toks = nt.map((t) => (t === '~' ? '~' : sound + (/\*\d+/.exec(t)?.[0] ?? '') + (/\?[\d.]*/.exec(t)?.[0] ?? '')));
+  const notes = nt.map((t) => (t === '~' ? null : t.replace(/\*\d+/, '').replace(/\?[\d.]*/, '')));
+  const parsed = lanesFromToks([toks], [gain], [notes], [{ groove, level: lv.level, sfx }]);
+  let lanes = parsed.lanes;
+  const steps = Math.max(parsed.steps, nt.length || 1);
+  // melodía toda en silencio: la pista se crea IGUAL (el instrumento no se pierde y
+  // la rejilla siempre muestra su fila — nada de "añade sonidos" a un instrumento).
+  if (!lanes.length) {
+    lanes = [{
+      sound, steps: Array(steps).fill(0), notes: Array(steps).fill(null),
+      ratchet: Array(steps).fill(1), prob: Array(steps).fill(1),
+      level: Math.abs(lv.level - 1) > 0.001 ? lv.level : undefined, sfx: sfx || undefined,
+      swing: groove?.swing, human: groove?.human,
+    }];
+  }
+  return { bank: bkM?.[1] ?? '', tail: '', tailGain: 1, lanes, steps, complex: parsed.complex || !validSfx(sfx), melodic: true };
+}
+
 export function parseSeq(code: string): Parsed | null {
   const t = code.trim();
   if (/^stack\s*\(/.test(t)) return parseStackForm(t);
+  if (/\bnote\(\s*["'`]/.test(t) && /\bs(?:ound)?\(\s*["'`]/.test(t)) {
+    const m = parseMelodicForm(t);
+    if (m) return m;
+  }
   return parseSimpleForm(code);
 }
 
@@ -384,7 +435,9 @@ export function seedSilent(ref: string): { code: string; seedFrom?: string } | n
       .replace(/\.gain\(\s*"[^"]*"\s*\)/, '')
       .replace(/\.clip\(\s*"[^"]*"\s*\)/, '')
       .replace(/\b(note|n)\(\s*(["'`])[^"'`]*\2\s*\)/, (_m, fn, q) => `${fn}(${q}${rests}${q})`);
-    return /\b(?:note|n)\(/.test(code) ? { code } : null;
+    // seedFrom: la rejilla siembra las NOTAS de la referencia (pintar un paso recupera
+    // su nota original); el piano roll usa `code` directo.
+    return /\b(?:note|n)\(/.test(code) ? { code, seedFrom: r } : null;
   }
   const p = parseSeq(r);
   if (!p || p.complex) return null;
@@ -434,6 +487,17 @@ const tailGainSfx = (g: number) => (Math.abs(g - 1) > 0.001 ? `.mul(gain(${fmt(g
 export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   const active = lanes.filter((l) => l.steps.slice(0, steps).some((v) => v > 0));
   const tail = (p.tail || '') + tailGainSfx(p.tailGain ?? 1);
+  // forma MELÓDICA pura (una sola pista afinada): se re-emite SIN stack, con su
+  // note("…").s(...) — aunque esté toda en silencio, el INSTRUMENTO no se pierde
+  // (nada de degradar una melodía a s("~")). Compatible con el piano roll.
+  if (p.melodic && lanes.length === 1 && !p.tail && Math.abs((p.tailGain ?? 1) - 1) < 0.001) {
+    const l = lanes[0];
+    const body = l.steps.slice(0, steps).map((v, i) => (v > 0 ? (l.notes[i] || DEFAULT_NOTE) + stepSfx(l, i) : '~')).join(' ');
+    const laneAccent = l.steps.slice(0, steps).some((v) => v > 0 && Math.abs(v - NORMAL) > 0.01);
+    const g = laneAccent ? `.gain("${l.steps.slice(0, steps).map((v) => (v > 0 ? fmt(v) : '1')).join(' ')}")` : '';
+    const bk = p.bank && !bankExempt(l.sound) ? `.bank("${p.bank}")` : '';
+    return `note("${body}").s("${l.sound}")${g}${grooveSfx(l, steps)}${bk}${l.sfx ?? ''}${levelSfx(l)}`;
+  }
   if (!active.length) return `s("~")${p.bank ? `.bank("${p.bank}")` : ''}${tail}`; // vacía: conserva el banco elegido
   // BANCO: global (en la cola) solo si NINGUNA pista es exenta. Con mezcla de pistas
   // de caja de ritmos + packs, el banco va POR SEGMENTO en las bancables (a las exentas
