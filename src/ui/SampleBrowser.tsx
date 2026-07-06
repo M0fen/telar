@@ -7,7 +7,7 @@ import { useSamplePacksStore } from '../store/useSamplePacksStore';
 import { useSoundFavStore } from '../store/useSoundFavStore';
 import { playPreview, preloadPreview, stopPreview } from '../audio/previewSample';
 import { getWaveInfo, drawWave } from '../audio/waveformPeaks';
-import { CURATED_PACKS } from '../lib/curatedPacks';
+import { CURATED_PACKS, gallerySafe, licenseNote } from '../lib/curatedPacks';
 import { categorize } from '../lib/sampleCategory';
 
 // color de acento por categoría (coincide con las clases .sb-c-* del CSS) para la onda.
@@ -232,16 +232,18 @@ export function SampleBrowser() {
               <div className="sb-main">
                 {packsOpen && (
                   <div className="sb-packs">
+                    <div className="sb-packs-note">gratis, un clic. Los marcados <b>°</b> no declaran licencia — pasa el ratón para verla; verifica antes de compartir tu proyecto.</div>
                     {CURATED_PACKS.map((p) => {
                       const loaded = loadedPacks.includes(p.ref);
                       const busy = busyPack === p.ref;
+                      const safe = gallerySafe(p.license);
                       return (
                         <button
                           key={p.ref}
-                          className={`sb-pack${loaded ? ' loaded' : ''}${busy ? ' busy' : ''}`}
+                          className={`sb-pack${loaded ? ' loaded' : ''}${busy ? ' busy' : ''}${safe ? '' : ' nolic'}`}
                           onClick={() => !loaded && void loadPack(p.ref)}
                           disabled={busy || !!busyPack}
-                          title={`${p.desc}\n${p.tags.join(' · ')}${loaded ? '\n(ya cargado)' : ''}`}
+                          title={`${p.desc}\n${p.tags.join(' · ')}\nlicencia: ${licenseNote(p.license)}${loaded ? '\n(ya cargado)' : ''}`}
                         >
                           {loaded ? '✓ ' : busy ? '··· ' : '↓ '}{p.title}
                         </button>

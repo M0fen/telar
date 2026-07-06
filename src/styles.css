@@ -201,7 +201,11 @@ body {
 .sb-pack.loaded { color: #7fdca0; border-color: rgba(127,220,160,0.5); background: rgba(127,220,160,0.08); cursor: default; }
 .sb-pack.busy { opacity: 0.7; }
 .sb-pack:disabled { cursor: default; }
+/* pack SIN licencia declarada (§0): marca sutil ° — verifica antes de compartir. */
+.sb-pack.nolic::after { content: '°'; margin-left: 3px; color: var(--warn); font-weight: 700; }
 .sb-packs-err { color: #ff7a7a; font-size: 9px; width: 100%; }
+.sb-packs-note { width: 100%; font-size: 8.5px; color: var(--faint); letter-spacing: 0.03em; margin-bottom: 2px; }
+.sb-packs-note b { color: var(--warn); }
 .sb-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px; }
 .sb-group { display: flex; flex-direction: column; gap: 8px; }
 .sb-group-h { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; background: none; border: none; font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg); cursor: pointer; padding: 0; }
