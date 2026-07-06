@@ -22,7 +22,7 @@ Este archivo es el contrato. Léelo antes de tocar audio o el grafo.
 - Nota/pitch por paso: patrón paralelo `.note("c1 ~ eb1 …")` alineado a los pasos. `note()` **re-afina samples** (no solo sintes) → así se hace el 808 con pitch y el cowbell melódico del phonk.
 - Grados en escala (autotune melódico): `.n("0 2 4").scale("C:minor")`.
 - Acordes: token de capa `[c,e,g]` dentro de `note("…")`.
-- Glide/slide (808): `.slide(x)`.
+- Glide/slide de 808: envolvente de pitch `.penv(semitonos).pdecay(seg)` — así lo emite `MelodicSeq` (slider «slide»). OJO: `.slide()` NO sirve aquí (superdough solo lo lee en el synth `zzfx`; para `note()`/samples es no-op).
 - Ratchet/roll por paso: `hh*3` (o `[hh hh hh]`) en ese slot del patrón, o `.ply(n)`.
 - Probabilidad/variación por paso: `hh?` o `<hh ~>` (alterna por ciclo).
 - Micro-timing: patrón paralelo `.late("0 0.02 0 …")`.

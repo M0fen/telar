@@ -327,8 +327,10 @@ function applyVoice(code: string, v: VoiceParams): string {
     // doblaje/armonía: convierte cada nota en un intervalo [0, h] (dyad) → coros.
     const harm = Math.round(num(v.harmony, 0));
     if (harm !== 0) out += `.add(note("[0,${harm}]"))`;
-    // GLIDE/portamento: desliza el pitch entre notas (autotune "suave"). El control
-    // `slide` del motor hace el legato de altura; escalamos 0..1 → deslizamiento útil.
+    // GLIDE/portamento: desliza el pitch entre notas (autotune "suave"). OJO: `.slide()`
+    // solo lo aplica el synth zzfx de superdough → INERTE para la voz (sample). Se deja
+    // emitido (inofensivo) hasta implementar portamento real (penv/pdecay como MelodicSeq,
+    // o legato entre notas). TODO: hoy este mando de voz no tiene efecto audible.
     const glide = c01(num(v.glide, 0));
     if (glide > 0.01) out += `.slide(${(glide * 1.0).toFixed(2)})`;
   } else if (v.tempo && !hasLoopCode) {
