@@ -43,6 +43,16 @@ Marca cada punto al probarlo; si algo suena mal, ese punto manda sobre el roadma
 - [ ] **Calidad R3**: A/B del autotune/warp aplicado — debe sonar más limpio (menos artefactos) que antes.
 - [ ] **Tiempo del eco de voz**: el delay de la voz cae al tempo con la subdivisión elegida (dub 3/16).
 
+## Visuales Nivel 1 + fila de performance (visuales.md, sesión 2026-07-06)
+Estas son de MIRAR (y algunas de oír). Requieren el transporte sonando.
+- [ ] **V1a · grafo como señal viva**: al reproducir, cada nodo LATE al disparar y la energía corre por sus cables hacia el Out; muteá una pista → su rama se apaga. Sin caída de FPS.
+- [ ] **V1b · flujo por nivel real**: con «medición por rama» ON (panel dev), el grosor/brillo del flujo sigue lo FUERTE que suena cada rama (una pista baja se ve tenue aunque dispare). OFF → vuelve al pulso por evento.
+- [ ] **Panel dev (local, `npm run dev`, Alt+Shift+D)**: prendé/apagá cada feature y mirá el FPS cambiar; con una en OFF su costo desaparece (rAF/escrituras). No aparece en producción.
+- [ ] **U · fila de performance por source**: seleccioná un source → aparece la fila roll/gate/rev/echo/wash; **«roll 8» en los hats** hace stutter SOLO de los hats; **«gate» en el pad** lo cortea; **«echo» en la caja** la manda al delay. La leyenda de texto ya no está.
+- [ ] **U · gate no pisa**: poné acentos en una rejilla y mantené «gate» de ese source → los acentos sobreviven mientras cortea (antes los borraba).
+- [ ] **V2 · mapa de energía**: armá una canción (línea de tiempo, secciones con escenas) → bajo las secciones aparece la franja de energía; intro con aire (barra baja) vs drop lleno (barra alta/warn). Se actualiza al editar.
+- [ ] **V3 · superficie de mezcla** (⋯ menú → «superficie de mezcla»): con audio sonando, cada instrumento es un punto (X=paneo, Y=frecuencia, tamaño=nivel). Arrastrá el **bajo** y el **kick** para que no choquen en graves (se marcan cuando pelean por la misma altura) — se ve Y se oye. Rueda sobre un punto = reverb (halo). Arrastrar a los lados = paneo.
+
 ## Split del estudio de voz + paleta única (sesión 2026-07-06)
 El split NO debía cambiar nada: esta pasada es para confirmar que el estudio se comporta idéntico.
 - [ ] **Recorrido completo del estudio**: grabar/cargar voz → onda con manijas → ▶ / ⟳ / ◈ con FX / ◎ en el tempo / ◆ warp RB → todo suena y se detiene como antes.
