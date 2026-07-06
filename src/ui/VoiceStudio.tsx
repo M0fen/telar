@@ -334,7 +334,10 @@ export function VoiceStudio() {
     const b = clamp01(d?.begin ?? 0);
     const e = Math.max(b + 0.01, clamp01(d?.end ?? 1));
     const speed = Number(d?.voice?.speed ?? 1) || 1;
-    const gain = Number(d?.voice?.gain ?? 1);
+    // ▶ es el preview CRUDO (sin efectos) → NO aplica la ganancia de FX. Así el slider
+    // «gain» en 0 no deja el preview en silencio (era la trampa: bajar gain enmudecía
+    // ▶ y «con FX» a la vez). «con FX» sí respeta gain (es con efectos).
+    const gain = 1;
     const dur = buf.duration;
     const start = Math.min(Math.max(from ?? b, b), e);
     const src = ctx.createBufferSource();
