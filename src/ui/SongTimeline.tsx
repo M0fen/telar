@@ -3,6 +3,9 @@ import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { useGraphStore } from '../store/useGraphStore';
 import { getScheduler } from '../audio/engine';
+import { alignArrangeToBars, splitArrange } from '../nodes/stepseqCode';
+import { askConfirm, toast } from '../store/useNotifyStore';
+import type { NodeData } from '../graph/types';
 
 // Línea de tiempo / SONG MODE: arregla la canción como secciones (escena × compases)
 // y la reproduce avanzando por ellas al ritmo del reloj. Vive en el panel de
@@ -52,6 +55,32 @@ export function SongTimeline() {
   };
   const stopSong = () => setPlaying(false);
 
+  // P0.3 ampliado — la canción GENERA/EDITA las secciones (arrange) de los instrumentos:
+  // alinea cada source a los compases de estas secciones. Plano → se envuelve sembrado
+  // con su patrón (suena igual); mismo nº de secciones → se redimensionan los compases;
+  // menos → se completan con silencios; más que la canción → no se toca (se avisa).
+  const alignInstruments = async () => {
+    const bars = steps.map((st) => Math.max(1, st.bars));
+    if (!bars.length) { toast.info('añade secciones a la canción primero'); return; }
+    const g = useGraphStore.getState();
+    const updates: Record<string, Partial<NodeData>> = {};
+    let skipped = 0;
+    for (const n of g.nodes) {
+      if (n.data.kind !== 'source' || !(n.data.code ?? '').trim()) continue;
+      const next = alignArrangeToBars(n.data.code ?? '', bars);
+      if (next === null) { if (splitArrange(n.data.code ?? '')) skipped++; continue; }
+      if (next !== n.data.code) updates[n.id] = { code: next };
+    }
+    if (!Object.keys(updates).length) { toast.info(skipped ? 'los instrumentos tienen MÁS secciones que la canción: no se tocan' : 'los instrumentos ya están alineados'); return; }
+    const ok = await askConfirm('alinear instrumentos a la canción', {
+      message: `Se estructuran ${Object.keys(updates).length} instrumento(s) en ${bars.length} secciones (${bars.join(' · ')} compases). Los patrones se conservan: los planos suenan igual (cada sección arranca con su patrón) y las secciones nuevas quedan en silencio.`,
+      confirmLabel: 'alinear',
+    });
+    if (!ok) return;
+    g.applyNodeStates(updates);
+    toast.ok(`instrumentos alineados a ${bars.length} secciones${skipped ? ` · ${skipped} con más secciones quedaron como estaban` : ''}`);
+  };
+
   return (
     <div className={`song${open ? ' open' : ''}`}>
       <div className="song-head">
@@ -65,6 +94,7 @@ export function SongTimeline() {
             </button>
             <button className={`song-loop${loop ? ' on' : ''}`} onClick={() => setLoop(!loop)} title="repetir la canción al terminar">⟳</button>
             <button className="song-add" onClick={addStep} title="añadir sección">+ sección</button>
+            <button className="song-add" onClick={() => void alignInstruments()} title="alinear los INSTRUMENTOS a esta estructura: cada source queda arreglado (arrange) con estas secciones y compases — los planos suenan igual y luego editas cada sección en el secuenciador">⇋ instrumentos</button>
           </>
         )}
       </div>

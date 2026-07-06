@@ -787,6 +787,16 @@ body {
   animation: seqs-live 1s ease-in-out infinite;
 }
 @keyframes seqs-live { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* gestión de la sección activa: compases ± · duplicar ⧉ · añadir ✚ · quitar × */
+.seqs-secops { display: inline-flex; align-items: center; gap: 3px; margin-left: 8px; padding-left: 8px; border-left: 1px dashed var(--line); }
+.seqs-secops b { color: var(--fg); font-size: 9px; min-width: 20px; text-align: center; }
+.seqs-secops b i { font-style: normal; color: var(--dim); font-size: 8px; }
+.seqs-secops button {
+  background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim);
+  cursor: pointer; font-size: 9px; padding: 2px 6px; border-radius: 3px; line-height: 1.2;
+}
+.seqs-secops button:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-dim); }
+.seqs-secops button:disabled { opacity: 0.35; cursor: default; }
 .seqs-seedline { margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
 .seqs-seedline b { color: var(--accent); }
 /* sub-filas del panel ≋: vel continua (barras) y micro-timing (punto centrado) */

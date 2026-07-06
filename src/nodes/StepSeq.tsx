@@ -6,7 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, bankExempt, buildSeq, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, seedSilent, splitArrange, spliceArm, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, laneGroove, lanePitched, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
@@ -548,9 +548,24 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       </>
     );
   };
+  // ediciones ESTRUCTURALES del arrange (compases/duplicar/añadir/quitar): van al
+  // código completo del nodo, no a un brazo.
+  const emitFull = (c: string) => useGraphStore.getState().updateNodeData(id, { code: c });
   if (!arms) {
-    if (!isMelodicCode(code)) return <StepGrid id={id} code={code} />;
-    return <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>{editorFor(code)}</div>;
+    // patrón plano: chip para CONVERTIRLO en secciones (2×4 compases sembradas con el
+    // patrón actual → suena idéntico; luego editas cada sección en pestañas).
+    const convert = (
+      <div className="seqs-sectabs seqs-viewtabs">
+        <span className="seqs-sectag" title="arregla este instrumento por SECCIONES (intro/verso/drop): se crean 2 secciones de 4 compases con el patrón actual — suena igual — y editas cada una en su pestaña.">secciones</span>
+        <button onClick={() => { emitFull(wrapAsArrange(code, [4, 4])); setSec(1); }} title="crear 2 secciones de 4 compases con este patrón (suena igual; edita la 2ª como variación)">＋ crear</button>
+      </div>
+    );
+    return (
+      <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>
+        {convert}
+        {editorFor(code)}
+      </div>
+    );
   }
   const k = Math.min(sec, arms.length - 1);
   const arm = arms[k];
@@ -576,6 +591,21 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
             {i + 1}<i>·{fmt(a.bars)}c</i>
           </button>
         ))}
+        {/* gestión de la sección activa: compases ± · duplicar · añadir silencio · quitar */}
+        <span className="seqs-secops">
+          <button onClick={() => emitFull(setArmBars(code, arm, arm.bars - 1))} title="menos compases en esta sección">−</button>
+          <b>{fmt(arm.bars)}<i>c</i></b>
+          <button onClick={() => emitFull(setArmBars(code, arm, arm.bars + 1))} title="más compases en esta sección">＋</button>
+          <button onClick={() => { emitFull(duplicateArm(code, arm)); setSec(k + 1); }} title="duplicar esta sección justo después (edita la copia como variación)">⧉</button>
+          <button onClick={() => { emitFull(addSilentArm(code, arms[arms.length - 1])); setSec(arms.length); }} title="añadir una sección EN SILENCIO al final (4 compases)">✚</button>
+          <button
+            disabled={arms.length <= 1}
+            onClick={() => { const c2 = removeArm(code, arms, k); if (c2) { emitFull(c2); setSec(Math.max(0, k - 1)); } }}
+            title={arms.length <= 1 ? 'es la única sección' : 'quitar esta sección (su patrón se pierde)'}
+          >
+            ×
+          </button>
+        </span>
       </div>
       {silent && !seed ? (
         <p className="seqs-none">todas las secciones están en silencio (o la referencia no es editable): edita el patrón de otra sección primero.</p>

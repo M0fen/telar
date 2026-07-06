@@ -362,3 +362,64 @@ test('P1.5 velocity continua: valores exactos en .gain("…") round-trip', () =>
   const p2 = parseSeq(out)!;
   assert.deepEqual(p2.lanes[0].steps, [0.35, 0.62, 0.88, 1.2]);
 });
+
+// --- P0.3 ampliado: gestión de secciones por empalme + alineación con la canción ----
+
+import { setArmBars, duplicateArm, addSilentArm, removeArm, wrapAsArrange, alignArrangeToBars } from '../src/nodes/stepseqCode.ts';
+
+const ARR = 'arrange([4, s("bd*4")], [8, silence], [12, s("hh*8").gain(0.3)])';
+
+test('SECCIONES: setArmBars solo toca los dígitos del número (resto byte a byte)', () => {
+  const arms = splitArrange(ARR)!;
+  const out = setArmBars(ARR, arms[1], 16);
+  assert.equal(out, 'arrange([4, s("bd*4")], [16, silence], [12, s("hh*8").gain(0.3)])');
+  assert.match(setArmBars(ARR, arms[0], 0), /^arrange\(\[1, /); // clamp mínimo 1
+});
+
+test('SECCIONES: duplicateArm inserta la copia tras el original', () => {
+  const arms = splitArrange(ARR)!;
+  const out = duplicateArm(ARR, arms[0]);
+  const a2 = splitArrange(out)!;
+  assert.equal(a2.length, 4);
+  assert.equal(a2[1].code, a2[0].code);
+  assert.equal(a2[1].bars, 4);
+  assert.equal(a2[3].code, 's("hh*8").gain(0.3)'); // el resto intacto
+});
+
+test('SECCIONES: addSilentArm añade al final y removeArm quita con su coma', () => {
+  const arms = splitArrange(ARR)!;
+  const added = addSilentArm(ARR, arms[2], 6);
+  assert.match(added, /\[12, s\("hh\*8"\)\.gain\(0\.3\)\], \[6, silence\]\)$/);
+  // quitar primero / del medio / último
+  for (const idx of [0, 1, 2]) {
+    const out = removeArm(ARR, arms, idx)!;
+    const rest = splitArrange(out)!;
+    assert.equal(rest.length, 2, `idx ${idx}: ${out}`);
+    new Function(`const arrange=()=>0, s=()=>({gain:()=>0}), silence=0; return (${out})`); // sintaxis válida
+  }
+  assert.equal(removeArm('arrange([4, s("bd")])', splitArrange('arrange([4, s("bd")])')!, 0), null); // único brazo
+});
+
+test('SECCIONES: wrapAsArrange siembra cada sección con el patrón (suena igual)', () => {
+  const out = wrapAsArrange('s("bd*4").bank("RolandTR808")', [4, 8]);
+  assert.equal(out, 'arrange([4, s("bd*4").bank("RolandTR808")], [8, s("bd*4").bank("RolandTR808")])');
+});
+
+test('ALINEAR: plano → envuelto · igual nº → redimensiona · menos → completa con silencio · más → null', () => {
+  // plano
+  const wrapped = alignArrangeToBars('s("bd*4")', [4, 8, 4])!;
+  assert.deepEqual(splitArrange(wrapped)!.map((a) => a.bars), [4, 8, 4]);
+  // igual número de brazos
+  const resized = alignArrangeToBars(ARR, [2, 4, 6])!;
+  const ra = splitArrange(resized)!;
+  assert.deepEqual(ra.map((a) => a.bars), [2, 4, 6]);
+  assert.equal(ra[2].code, 's("hh*8").gain(0.3)'); // patrones intactos
+  // menos brazos que la canción → silencios al final
+  const grown = alignArrangeToBars('arrange([4, s("bd*4")])', [8, 4, 4])!;
+  const ga = splitArrange(grown)!;
+  assert.deepEqual(ga.map((a) => a.bars), [8, 4, 4]);
+  assert.equal(ga[1].code, 'silence');
+  assert.equal(ga[2].code, 'silence');
+  // más brazos que la canción → no se toca
+  assert.equal(alignArrangeToBars(ARR, [4]), null);
+});

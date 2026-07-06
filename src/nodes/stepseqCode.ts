@@ -389,6 +389,10 @@ export interface ArrangeArm {
   code: string; // expresión del patrón del brazo (puede ser `silence`)
   start: number; // span [start, end) del EXPR dentro del código completo
   end: number;
+  nStart: number; // span del NÚMERO de compases (para redimensionar por empalme)
+  nEnd: number;
+  wholeStart: number; // span del brazo completo `[n, expr]` (para duplicar/quitar/insertar)
+  wholeEnd: number;
 }
 
 // Parte un arrange(...) en sus brazos con spans. Devuelve null si el código no es un
@@ -427,9 +431,73 @@ export function splitArrange(code: string): ArrangeArm[] | null {
     while (s < e && /\s/.test(t[s])) s++;
     while (e > s && /\s/.test(t[e - 1])) e--;
     if (e <= s) return null;
-    arms.push({ bars: Number(bm[1]), code: t.slice(s, e), start: innerOff + p.start + s, end: innerOff + p.start + e });
+    const base = innerOff + p.start;
+    const numAt = bm[0].indexOf(bm[1]); // posición del número dentro del match "[ n,"
+    arms.push({
+      bars: Number(bm[1]), code: t.slice(s, e), start: base + s, end: base + e,
+      nStart: base + numAt, nEnd: base + numAt + bm[1].length,
+      wholeStart: base + t.indexOf('['), wholeEnd: base + closeBr + 1,
+    });
   }
   return arms.length ? arms : null;
+}
+
+// --- gestión de secciones (P0.3 ampliado): todo por EMPALME textual (spans) ----------
+
+// cambia los compases de un brazo (solo se tocan los dígitos del número).
+export function setArmBars(code: string, arm: ArrangeArm, bars: number): string {
+  const b = Math.max(1, Math.min(64, Math.round(bars)));
+  return code.slice(0, arm.nStart) + String(b) + code.slice(arm.nEnd);
+}
+
+// duplica un brazo justo después de sí mismo (variación: editas la copia).
+export function duplicateArm(code: string, arm: ArrangeArm): string {
+  return code.slice(0, arm.wholeEnd) + `, [${fmt(arm.bars)}, ${arm.code}]` + code.slice(arm.wholeEnd);
+}
+
+// añade una sección EN SILENCIO al final (el instrumento no entra hasta que se pinte).
+export function addSilentArm(code: string, lastArm: ArrangeArm, bars = 4): string {
+  return code.slice(0, lastArm.wholeEnd) + `, [${Math.max(1, Math.round(bars))}, silence]` + code.slice(lastArm.wholeEnd);
+}
+
+// quita un brazo (con su coma adyacente). null si es el único (un arrange sin brazos
+// no existe; para volver al patrón plano se edita el código).
+export function removeArm(code: string, arms: ArrangeArm[], idx: number): string | null {
+  if (arms.length <= 1 || idx < 0 || idx >= arms.length) return null;
+  const from = idx > 0 ? arms[idx - 1].wholeEnd : arms[0].wholeStart;
+  const to = idx > 0 ? arms[idx].wholeEnd : arms[1].wholeStart;
+  return code.slice(0, from) + code.slice(to);
+}
+
+// convierte un patrón PLANO en un arrange por secciones, sembrando CADA sección con el
+// patrón actual → suena idéntico (un loop), y luego se edita cada sección por pestañas.
+export function wrapAsArrange(code: string, sections: number[]): string {
+  const c = code.trim();
+  return `arrange(${sections.map((n) => `[${Math.max(1, Math.round(n))}, ${c}]`).join(', ')})`;
+}
+
+// alinea las secciones de un source a la ESTRUCTURA de la canción (compases por
+// sección): plano → se envuelve sembrado (suena igual); mismo nº de brazos → se
+// redimensionan; menos brazos → se completan con silencios; MÁS brazos que la
+// estructura → null (no se toca: recortar secciones sería destructivo).
+export function alignArrangeToBars(code: string, bars: number[]): string | null {
+  if (!bars.length || !code.trim()) return null;
+  const arms0 = splitArrange(code);
+  if (!arms0) return wrapAsArrange(code, bars);
+  if (arms0.length > bars.length) return null;
+  let out = code;
+  // redimensiona de ATRÁS hacia delante (cada empalme desplaza los spans posteriores)
+  for (let i = arms0.length - 1; i >= 0; i--) {
+    const arms = splitArrange(out);
+    if (!arms) return null;
+    out = setArmBars(out, arms[i], bars[i]);
+  }
+  for (let i = arms0.length; i < bars.length; i++) {
+    const arms = splitArrange(out);
+    if (!arms) return null;
+    out = addSilentArm(out, arms[arms.length - 1], bars[i]);
+  }
+  return out;
 }
 
 // Reemplaza el patrón de UN brazo dentro del código completo (empalme por span).
