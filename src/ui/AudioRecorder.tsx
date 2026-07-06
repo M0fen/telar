@@ -8,9 +8,9 @@ export function AudioRecorder() {
   const [rec, setRec] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
-  const toggle = () => {
+  const toggle = async () => {
     if (rec) {
-      const blob = stopAudioRecording();
+      const blob = await stopAudioRecording(); // async: espera el vaciado del worklet (no pierde la cola)
       setRec(false);
       if (blob) {
         const a = document.createElement('a');
@@ -19,7 +19,7 @@ export function AudioRecorder() {
         a.click();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       }
-    } else if (startAudioRecording()) {
+    } else if (await startAudioRecording()) {
       setRec(true);
     } else {
       setNote('inicia el audio (Play) primero');
@@ -31,7 +31,7 @@ export function AudioRecorder() {
     <div className="aud-rec-wrap">
       <button
         className={`aud-rec${rec ? ' on' : ''}`}
-        onClick={toggle}
+        onClick={() => void toggle()}
         title={rec ? 'detener y guardar .wav' : 'grabar solo audio (.wav, máxima calidad)'}
       >
         <span className="aud-rec-dot" />
