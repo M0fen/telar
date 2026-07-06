@@ -18,6 +18,7 @@ import { readSharedProject, clearShareHash } from './lib/share';
 import { nodeTypes } from './nodes/nodeTypes';
 import { SignalEdge } from './nodes/SignalEdge';
 import { setFlowTopology, setFlowEnabled } from './nodes/signalFlow';
+import { setBranchMeteringEnabled } from './audio/branchMeter';
 import { useVizFlagsStore } from './store/useVizFlagsStore';
 import { DevPanel } from './dev/DevPanel';
 import { Visualizer } from './viz/Visualizer';
@@ -410,6 +411,7 @@ export default function App() {
   // traza ni su animación → costo real eliminado); nodePulse/edgeFlow gatean signalFlow.
   const nodePulse = useVizFlagsStore((s) => s.flags.nodePulse);
   const edgeFlow = useVizFlagsStore((s) => s.flags.edgeFlow);
+  const branchMetering = useVizFlagsStore((s) => s.flags.branchMetering);
 
   // Inyecta el resaltado "imán" en el cable destino mientras se arrastra. Con edgeFlow
   // activo, los cables usan el edge de señal (V1a): la energía viaja por ellos al Out.
@@ -430,6 +432,9 @@ export default function App() {
   useEffect(() => { setFlowTopology(nodes, edges); }, [nodes, edges]);
   // Empuja el estado de los flags a signalFlow (no-op real en off: bucle/escrituras).
   useEffect(() => { setFlowEnabled(nodePulse, edgeFlow); }, [nodePulse, edgeFlow]);
+  // V-infra: activa/desactiva la medición por rama (centroide). Off = meterEngine no
+  // calcula frecuencia y se libera el mapa (no-op real).
+  useEffect(() => { setBranchMeteringEnabled(branchMetering); }, [branchMetering]);
 
   return (
     <div className="app" style={{ background: tokens.bg, ['--viz-h' as string]: `${vizVisible ? vizHeight : 0}px` }}>

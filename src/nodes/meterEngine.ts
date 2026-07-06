@@ -4,6 +4,7 @@
 // relleno. Reutiliza los analysers que ya existen: getMasterAnalyser (tap del
 // destinationGain) y getSourceAnalyser (tap .analyze por instrumento).
 import { getMasterAnalyser, getSourceAnalyser } from '../audio/engine';
+import { isBranchMeteringOn, setBranchMetric, spectralCentroid } from '../audio/branchMeter';
 
 const MASTER = 'master';
 
@@ -12,6 +13,7 @@ const fills = new Map<string, HTMLElement>();
 // Comparte el mismo cálculo de nivel que el VU (un rAF, sin coste extra por analyser).
 const dots = new Map<string, HTMLElement>();
 const buffers = new Map<string, Uint8Array<ArrayBuffer>>();
+const freqBuffers = new Map<string, Uint8Array<ArrayBuffer>>(); // V-infra: datos de frecuencia (centroide)
 const levels = new Map<string, number>(); // nivel suavizado por id
 let running = false;
 let raf = 0;
@@ -22,13 +24,13 @@ function stopIfIdle() { if (fills.size === 0 && dots.size === 0) { running = fal
 export function registerMeter(id: string, fill: HTMLElement): void { fills.set(id, fill); start(); }
 export function unregisterMeter(id: string): void {
   fills.delete(id);
-  if (!dots.has(id)) { buffers.delete(id); levels.delete(id); }
+  if (!dots.has(id)) { buffers.delete(id); freqBuffers.delete(id); levels.delete(id); }
   stopIfIdle();
 }
 export function registerActivity(id: string, dot: HTMLElement): void { dots.set(id, dot); start(); }
 export function unregisterActivity(id: string): void {
   dots.delete(id);
-  if (!fills.has(id)) { buffers.delete(id); levels.delete(id); }
+  if (!fills.has(id)) { buffers.delete(id); freqBuffers.delete(id); levels.delete(id); }
   stopIfIdle();
 }
 
@@ -64,5 +66,17 @@ function tick() {
     const v = next.toFixed(3);
     fills.get(id)?.style.setProperty('--lvl', v);
     dots.get(id)?.style.setProperty('--lvl', v);
+
+    // V-infra — centroide espectral por source: SOLO con branchMetering activo (costo
+    // extra de leer la frecuencia). El nivel ya lo tenemos (next). MASTER no cuenta como
+    // rama. Reusa el mismo analyser (0 analysers extra).
+    if (an && id !== MASTER && isBranchMeteringOn()) {
+      const bins = an.frequencyBinCount;
+      let fbuf = freqBuffers.get(id);
+      if (!fbuf || fbuf.length !== bins) { fbuf = new Uint8Array(bins); freqBuffers.set(id, fbuf); }
+      an.getByteFrequencyData(fbuf);
+      const { hz, norm } = spectralCentroid(fbuf, an.context.sampleRate);
+      setBranchMetric(id, { level: next, centroid01: norm, centroidHz: hz });
+    }
   }
 }
