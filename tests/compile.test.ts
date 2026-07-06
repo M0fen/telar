@@ -187,10 +187,10 @@ test('máster EN rango: el clamp es no-op (los proyectos normales suenan idénti
 });
 
 // --- sanitizeMasterFx: normaliza el máster al importar + describe qué cambió ----------
-test('sanitizeMasterFx acota los valores de test111 y los reporta', () => {
+test('sanitizeMasterFx resetea a NEUTRO los valores de test111 y los reporta', () => {
   const { master, notes } = sanitizeMasterFx({ gain: 1, filter: -2, room: 0.18, crush: 2 } as any);
-  assert.equal((master as any).filter, -1);   // -2 fuera de [-1,1] → -1
-  assert.equal((master as any).crush, 1);      // 2 fuera de [0,1] → 1
+  assert.equal((master as any).filter, 0);     // -2 fuera de [-1,1] → 0 (sin filtro, SUENA)
+  assert.equal((master as any).crush, 0);      // 2 fuera de [0,1] → 0 (sin crush)
   assert.equal((master as any).room, 0.18);    // en rango → intacto
   assert.ok(notes.some((n) => n.includes('filtro')));
   assert.ok(notes.some((n) => n.includes('crush')));
