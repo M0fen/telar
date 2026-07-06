@@ -129,11 +129,11 @@ StepSeq cicla normal→acento→ghost (1 / 1.4 / 0.5, `StepSeq.tsx:27`). El shak
 
 ## P2 — Diferenciador / pulido
 
-- **P2.1 `[NUEVO]` Escenas ciegas al máster y al EQ de canal:** `snapshotState()` no captura `master` ni `data.eq` → un "drop" no puede abrir el filtro del máster ni cambiar el EQ. Añadirlos (opt-in) a `SceneState`. *Criterio:* escena "break" con lpf de máster cerrado → al disparar "drop" se abre.
-- **P2.2 `[NUEVO]` Banco por pista:** `.bank()` afecta TODA la rejilla (`StepSeq.setBank`). Strudel resuelve `bank` como prefijo del nombre → una pista puede emitir `s("RolandTR808_bd …")` para mezclar kick 808 con caja LinnDrum. Selector de banco por pista que reescriba el nombre del sonido. *Criterio:* kick 808 + rim Linn en la misma rejilla.
-- **P2.3 `[NUEVO]` Trigger de canción con jitter de frame:** `SongTimeline` dispara escenas desde rAF → hasta ~16 ms + swap tarde respecto a la frontera de compás. Calcular la frontera con `scheduler.now()` y programar el swap anticipado. *Criterio:* el cambio de sección cae consistente en el 1.
-- **P2.4 `[NUEVO]` Un AnalyserNode + FFT por source SIEMPRE:** `compile.ts:615` añade `.analyze("telar-src-…")` a todo source aunque esté colapsado y sin VU visible. Con 10+ sources es CPU regalada. Emitir el tap solo si el nodo está expandido o su scope activo (ya existe el flag `showScope`). *Criterio:* proyecto de 12 sources colapsados baja el uso de CPU de audio de forma medible.
-- **P2.5 `[NUEVO]` Freeze cap 16 ciclos** (`freeze.ts:29`): una sección de 16 compases a 4/4 no cabe. Subir el clamp (o derivarlo de la sección de canción seleccionada). *Criterio:* congelar una sección completa de la canción.
+- ~~**P2.1** Escenas ciegas al máster y al EQ de canal.~~ **✅ HECHO** (`de76484`): las escenas capturan además `chPan`, `eq` de canal y el **máster completo**; al disparar se reaplica todo (escenas viejas sin máster no lo tocan — compatibles).
+- ~~**P2.2** Banco por pista.~~ **✅ HECHO** (`4f52a04`): selector "caja" por pista en el panel ≋; el override vive en el residuo (`.bank("X")` en `Lane.sfx`) y el banco de la rejilla pasa a emitirse POR SEGMENTO en las pistas que lo heredan (un global en la cola pisaría los overrides).
+- ~~**P2.3** Trigger de canción con jitter de frame.~~ **✅ HECHO** (`de76484`): anticipación de ~90 ms (en ciclos al cps real) → la escena aterriza en el 1.
+- **P2.4 — RESUELTO COMO NO-APLICA:** el tap `.analyze()` por source alimenta el VU del canal (visible en TODO nodo, también colapsado) y la onda del instrumento (`InstrumentViz` en nodos colapsados) — no hay estado "sin consumidor" que permita omitirlo sin apagar esos medidores. Si algún día el VU se hace opcional, re-evaluar.
+- ~~**P2.5** Freeze cap 16 ciclos.~~ **✅ HECHO** (`de76484`): tope a 64 ciclos — una sección completa (o una canción corta) cabe en un stem.
 - **P2.6 `[CONFIRMA]` Plataforma:** VoiceStudio ~900 líneas (dividir por secciones ya autocontenidas: transporte/autotune/comping), tokenización de color a medias (`theme/tokens.ts` existe — completar la migración), samples locales no viajan al compartir (subir a R2 — ya hay `cloudBank`), desktop-only. Ninguno bloquea el sonido; ordenados aquí por honestidad, no por urgencia.
 
 ---
