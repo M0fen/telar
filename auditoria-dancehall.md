@@ -153,7 +153,7 @@ StepSeq cicla normal→acento→ghost (1 / 1.4 / 0.5, `StepSeq.tsx:27`). El shak
 1. ~~**P0.1** — desbloquea que mezclar no destruya el groove.~~ **✅ HECHO** (`df43e93`, `670e2f5`).
 2. ~~**P0.2** — el shuffle correcto.~~ **✅ HECHO** (`d4a9f62`).
 3. ~~**P1.3** y **P1.4**.~~ **✅ HECHOS** (`205fdd3` eco dub con subdivisión + throw por canal; `813e4b7` percusión latina en paleta + bankExempt + kit "latin dancehall").
-4. **P0.3** (variantes por sección — la feature grande; diseñarla con plan aparte). ← **SIGUIENTE**. Subió de urgencia: el episodio del secuenciador (abajo) demostró que las demos `arrange()` no tienen editor.
+4. ~~**P0.3** (variantes por sección).~~ **✅ HECHO en su forma núcleo** (`278afb4`): el secuenciador detecta `arrange([compases, patrón], …)` y muestra **pestañas de sección** — cada brazo se edita con la rejilla o el piano roll normales; el guardado es un empalme textual por spans (las otras secciones quedan byte a byte). Brazos `silence` se activan con un clic. Pendiente de P0.3 ampliado: que la SongTimeline genere/edite los compases del arrange (hoy los compases se ven en las pestañas y se editan con el botón "entradas"/ArrangeStrip o en código).
 5. **P1.1, P1.2, P1.5** (mezcla/pocket fino), luego **P1.6** y P2s.
 
 ### Adenda (mismo día): la mina del arrange en la rejilla
