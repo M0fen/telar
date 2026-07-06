@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { useGraphStore } from '../store/useGraphStore';
+import { useVizFlagsStore } from '../store/useVizFlagsStore';
 import { getScheduler } from '../audio/engine';
 import { alignArrangeToBars, splitArrange } from '../nodes/stepseqCode';
+import { sectionEnergy } from '../lib/arrangeEnergy';
 import { askConfirm, toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
 
@@ -22,6 +24,11 @@ export function SongTimeline() {
   const setPlaying = useSongStore((s) => s.setPlaying);
   const setIndex = useSongStore((s) => s.setIndex);
   const scenes = useScenesStore((s) => s.scenes);
+  // V2 — mapa de energía: nº de sources del grafo (no filtrar EN el selector → zustand v5
+  // cuelga si devuelve un array nuevo; derivamos aquí) y el flag para gatear el render.
+  const nodes = useGraphStore((s) => s.nodes);
+  const energyMap = useVizFlagsStore((s) => s.flags.energyMap);
+  const sourceIds = useMemo(() => nodes.filter((n) => n.data.kind === 'source').map((n) => n.id), [nodes]);
   const [open, setOpen] = useState(false);
 
   // motor: mientras la canción suena, sigue el reloj (ciclos = compases) y dispara
@@ -122,6 +129,28 @@ export function SongTimeline() {
                   <b>{st.bars}</b>
                   <button onClick={() => updateStep(st.id, { bars: Math.min(64, st.bars + 1) })}>+</button>
                 </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {/* V2 — mapa de energía: una barra por sección, altura = pistas audibles en su
+          escena. De un vistazo: intro con aire (bajo) vs drop saturado (lleno/warn). */}
+      {open && energyMap && steps.length > 0 && (
+        <div className="song-energy" title="mapa de energía del arreglo: cuántas pistas suenan en cada sección (aire ◄ ► saturación)">
+          {steps.map((st) => {
+            const e = sectionEnergy(scenes[st.scene], sourceIds);
+            const lvl = e.frac >= 0.8 ? ' full' : e.frac >= 0.45 ? ' mid' : ' air';
+            return (
+              <div
+                className="song-energy-seg"
+                key={st.id}
+                style={{ flexGrow: Math.max(1, st.bars) }}
+                title={e.captured ? `${e.active}/${e.total} pistas activas · ${st.bars} compases` : `escena ${st.scene} sin capturar (⇧+${st.scene} para capturar)`}
+              >
+                {e.captured
+                  ? <span className={`song-energy-fill${lvl}`} style={{ height: `${Math.max(3, Math.round(e.frac * 100))}%` }} />
+                  : <span className="song-energy-none" />}
               </div>
             );
           })}

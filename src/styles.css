@@ -1781,6 +1781,16 @@ button.pal-item { width: 100%; }
 .song-step-bars button:hover { color: var(--accent); border-color: var(--accent-dim); }
 .song-step-bars b { font-family: var(--mono); font-size: 10px; color: var(--fg); min-width: 20px; text-align: center; }
 .song-step-bars b::after { content: ' c'; color: var(--faint); font-size: 7px; }
+
+/* V2 — mapa de energía del arreglo: franja alineada a las secciones. Altura = pistas
+   audibles en la escena de cada sección. air (aire) ◄ mid ► full (saturado, warn). */
+.song-energy { display: flex; gap: 4px; margin-top: 4px; height: 34px; align-items: stretch; overflow-x: auto; padding-bottom: 2px; }
+.song-energy-seg { flex: 1 1 0; min-width: 64px; display: flex; align-items: flex-end; background: rgba(4, 7, 10, 0.7); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.song-energy-fill { width: 100%; border-radius: 2px 2px 0 0; transition: height 160ms ease; }
+.song-energy-fill.air { background: linear-gradient(180deg, var(--accent-dim), rgba(28, 107, 96, 0.3)); }
+.song-energy-fill.mid { background: linear-gradient(180deg, var(--accent), var(--accent-dim)); }
+.song-energy-fill.full { background: linear-gradient(180deg, var(--warn), #8a3a22); }
+.song-energy-none { width: 100%; height: 100%; background: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255, 255, 255, 0.04) 4px, rgba(255, 255, 255, 0.04) 8px); }
 /* botón "abrir studio" en el mini-panel de synth */
 .tn-syn-expand {
   flex: 0 0 auto; background: #04070a; border: 1px solid var(--line); color: var(--dim);
