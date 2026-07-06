@@ -488,6 +488,18 @@ function SourceNode({ id, data, selected }: NodeProps) {
                   onChange={(v) => update(id, { chFilter: v })}
                 />
               </label>
+              {/* THROW de eco (dub): momentáneo — manda el canal al delay mientras se
+                  mantiene pulsado (el gesto clásico del dancehall sobre skank/voz).
+                  Reusa la emisión perf.echo del compilador (delay sync 3/16). */}
+              <button
+                className={`tn-throw${d.perf?.echo ? ' on' : ''}`}
+                title="throw de eco (dub): MANTÉN PULSADO para mandar este canal al delay — suelta y limpia. El eco cae al tempo (3/16, puntillo)."
+                onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); update(id, { perf: { ...(d.perf ?? {}), echo: 0.55 } }); }}
+                onPointerUp={() => update(id, { perf: { ...(d.perf ?? {}), echo: 0 } })}
+                onLostPointerCapture={() => { if (d.perf?.echo) update(id, { perf: { ...(d.perf ?? {}), echo: 0 } }); }}
+              >
+                eco
+              </button>
               <ChannelEqStrip id={id} data={d} />
             </div>
           )}

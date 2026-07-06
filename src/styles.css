@@ -619,6 +619,21 @@ body {
   padding: 3px 7px; border-radius: 4px;
 }
 .tn-cheq-toggle:hover { color: var(--accent); border-color: var(--accent); }
+/* throw de eco (dub) del canal: botón momentáneo (mantener pulsado) */
+.tn-throw {
+  align-self: center; background: rgba(10,16,22,0.7); border: 1px solid var(--line); color: var(--dim);
+  cursor: pointer; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 4px; user-select: none; touch-action: none;
+}
+.tn-throw:hover { color: var(--accent); border-color: var(--accent); }
+.tn-throw.on { color: #ffd166; border-color: #ffd166; box-shadow: 0 0 8px rgba(255,209,102,0.35); }
+/* selector del tiempo del eco (synth · espacio) */
+.tn-syn-dsync { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.tn-syn-dsync span { color: var(--dim); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; }
+.tn-syn-dsync select {
+  background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--fg);
+  font-size: 10px; padding: 3px 6px; border-radius: 4px;
+}
 .tn-cheq.on .tn-cheq-toggle { color: var(--accent); border-color: var(--accent); }
 .tn-cheq-bands { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 16px; align-items: flex-start; width: 100%; }
 .tn-cheq-bands label { display: flex; flex-direction: column; align-items: center; gap: 3px; }

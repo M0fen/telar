@@ -568,6 +568,19 @@ export function SynthStudio() {
               <MiniSlider label="delay" value={num(syn.delay)} min={0} max={1} step={0.02} onChange={(v) => set({ delay: v })} />
               <MiniSlider label="dly fb" value={Number(syn.delayfb ?? 0.4)} min={0} max={0.9} step={0.02} onChange={(v) => set({ delayfb: v })} />
             </div>
+            <label className="tn-syn-dsync" title="tiempo del eco, sincronizado al tempo (fracción del compás). Puntillo 3/16 = el dub delay clásico del dancehall/reggae — cae en el grid a cualquier BPM.">
+              <span>tiempo eco</span>
+              <select
+                value={String(Number((syn.delaysync ?? 3 / 16).toFixed(4)))}
+                onChange={(e) => set({ delaysync: Number(e.target.value) })}
+              >
+                <option value={String(Number((1 / 16).toFixed(4)))}>1/16 semicorchea</option>
+                <option value={String(Number((1 / 8).toFixed(4)))}>1/8 corchea</option>
+                <option value={String(Number((1 / 6).toFixed(4)))}>1/6 tresillo</option>
+                <option value={String(Number((3 / 16).toFixed(4)))}>3/16 puntillo (dub)</option>
+                <option value={String(Number((1 / 4).toFixed(4)))}>1/4 negra</option>
+              </select>
+            </label>
           </div>
           <div className="vs-sec">
             <h4>pitch env · salida</h4>

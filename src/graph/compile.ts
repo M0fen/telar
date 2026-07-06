@@ -273,6 +273,10 @@ function applySynth(code: string, syn: SynthParams): string {
   const delay = n(syn.delay, 0);
   if (delay > 0.001) {
     out += `.delay(${delay.toFixed(2)}).delayfeedback(${n(syn.delayfb, 0.4).toFixed(2)})`;
+    // tiempo del eco SINCRONIZADO al tempo (delaysync = fracción de ciclo; el motor
+    // trae 3/16 = corchea con puntillo, el dub clásico). Solo se emite si difiere.
+    const dsync = n(syn.delaysync, 3 / 16);
+    if (Math.abs(dsync - 3 / 16) > 0.0001) out += `.delaysync(${Number(dsync.toFixed(4))})`;
   }
   // carácter: distorsión + reducción de muestreo
   const drive = n(syn.drive, 0);

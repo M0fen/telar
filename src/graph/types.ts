@@ -96,6 +96,9 @@ export interface SynthParams {
   roomsize?: number; // tamaño de la sala 0..10
   delay?: number; // eco send 0..1
   delayfb?: number; // realimentación del eco 0..0.9
+  // tiempo del eco en FRACCIÓN DE CICLO (superdough delaysync: sincronizado al tempo).
+  // 3/16 = corchea con puntillo (el dub delay clásico, default del motor).
+  delaysync?: number;
   // salida
   pan?: number; // paneo 0..1 (0.5 = centro)
   // carácter
@@ -156,6 +159,7 @@ export const DEFAULT_SYNTH: SynthParams = {
   roomsize: 2,
   delay: 0,
   delayfb: 0.4,
+  delaysync: 3 / 16,
   pan: 0.5,
   drive: 0,
   coarse: 1,

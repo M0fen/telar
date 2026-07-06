@@ -157,6 +157,15 @@ test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
   assert.match(m, /\.mul\(gain\(1\.30\)\)/);
 });
 
+test('P1.3 delay del synth: delaysync solo se emite si difiere del 3/16 del motor', () => {
+  const base = { kind: 'source', code: 'note("c3").s("sawtooth")', synthOn: true } as Record<string, unknown>;
+  const dub = C([src('s', 'note("c3").s("sawtooth")', { ...base, synth: { delay: 0.3, delayfb: 0.5 } }), out()], [E('s', 'o')]);
+  assert.match(code(dub), /\.delay\(0\.30\)\.delayfeedback\(0\.50\)/);
+  assert.doesNotMatch(code(dub), /\.delaysync\(/); // 3/16 es el default del motor → no ensucia
+  const negra = C([src('s', 'note("c3").s("sawtooth")', { ...base, synth: { delay: 0.3, delaysync: 0.25 } }), out()], [E('s', 'o')]);
+  assert.match(code(negra), /\.delaysync\(0\.25\)/);
+});
+
 test('P0.2 swing del máster: semicorcheas (n=8) — el tumbao del dembow', () => {
   const m = applyMaster('s("hh*16")', { gain: 1, filter: 0, room: 0, swing: 0.3 });
   assert.match(m, /\.swingBy\(0\.30, 8\)/);
