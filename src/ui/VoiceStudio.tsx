@@ -3,12 +3,17 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useDownloadsStore } from '../store/useDownloadsStore';
 import { getAudioCtx, registerSample } from '../audio/engine';
 import type { NodeData, VoiceParams } from '../graph/types';
-import { VOICE_VOWELS, VOICE_SCALES, DEFAULT_VOICE } from '../graph/types';
-import { MiniSlider } from '../nodes/MiniSlider';
+import { DEFAULT_VOICE } from '../graph/types';
 import { getVoiceUrl, setVoiceUrl } from '../lib/voiceUrls';
 import { audioBufferToWav } from '../lib/wavEncode';
 import { playVoiceSample, playVoiceNote } from '../audio/playNote';
 import { toast } from '../store/useNotifyStore';
+import { clamp01, peaksOf, sliceBuffer, AT_ROOTS } from './voice/voiceUtils';
+import { MelodySection } from './voice/MelodyRoll';
+import { VoiceWave } from './voice/VoiceWave';
+import { AutotuneSection, type AtState } from './voice/AutotuneSection';
+import { CompingSection, type Take } from './voice/CompingSection';
+import { PlaybackSection, SoundDesignSection } from './voice/DesignSections';
 
 // Estudio de voz DEDICADO (área propia, sustituye al mini-panel del nodo). Pro:
 //   • vista previa REPRODUCIBLE de la onda con cabezal (play/loop, clic = scrub),
@@ -17,217 +22,10 @@ import { toast } from '../store/useNotifyStore';
 //     arrastrar = dibujar la línea; con escala = autotune por grados);
 //   • modos natural/granular, formante y controles finos.
 // Edita node.data.voice / begin / end del Source seleccionado.
-
-const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
-
-// B2 — listas para el selector de autotune (deben coincidir con AUTOTUNE_ROOTS/SCALES de
-// src/audio/autotune.ts). Locales para NO importar autotune.ts estáticamente (mantiene
-// el WASM de Rubber Band en carga perezosa).
-const AT_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-const AT_SCALE_NAMES = ['cromática', 'mayor', 'menor', 'menor arm', 'menor pent', 'mayor pent', 'dórica', 'frigia'];
-
-// picos (máximos por bloque) del canal 0 de un buffer, para dibujar la onda. HILO B / B4.
-function peaksOf(buf: AudioBuffer, N = 160): number[] {
-  const dch = buf.getChannelData(0);
-  const step = Math.max(1, Math.floor(dch.length / N));
-  const p: number[] = [];
-  for (let i = 0; i < N; i++) {
-    let mx = 0;
-    for (let j = 0; j < step; j++) { const a = Math.abs(dch[i * step + j] || 0); if (a > mx) mx = a; }
-    p.push(mx);
-  }
-  return p;
-}
-
-// extrae la región [b,e] (fracciones 0..1) de un AudioBuffer como buffer nuevo, para
-// warpear solo lo recortado (más rápido y coincide con lo que se oye). HILO B / B1.
-function sliceBuffer(buf: AudioBuffer, b: number, e: number): AudioBuffer {
-  const n = buf.length;
-  const s = Math.max(0, Math.min(n - 1, Math.floor(clamp01(b) * n)));
-  const en = Math.max(s + 1, Math.min(n, Math.floor(clamp01(e) * n)));
-  const out = new AudioBuffer({ length: en - s, numberOfChannels: buf.numberOfChannels, sampleRate: buf.sampleRate });
-  for (let c = 0; c < buf.numberOfChannels; c++) out.getChannelData(c).set(buf.getChannelData(c).subarray(s, en));
-  return out;
-}
-
-// --- notas <-> midi (notación con bemoles, como el placeholder y Strudel) ------
-const PC_FLAT = ['c', 'db', 'd', 'eb', 'e', 'f', 'gb', 'g', 'ab', 'a', 'bb', 'b'];
-const ACCIDENTAL = new Set([1, 3, 6, 8, 10]); // teclas negras
-const NAME_TO_SEMI: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
-function midiToName(m: number): string {
-  const pc = ((m % 12) + 12) % 12;
-  const oct = Math.floor(m / 12) - 1;
-  return PC_FLAT[pc] + oct;
-}
-function noteToMidi(tok: string): number | null {
-  const m = /^([a-gA-G])([#sb]?)(-?\d+)?$/.exec(tok.trim());
-  if (!m) return null;
-  let semi = NAME_TO_SEMI[m[1].toLowerCase()];
-  if (m[2] === '#' || m[2] === 's') semi += 1;
-  else if (m[2] === 'b') semi -= 1;
-  const oct = m[3] != null ? parseInt(m[3], 10) : 4;
-  return semi + (oct + 1) * 12;
-}
-
-// intervalos (semitonos) de cada escala del autotune — raíz C
-const SCALE_STEPS: Record<string, number[]> = {
-  major: [0, 2, 4, 5, 7, 9, 11],
-  minor: [0, 2, 3, 5, 7, 8, 10],
-  'minor pentatonic': [0, 3, 5, 7, 10],
-  'major pentatonic': [0, 2, 4, 7, 9],
-  dorian: [0, 2, 3, 5, 7, 9, 10],
-  phrygian: [0, 1, 3, 5, 7, 8, 10],
-  mixolydian: [0, 2, 4, 5, 7, 9, 10],
-  'harmonic minor': [0, 2, 3, 5, 7, 8, 11],
-};
-function scaleName(scale: string): string {
-  const i = scale.indexOf(':');
-  return (i >= 0 ? scale.slice(i + 1) : scale).trim();
-}
-
-// pitch natural de un sample sin metadatos = midi 36 ("c2") → transpose 0 en
-// superdough. El piano roll se ancla ahí para que la voz suene (no octavas arriba).
-const NATURAL_MIDI = 36;
-// `note` = nombre de nota que se pasa al motor para audicionar/afinar ese pitch
-// (transpone el sample: transpose = midi(note) − 36). Coherente con el compilador.
-interface Row { val: string; label: string; sub: string; acc: boolean; root: boolean; nat: boolean; note: string }
-
-// Piano roll monofónico: cada columna = un paso (nota o silencio). En modo escala
-// las filas son GRADOS (autotune); sin escala son notas cromáticas (2 octavas).
-// `audition(note, force)` suena la voz PROCESADA a ese pitch (idéntica al resultado):
-// al poner/dibujar una nota (si `live`) y SIEMPRE al pulsar la tecla (force) para probar.
-function MelodyRoll({ melody, scale, onMelody, onScale, audition }: {
-  melody: string; scale: string; onMelody: (m: string) => void; onScale: (s: string) => void; audition: (note: string, force?: boolean) => void;
-}) {
-  const tokens = useMemo(() => (melody.trim() ? melody.trim().split(/\s+/) : []), [melody]);
-  const [steps, setSteps] = useState(() => Math.max(1, Math.min(16, tokens.length || 8)));
-  const [oct, setOct] = useState(2); // octava base (modo cromático) — c2 = pitch natural
-  const drawing = useRef(false);
-  const scaleMode = !!scale.trim();
-
-  // crecer los pasos si la melodía cargada trae más notas (no ocultarlas)
-  useEffect(() => { setSteps((s) => Math.max(s, Math.min(16, tokens.length))); }, [tokens.length]);
-  useEffect(() => {
-    const up = () => { drawing.current = false; };
-    window.addEventListener('pointerup', up);
-    return () => window.removeEventListener('pointerup', up);
-  }, []);
-
-  // celdas efectivas: la melodía recortada/rellenada a `steps` (silencios = '~')
-  const cells = useMemo(() => {
-    const arr = tokens.slice(0, steps);
-    while (arr.length < steps) arr.push('~');
-    return arr;
-  }, [tokens, steps]);
-
-  const rows: Row[] = useMemo(() => {
-    const out: Row[] = [];
-    if (scaleMode) {
-      const st = SCALE_STEPS[scaleName(scale)] ?? SCALE_STEPS.minor;
-      const len = st.length;
-      for (let d = len * 2; d >= 0; d--) {
-        const pc = st[d % len];
-        const semi = st[d % len] + 12 * Math.floor(d / len); // semitonos sobre la raíz (c2)
-        out.push({
-          val: String(d), label: String(d),
-          sub: PC_FLAT[pc] + "'".repeat(Math.floor(d / len)),
-          acc: ACCIDENTAL.has(pc), root: d % len === 0, nat: d === 0, // grado 0 = pitch natural
-          note: midiToName(NATURAL_MIDI + semi),
-        });
-      }
-    } else {
-      const lo = (oct + 1) * 12; // c(oct)
-      for (let m = lo + 23; m >= lo; m--) {
-        const pc = ((m % 12) + 12) % 12;
-        out.push({ val: midiToName(m), label: midiToName(m), sub: '', acc: ACCIDENTAL.has(pc), root: pc === 0, nat: m === NATURAL_MIDI, note: midiToName(m) });
-      }
-    }
-    return out;
-  }, [scaleMode, scale, oct]);
-
-  const matches = (cell: string, row: Row) => {
-    if (cell === '~') return false;
-    if (scaleMode) return parseInt(cell, 10) === parseInt(row.val, 10);
-    const a = noteToMidi(cell), b = noteToMidi(row.val);
-    return a != null && a === b;
-  };
-  const commit = (next: string[]) => onMelody(next.every((c) => c === '~') ? '' : next.join(' '));
-  const lastDrawn = useRef<string | null>(null); // evita re-audicionar la misma fila al arrastrar
-  const toggle = (col: number, row: Row) => {
-    const next = cells.slice();
-    const on = matches(next[col], row);
-    next[col] = on ? '~' : row.val;
-    if (!on) { audition(row.note); lastDrawn.current = row.val; } // audición al poner la nota (si live)
-    commit(next);
-  };
-  const setActive = (col: number, row: Row) => {
-    const next = cells.slice();
-    next[col] = row.val;
-    if (lastDrawn.current !== row.val) { audition(row.note); lastDrawn.current = row.val; } // audición al cambiar de fila dibujando
-    commit(next);
-  };
-
-  return (
-    <div className="vs-roll">
-      <div className="vs-roll-ctl">
-        <select className="vs-scale" value={scale} onChange={(e) => onScale(e.target.value)} title="autotune: cuantiza a la escala (raíz C)">
-          <option value="">cromático</option>
-          {VOICE_SCALES.map((s) => <option key={s} value={s}>{s.replace('C:', '')}</option>)}
-        </select>
-        <div className="vs-stepper" title="nº de pasos">
-          <button onClick={() => { const n = Math.max(1, steps - 1); setSteps(n); commit(cells.slice(0, n)); }}>−</button>
-          <b>{steps}<i>pasos</i></b>
-          <button onClick={() => setSteps((s) => Math.min(16, s + 1))}>+</button>
-        </div>
-        {!scaleMode && (
-          <div className="vs-stepper" title="octava base">
-            <button onClick={() => setOct((o) => Math.max(1, o - 1))}>−</button>
-            <b>C{oct}<i>8va</i></b>
-            <button onClick={() => setOct((o) => Math.min(7, o + 1))}>+</button>
-          </div>
-        )}
-        <button className="vs-roll-clear" onClick={() => onMelody('')} title="borrar la melodía (voz a su pitch real)">limpiar</button>
-      </div>
-
-      <div className="vs-roll-grid">
-        {rows.map((row) => (
-          <div className={`vs-roll-row${row.root ? ' root' : ''}${row.acc ? ' acc' : ''}${row.nat ? ' nat' : ''}`} key={row.val}>
-            <button
-              className="vs-roll-lbl"
-              onClick={() => audition(row.note, true)}
-              title={`probar ${row.label}${row.sub ? ' (' + row.sub + ')' : ''} — suena con los efectos actuales`}
-            ><b>{row.label}</b>{row.nat ? <i className="natmark">nat</i> : row.sub && <i>{row.sub}</i>}<span className="vs-key-spk">♪</span></button>
-            <div className="vs-roll-cells" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-              {cells.map((c, col) => (
-                <button
-                  key={col}
-                  className={`vs-cell${matches(c, row) ? ' on' : ''}${col % 4 === 0 ? ' beat' : ''}`}
-                  onPointerDown={() => { drawing.current = true; lastDrawn.current = null; toggle(col, row); }}
-                  onPointerEnter={() => { if (drawing.current) setActive(col, row); }}
-                  title={`paso ${col + 1} · ${row.label}${row.sub ? ' (' + row.sub + ')' : ''}`}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="vs-roll-steps" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-        {cells.map((c, col) => <span key={col} className={c === '~' ? 'rest' : ''}>{c === '~' ? '·' : c}</span>)}
-      </div>
-
-      <details className="vs-adv">
-        <summary>texto (avanzado)</summary>
-        <input
-          className="vs-melin"
-          value={melody}
-          placeholder={scaleMode ? 'grados: 0 2 4 3' : 'notas: c4 eb4 g4  (~ = silencio)'}
-          onChange={(e) => onMelody(e.target.value)}
-        />
-      </details>
-    </div>
-  );
-}
+//
+// Este archivo es el SHELL: estado + transporte + lógica async (warp/autotune/comping/
+// bake). Las secciones visuales viven en src/ui/voice/* como componentes presentacionales
+// y los helpers puros en src/ui/voice/voiceUtils.ts (testeables en Node).
 
 export function VoiceStudio() {
   const voiceEditId = useGraphStore((s) => s.voiceEditId);
@@ -257,7 +55,6 @@ export function VoiceStudio() {
 
   const [peaks, setPeaks] = useState<number[] | null>(null);
   const [decodeErr, setDecodeErr] = useState<string | null>(null); // fallo al descargar/decodificar
-  const wrapRef = useRef<HTMLDivElement>(null);
   // preview reproducible
   const bufRef = useRef<AudioBuffer | null>(null);
   const srcRef = useRef<AudioBufferSourceNode | null>(null);
@@ -278,14 +75,11 @@ export function VoiceStudio() {
   // preview EN CONTEXTO: aísla el source y reproduce el patrón compilado REAL (tempo,
   // granular, vibrato, recorte… todo lo que un disparo estático no puede mostrar).
   const [ctxPreview, setCtxPreview] = useState(false);
-  // B2 — autotune real (corrección de tono): escala/raíz/velocidad de retune propios.
-  const [atRoot, setAtRoot] = useState(0);
-  const [atScale, setAtScale] = useState('menor');
-  const [atSpeed, setAtSpeed] = useState(0); // 0 = duro (T-Pain) · 1 = natural
+  // B2 — autotune real (corrección de tono): escala/raíz/velocidad de retune + B5 gate.
+  const [at, setAt] = useState<AtState>({ root: 0, scale: 'menor', speed: 0, gate: 0.4 });
   const [atBusy, setAtBusy] = useState(false);
-  const [gateAmt, setGateAmt] = useState(0.4); // B5 — noise gate (limpiar fondo)
   // B4 — comping: varias tomas + qué toma suena en cada tramo
-  const [takes, setTakes] = useState<{ id: number; buf: AudioBuffer; peaks: number[] }[]>([]);
+  const [takes, setTakes] = useState<Take[]>([]);
   const [nSeg, setNSeg] = useState(4);
   const [selection, setSelection] = useState<number[]>([0, 0, 0, 0]);
   const [recording, setRecording] = useState(false);
@@ -306,18 +100,7 @@ export function VoiceStudio() {
         const buf = await getAudioCtx().decodeAudioData(ab);
         if (!alive) return;
         bufRef.current = buf;
-        const dch = buf.getChannelData(0);
-        const N = 360;
-        const step = Math.max(1, Math.floor(dch.length / N));
-        const p: number[] = [];
-        for (let i = 0; i < N; i++) {
-          let mx = 0;
-          for (let j = 0; j < step; j++) {
-            const a = Math.abs(dch[i * step + j] || 0);
-            if (a > mx) mx = a;
-          }
-          p.push(mx);
-        }
+        const p = peaksOf(buf, 360);
         if (alive) { setPeaks(p); setHead(bufRef.current ? (node?.data.begin ?? 0) : null); }
       } catch (err) {
         if (alive) { setPeaks(null); setDecodeErr(err instanceof Error ? err.message : 'no se pudo cargar el audio'); }
@@ -435,22 +218,6 @@ export function VoiceStudio() {
     }
   };
 
-  const dragHandle = (which: 'b' | 'e') => (ev: React.PointerEvent) => {
-    ev.preventDefault();
-    ev.stopPropagation();
-    const rect = wrapRef.current!.getBoundingClientRect();
-    const move = (m: PointerEvent) => {
-      const f = clamp01((m.clientX - rect.left) / rect.width);
-      if (which === 'b') update(voiceEditId, { begin: Math.min(f, (data.end ?? 1) - 0.02) });
-      else update(voiceEditId, { end: Math.max(f, (data.begin ?? 0) + 0.02) });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
   // audición del piano roll: suena la voz PROCESADA (con sus FX) a una nota concreta,
   // por el MISMO motor que produce el resultado final → el preview es idéntico a lo que
   // se oirá. `force` = pulsar la tecla (siempre suena, para probar); sin force respeta
@@ -463,12 +230,6 @@ export function VoiceStudio() {
     const dur = bufRef.current?.duration ?? 3;
     const ee = Math.min(Math.max(bb + 0.02, clamp01(d?.end ?? 1)), bb + Math.max(0.35, 1.6 / dur));
     void playVoiceNote(name, vv, note, bb, ee, 1.5);
-  };
-  // clic sobre la onda (no en una manija) = mover el cabezal (scrub)
-  const scrub = (ev: React.PointerEvent) => {
-    if (!bufRef.current) return;
-    const rect = wrapRef.current!.getBoundingClientRect();
-    setHead(clamp01((ev.clientX - rect.left) / rect.width));
   };
   // «con FX»: audiciona con efectos, PERO antes detecta las causas comunes de silencio y
   // avisa (en vez de sonar mudo sin explicación): sin sample, gain en 0, o «pos» empujando
@@ -562,14 +323,14 @@ export function VoiceStudio() {
     try {
       const { autotuneVoz } = await import('../audio/voiceDsp'); // worker + R3: tomas largas sin congelar
       const region = sliceBuffer(buf, b, e);
-      const corrected = await autotuneVoz(region, { scale: atScale, root: atRoot, retuneSpeed: atSpeed, strength: 1, formant: true });
+      const corrected = await autotuneVoz(region, { scale: at.scale, root: at.root, retuneSpeed: at.speed, strength: 1, formant: true });
       if (corrected === region) { setWarpMsg('⚠ autotune no procesó (¿voz muy corta o WASM no cargó?) — consola F12'); playAudioBuffer(region); return; }
       playAudioBuffer(corrected);
       if (bake && name && voiceEditId) {
         await bakeBuffer(corrected);
-        setWarpMsg(`✓ tono corregido y aplicado · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'}`);
+        setWarpMsg(`✓ tono corregido y aplicado · ${AT_ROOTS[at.root]} ${at.scale} · ${at.speed < 0.1 ? 'duro' : at.speed > 0.6 ? 'natural' : 'medio'}`);
       } else {
-        setWarpMsg(`▶ previa de autotune · ${AT_ROOTS[atRoot]} ${atScale} · ${atSpeed < 0.1 ? 'duro' : atSpeed > 0.6 ? 'natural' : 'medio'} (pulsa «aplicar» para hornear)`);
+        setWarpMsg(`▶ previa de autotune · ${AT_ROOTS[at.root]} ${at.scale} · ${at.speed < 0.1 ? 'duro' : at.speed > 0.6 ? 'natural' : 'medio'} (pulsa «aplicar» para hornear)`);
       }
     } catch (err) {
       const m = emsg(err); setWarpMsg('✗ error de autotune: ' + m); toast.err('Autotune: ' + m);
@@ -586,7 +347,7 @@ export function VoiceStudio() {
     try {
       const { cleanVoice } = await import('../audio/voiceClean');
       const region = sliceBuffer(buf, b, e);
-      const cleaned = cleanVoice(region, { gate: gateAmt });
+      const cleaned = cleanVoice(region, { gate: at.gate });
       await bakeBuffer(cleaned);
       playAudioBuffer(cleaned);
       setWarpMsg('✓ voz limpiada (ruido de fondo silenciado).');
@@ -680,30 +441,17 @@ export function VoiceStudio() {
         </header>
 
         {/* onda grande + preview reproducible + recorte por manijas */}
-        <div className="vs-wave" ref={wrapRef} onPointerDown={scrub}>
-          {!audioUrl ? (
-            <div className="vs-wave-none">graba una voz (● grabar) o descarga un audio para editarlo aquí</div>
-          ) : decodeErr ? (
-            <div className="vs-wave-none vs-wave-err">⚠ {decodeErr}. Reintenta grabando o recargando el audio.</div>
-          ) : !peaks ? (
-            <div className="vs-wave-none">decodificando…</div>
-          ) : (
-            <>
-              <div className="vs-wave-bars">
-                {peaks.map((p, i) => {
-                  const frac = i / peaks.length;
-                  const inRange = frac >= b && frac <= e;
-                  return <span key={i} className={inRange ? 'on' : ''} style={{ height: `${Math.max(3, p * 100)}%` }} />;
-                })}
-              </div>
-              <div className="vs-mask" style={{ left: 0, width: `${b * 100}%` }} />
-              <div className="vs-mask" style={{ left: `${e * 100}%`, right: 0 }} />
-              {head != null && <div className="vs-playhead" style={{ left: `${head * 100}%` }} />}
-              <div className="vs-handle" style={{ left: `${b * 100}%` }} onPointerDown={dragHandle('b')} />
-              <div className="vs-handle" style={{ left: `${e * 100}%` }} onPointerDown={dragHandle('e')} />
-            </>
-          )}
-        </div>
+        <VoiceWave
+          audioUrl={audioUrl}
+          decodeErr={decodeErr}
+          peaks={peaks}
+          b={b}
+          e={e}
+          head={head}
+          onScrub={(f) => { if (bufRef.current) setHead(f); }}
+          onBegin={(f) => update(voiceEditId, { begin: Math.min(f, (data.end ?? 1) - 0.02) })}
+          onEnd={(f) => update(voiceEditId, { end: Math.max(f, (data.begin ?? 0) + 0.02) })}
+        />
         {audioUrl && (
           <div className="vs-wave-foot">
             <div className="vs-transport">
@@ -750,167 +498,42 @@ export function VoiceStudio() {
         )}
 
         {/* melodía con piano roll (SAMPLER: re-dispara la voz por notas — no corrige el tono) */}
-        <div className="vs-sec">
-          <h4>melodía · sampler <span className="vs-h4sub">(la voz canta notas)</span></h4>
-          <MelodyRoll
-            melody={v.melody ?? ''}
-            scale={v.scale ?? ''}
-            onMelody={(m) => set({ melody: m })}
-            onScale={(s) => set({ scale: s })}
-            audition={audition}
-          />
-          <p className="vs-hint">{melodic
-            ? 'clic en la TECLA (izq. ♪) = probar esa nota con tus FX · clic en la reja = poner nota · arrastrar = dibujar la línea · fila «nat» = pitch natural'
-            : 'clic en la TECLA (izq. ♪) prueba cada nota con tus FX · pinta la reja para que la voz cante (la fila «nat» = pitch real)'}</p>
-          <div className="vs-harm" title="doblaje/armonía: añade una segunda voz a un intervalo (solo con melodía)">
-            <span>armonía</span>
-            {[[0, '—'], [3, '3m'], [4, '3M'], [7, '5ª'], [12, '8ª'], [-12, '8↓']].map(([h, lbl]) => (
-              <button key={h} className={(v.harmony ?? 0) === h ? 'on' : ''} disabled={!melodic} onClick={() => set({ harmony: h as number })}>{lbl}</button>
-            ))}
-          </div>
-          {/* autotune "suave": glide entre notas (portamento) + vibrato vocal */}
-          <div className="vs-grid vs-autotune">
-            <MiniSlider label="glide" value={Number(v.glide ?? 0)} min={0} max={1} step={0.02} disabled={!melodic} onChange={(x) => set({ glide: x })} />
-            <MiniSlider label="vibrato" value={Number(v.vibrato ?? 0)} min={0} max={8} step={0.2} onChange={(x) => set({ vibrato: x })} />
-            <MiniSlider label="vib prof" value={Number(v.vibratoDepth ?? 0.3)} min={0} max={2} step={0.05} disabled={!(Number(v.vibrato ?? 0) > 0)} onChange={(x) => set({ vibratoDepth: x })} />
-          </div>
-          <p className="vs-hint">glide = deslizamiento de pitch entre notas (autotune suave) · vibrato = vida en notas largas</p>
-        </div>
+        <MelodySection v={v} melodic={melodic} set={set} audition={audition} />
 
         {/* B2 — AUTOTUNE REAL: corrige el tono de la toma grabada (tus palabras, tu tiempo) */}
         {audioUrl && (
-          <div className="vs-sec">
-            <h4>corregir tono · autotune real <span className="vs-h4sub">(afina tu grabación)</span></h4>
-            <div className="vs-at">
-              <label className="vs-at-scale" title="tonalidad a la que se cuantiza el tono de tu voz">
-                <span>tono</span>
-                <select className="nodrag" value={atRoot} onChange={(e) => setAtRoot(Number(e.target.value))}>{AT_ROOTS.map((r, i) => <option key={i} value={i}>{r}</option>)}</select>
-                <select className="nodrag" value={atScale} onChange={(e) => setAtScale(e.target.value)}>{AT_SCALE_NAMES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
-              </label>
-              <MiniSlider label="retune" value={atSpeed} min={0} max={1} step={0.05} onChange={setAtSpeed} />
-              <button className="vs-fxbtn" disabled={atBusy} onClick={() => void runAutotune(false)} title="previsualizar la corrección sin hornearla (A/B de escala y velocidad)">{atBusy ? '⋯' : '▶ probar'}</button>
-              <button className="vs-crop" disabled={atBusy} onClick={() => void runAutotune(true)} title="aplicar la corrección: la hornea en la voz (suena corregida en todo el proyecto). Irreversible en la sesión.">aplicar</button>
-            </div>
-            <p className="vs-hint">corrige el TONO de tu toma a la escala (tus palabras y tu tiempo intactos). <b>retune 0</b> = duro/robótico (T-Pain) · <b>alto</b> = natural. «probar» previsualiza; «aplicar» lo hornea. Distinto del «sampler» de arriba (que re-dispara notas).</p>
-            <div className="vs-at">
-              <MiniSlider label="ruido" value={gateAmt} min={0} max={1} step={0.05} onChange={setGateAmt} />
-              <button className="vs-crop" disabled={atBusy} onClick={() => void applyClean()} title="limpiar: silencia el ruido de fondo / hiss entre frases (noise gate) y lo hornea en la voz. El de-esser (suavizar eses) llegará después.">✧ limpiar</button>
-            </div>
-            <p className="vs-hint">limpiar = quita el ruido de fondo (noise gate). Sube «ruido» si queda hiss entre frases; bájalo si se come el final de las palabras.</p>
-          </div>
+          <AutotuneSection
+            at={at}
+            busy={atBusy}
+            onAt={(patch) => setAt((x) => ({ ...x, ...patch }))}
+            onRun={(bake) => void runAutotune(bake)}
+            onClean={() => void applyClean()}
+          />
         )}
 
         {/* B4 — COMPING: graba varias tomas y arma la mejor eligiendo por tramos */}
         {audioUrl && (
-          <div className="vs-sec">
-            <h4>comping · tomas <span className="vs-h4sub">(arma la mejor de varias)</span></h4>
-            <div className="vs-at">
-              <button className={`vs-fxbtn${recording ? ' on' : ''}`} onClick={recording ? stopTakeRec : () => void startTakeRec()} title="graba una toma nueva con el micrófono (se añade como carril)">{recording ? '■ detener' : '● grabar toma'}</button>
-              <span className="vs-at-scale" title="en cuántos tramos se divide la toma para elegir">
-                <span>tramos</span>
-                <button className="vs-warpstep" onClick={() => changeNSeg(nSeg - 1)}>−</button>
-                <b className="vs-warpsemi">{nSeg}</b>
-                <button className="vs-warpstep" onClick={() => changeNSeg(nSeg + 1)}>+</button>
-              </span>
-              <button className="vs-crop" onClick={() => void composeTakes()} title="arma la toma final: cada tramo del carril elegido, con crossfades, y la aplica a la voz">componer</button>
-            </div>
-            <div className="vs-comp-lanes">
-              {[{ buf: bufRef.current, peaks: peaks ?? [] }, ...takes.map((t) => ({ buf: t.buf, peaks: t.peaks }))].map((lane, ci) => (
-                lane.buf ? (
-                  <div className="vs-comp-lane" key={ci}>
-                    <span className="vs-comp-name">{ci === 0 ? 'actual' : `toma ${ci}`}</span>
-                    <div className="vs-comp-segs">
-                      {selection.map((selIdx, s) => {
-                        const active = selIdx === ci;
-                        const L = lane.peaks.length;
-                        const segPk = lane.peaks.slice(Math.floor((s / nSeg) * L), Math.floor(((s + 1) / nSeg) * L));
-                        return (
-                          <button key={s} className={`vs-comp-seg${active ? ' on' : ''}`} onClick={() => pickSeg(s, ci)} title={`tramo ${s + 1}: usar ${ci === 0 ? 'la voz actual' : 'la toma ' + ci}`}>
-                            {segPk.map((p, i) => <span key={i} style={{ height: `${Math.max(6, p * 100)}%` }} />)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {ci > 0 && <span className="vs-rm-take" onClick={() => removeTake(ci - 1)} title="quitar esta toma">×</span>}
-                  </div>
-                ) : null
-              ))}
-            </div>
-            <p className="vs-hint">graba varias tomas (mic) · en cada TRAMO, clic en el carril de la toma que quieres que suene ahí (se resalta) · «componer» arma la final con crossfades y la aplica. La «actual» es tu voz de ahora.</p>
-          </div>
+          <CompingSection
+            baseBuf={bufRef.current}
+            basePeaks={peaks}
+            takes={takes}
+            nSeg={nSeg}
+            selection={selection}
+            recording={recording}
+            onRec={() => void startTakeRec()}
+            onStopRec={stopTakeRec}
+            onNSeg={changeNSeg}
+            onPick={pickSeg}
+            onRemoveTake={removeTake}
+            onCompose={() => void composeTakes()}
+          />
         )}
 
         {/* modo de reproducción + formante */}
-        <div className="vs-sec">
-          <h4>reproducción</h4>
-          <div className="vs-row">
-            <div className="vs-modes">
-              <button className={!melodic && !v.granular && !v.tempo ? 'on' : ''} disabled={melodic} onClick={() => set({ granular: false, tempo: false })} title="pitch real (recomendado)">natural</button>
-              <button className={!melodic && !!v.tempo ? 'on' : ''} disabled={melodic} onClick={() => set({ tempo: true, granular: false })} title="al tempo: encaja la voz en N ciclos siguiendo el BPM (el tono acompaña a la velocidad; usa «afinar» para recuperar la altura)">al tempo</button>
-              <button className={!melodic && v.granular && !v.tempo ? 'on' : ''} disabled={melodic} onClick={() => set({ granular: true, tempo: false })} title="granular: loopAt + chop">granular</button>
-            </div>
-            {!melodic && v.tempo && (
-              <div className="vs-stepper" title="ciclos que ocupa la voz al encajar en el grid">
-                <button onClick={() => set({ tempoCycles: Math.max(1, Math.round(Number(v.tempoCycles ?? 1)) - 1) })}>−</button>
-                <b>{Math.max(1, Math.round(Number(v.tempoCycles ?? 1)))}<i>ciclos</i></b>
-                <button onClick={() => set({ tempoCycles: Math.min(16, Math.round(Number(v.tempoCycles ?? 1)) + 1) })}>+</button>
-              </div>
-            )}
-            <div className="vs-vowels">
-              <button className={!v.vowel ? 'on' : ''} onClick={() => set({ vowel: '' })} title="sin formante">—</button>
-              {VOICE_VOWELS.map((w) => (
-                <button key={w} className={v.vowel === w ? 'on' : ''} onClick={() => set({ vowel: w })} title={`vocal ${w}`}>{w}</button>
-              ))}
-            </div>
-            <button
-              className={`vs-polish${v.polish ? ' on' : ''}`}
-              onClick={() => set({ polish: !v.polish })}
-              title="pulir: paso-alto (quita retumbe) + compresor (nivela la dinámica) → voz más pro"
-            >{v.polish ? '✓ pulida' : 'pulir voz'}</button>
-          </div>
-        </div>
+        <PlaybackSection v={v} melodic={melodic} set={set} />
 
         {/* diseño de sonido — agrupado por función para una edición coherente */}
-        <div className="vs-sec">
-          <h4>diseño de sonido</h4>
-          <div className="vs-group">
-            <span className="vs-subcap">afinación & tiempo</span>
-            <div className="vs-grid">
-              <MiniSlider label="afinar" value={Number(v.pitchShift ?? 0)} min={-12} max={12} step={1} onChange={(x) => set({ pitchShift: x })} />
-              <MiniSlider label="speed" value={Number(v.speed ?? 1)} min={0.25} max={4} step={0.05} onChange={(x) => set({ speed: x })} />
-              <MiniSlider label="grain" value={Number(v.grain ?? 8)} min={1} max={32} step={1} disabled={melodic || !v.granular} onChange={(x) => set({ grain: x })} />
-            </div>
-          </div>
-          <div className="vs-group">
-            <span className="vs-subcap">carácter</span>
-            <div className="vs-grid">
-              <MiniSlider label="shape" value={Number(v.shape ?? 0)} min={0} max={1} step={0.01} onChange={(x) => set({ shape: x })} />
-              <MiniSlider label="pos" value={Number(v.position ?? 0)} min={0} max={1} step={0.01} onChange={(x) => set({ position: x })} />
-              <MiniSlider label="gain" value={Number(v.gain ?? 1)} min={0} max={1.5} step={0.01} onChange={(x) => set({ gain: x })} />
-            </div>
-          </div>
-          <div className="vs-group">
-            <span className="vs-subcap">espacio & anchura</span>
-            <div className="vs-grid">
-              <MiniSlider label="room" value={Number(v.room ?? 0)} min={0} max={0.8} step={0.02} onChange={(x) => set({ room: x })} />
-              <MiniSlider label="delay" value={Number(v.delay ?? 0)} min={0} max={1} step={0.02} onChange={(x) => set({ delay: x })} />
-              <MiniSlider label="spread" value={Number(v.spread ?? 0)} min={0} max={1} step={0.01} onChange={(x) => set({ spread: x })} />
-            </div>
-            <label className="tn-syn-dsync" title="tiempo del eco vocal, sincronizado al tempo (fracción del compás). Puntillo 3/16 = el dub delay del dancehall — el throw de voz cae en el grid a cualquier BPM.">
-              <span>tiempo eco</span>
-              <select
-                value={String(Number((v.delaysync ?? 3 / 16).toFixed(4)))}
-                onChange={(e) => set({ delaysync: Number(e.target.value) })}
-              >
-                <option value={String(Number((1 / 16).toFixed(4)))}>1/16 semicorchea</option>
-                <option value={String(Number((1 / 8).toFixed(4)))}>1/8 corchea</option>
-                <option value={String(Number((1 / 6).toFixed(4)))}>1/6 tresillo</option>
-                <option value={String(Number((3 / 16).toFixed(4)))}>3/16 puntillo (dub)</option>
-                <option value={String(Number((1 / 4).toFixed(4)))}>1/4 negra</option>
-              </select>
-            </label>
-          </div>
-        </div>
+        <SoundDesignSection v={v} melodic={melodic} set={set} />
       </div>
     </>
   );
