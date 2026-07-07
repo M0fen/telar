@@ -68,6 +68,51 @@ export function validStrudel(code: string): boolean {
   }
 }
 
+// TEMPO nunca es un nodo. Si el código de un source es un fijador de tempo GLOBAL
+// (setcpm/setcps/setbpm), devuelve el cps equivalente (beatsPerCycle=4) para trasladarlo al
+// grafo; el nodo se descarta. setcps(x)=x · setcpm(x)=x/60 (ciclos/min) · setbpm(x)=x/240.
+export function tempoCpsFromCode(code: string): number | null {
+  const m = code.trim().match(/^set(cpm|cps|bpm)\s*\(\s*(-?[\d.]+)\s*\)/i);
+  if (!m) return null;
+  const val = parseFloat(m[2]);
+  if (!isFinite(val) || val <= 0) return null;
+  const kind = m[1].toLowerCase();
+  const cps = kind === 'cps' ? val : kind === 'cpm' ? val / 60 : val / 240;
+  return isFinite(cps) && cps > 0 ? cps : null;
+}
+
+// Un source de Telar es UN patrón ENCADENABLE que arranca con un generador de patrón:
+// s( sound( note( n( o arrange( (evolución de ESE source). Cualquier otra raíz — setcpm, stack
+// (combinar instrumentos), samples(, o una función global suelta — NO es un patrón: al
+// envolverse en (código).analyze() dentro del stack, revienta el stack ENTERO y deja TODO mudo.
+// Por eso se descarta. (arrange sí se admite: es un patrón que suena; combina en el TIEMPO, no
+// instrumentos simultáneos.)
+export function isTelarPattern(code: string): boolean {
+  return /^(sound|note|arrange|s|n)\s*\(/.test(code.trim());
+}
+
+// nombres de sample que damos por SEGUROS (percusión estándar + ondas de síntesis + ruido).
+const KNOWN_SAMPLES = new Set([
+  'bd', 'sd', 'hh', 'oh', 'cp', 'rim', 'cb', 'lt', 'mt', 'ht', 'cr', 'rd', 'sn', 'perc', 'click', 'clap', 'kick', 'snare', 'hat', 'tom', 'ride', 'crash',
+  'sine', 'sawtooth', 'saw', 'square', 'triangle', 'tri', 'supersaw', 'pulse', 'zzfx', 'white', 'pink', 'brown', 'noise',
+]);
+
+// AVISO (no descarta) de posible SILENCIO: un source que toca un sample por NOMBRE que no
+// reconocemos como percusión/onda y SIN .bank() → en una librería sin ese sample no sonaría.
+// Solo avisa (podría existir en un pack cargado; la prevención fuerte va en el prompt, Capa 1).
+// Devuelve el primer token dudoso, o null.
+export function sampleSilenceRisk(code: string): string | null {
+  const m = code.trim().match(/^(?:s|sound)\s*\(\s*(["'`])([^"'`]*)\1/); // solo fuentes de sample s("..")
+  if (!m) return null;
+  if (/\.bank\s*\(/.test(code)) return null; // con banco → asumimos batería válida
+  for (const raw of m[2].split(/[\s[\]<>,]+/)) {
+    const tok = raw.split(/[*!@:?/]/)[0].trim(); // quita modificadores de mini-notación
+    if (!tok || tok === '~') continue;
+    if (!KNOWN_SAMPLES.has(tok.toLowerCase())) return tok;
+  }
+  return null;
+}
+
 export async function requestAiGraph(prompt: string, current?: unknown, opts?: { withLyrics?: boolean }): Promise<Record<string, unknown>> {
   const r = await fetch('/api/ai-graph', {
     method: 'POST',
@@ -108,6 +153,7 @@ export function sanitizeAiGraph(raw: unknown): SanitizeResult {
   const idSet = new Set<string>();
   let outId: string | null = null;
   let si = 0, fi = 0;
+  let extractedCps: number | null = null; // tempo rescatado de un nodo setcpm/etc. (nunca es nodo)
 
   for (const n of rawNodes) {
     if (!n || typeof n !== 'object') continue;
@@ -118,8 +164,20 @@ export function sanitizeAiGraph(raw: unknown): SanitizeResult {
 
     if (kind === 'source') {
       const code = String(n.data?.code || '').trim();
-      if (!code || !validStrudel(code)) { warnings.push(`fuente "${n.data?.name || id}" descartada (código inválido)`); continue; }
+      const label = String(n.data?.name || id);
+      // 1) TEMPO como nodo → traslada su valor al cps del grafo y descarta el nodo.
+      const tcps = tempoCpsFromCode(code);
+      if (tcps != null) { if (extractedCps == null) extractedCps = tcps; warnings.push(`"${label}": el tempo no es un nodo → movido al cps del proyecto`); continue; }
+      // 2) AISLAMIENTO por source: debe ser UN patrón encadenable (s/sound/note/n/arrange) Y
+      //    sintaxis válida. Un source que no es patrón (stack, función global suelta) reventaría
+      //    el stack ENTERO → se descarta SOLO ése; los demás siguen sonando.
+      if (!code) { warnings.push(`"${label}" descartada (código vacío)`); continue; }
+      if (!isTelarPattern(code)) { warnings.push(`"${label}" descartada: no es un patrón (empieza por stack/función global; un nodo no combina instrumentos ni fija el tempo)`); continue; }
+      if (!validStrudel(code)) { warnings.push(`"${label}" descartada (código inválido)`); continue; }
       const name = n.data?.name ? String(n.data.name).slice(0, 40) : undefined;
+      // 3) aviso de posible silencio por sample dudoso (no se descarta: podría existir).
+      const risk = sampleSilenceRisk(code);
+      if (risk) warnings.push(`"${name || id}": el sample "${risk}" podría no existir en la librería → quizá no suene (usa síntesis note(..).s("sine"/"sawtooth") o un .bank())`);
       idSet.add(id);
       nodes.push({ id, type: 'source', position: { x: 0, y: 0 }, data: { kind: 'source', name, code } });
     } else if (kind === 'fx' || kind === 'transform') {
@@ -140,7 +198,9 @@ export function sanitizeAiGraph(raw: unknown): SanitizeResult {
   }
 
   if (!outId) { outId = 'out_1'; idSet.add(outId); nodes.push({ id: outId, type: 'out', position: { x: 0, y: 0 }, data: { kind: 'out' } }); }
-  if (nodes.filter((n) => n.data.kind === 'source').length === 0) throw new Error('el copiloto no generó instrumentos válidos');
+  // GARANTÍA DE AUDIO: nunca entregar un grafo mudo. Si no sobrevivió ningún instrumento,
+  // lanza un error EXPLÍCITO para que la UI reintente (mejor que cargar silencio).
+  if (nodes.filter((n) => n.data.kind === 'source').length === 0) throw new Error('la generación no produjo audio (ningún instrumento válido) — reintenta');
 
   // edges válidos
   const edges: Edge[] = [];
@@ -167,8 +227,13 @@ export function sanitizeAiGraph(raw: unknown): SanitizeResult {
 
   layout(nodes, outId);
 
+  // CPS: prioriza el explícito del grafo; si no es válido, usa el tempo rescatado de un nodo
+  // setcpm/etc.; si tampoco, cae a 0.5 (120bpm). El tempo nunca queda sin traducir.
   let cps = Number(r.cps);
-  if (!isFinite(cps) || cps <= 0 || cps > 4) { cps = 0.5; warnings.push('cps fuera de rango → 0.5 (120bpm)'); }
+  if (!isFinite(cps) || cps <= 0 || cps > 4) {
+    if (extractedCps != null && extractedCps > 0 && extractedCps <= 4) { cps = extractedCps; warnings.push(`tempo del proyecto tomado del nodo de tempo → cps ${cps.toFixed(3)}`); }
+    else { cps = 0.5; warnings.push('cps fuera de rango → 0.5 (120bpm)'); }
+  }
   const master = r.master && typeof r.master === 'object' ? (r.master as ProjectSnapshot['master']) : undefined;
 
   return {
