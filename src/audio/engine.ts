@@ -661,11 +661,12 @@ export async function registerWavetables(): Promise<void> {
 // Registra la ONDA PROPIA del usuario (dibujada con nodos en el editor) como wavetable de 1
 // cuadro `telar_user_<id>`. Se re-registra en cada cambio (blob fresco → el loader recarga).
 // Defensivo (regla 4): si algo falla, no tumba el audio.
-export async function registerUserWave(name: string, points: { x: number; y: number }[]): Promise<void> {
+export async function registerUserWave(name: string, uw: unknown): Promise<void> {
   try {
     await ensureEngine();
-    const { userWaveFrame, wavBuffer } = await import('./wavetables');
-    const url = URL.createObjectURL(new Blob([wavBuffer(userWaveFrame(points))], { type: 'audio/wav' }));
+    const { userWaveSeries, wavBuffer } = await import('./wavetables');
+    // userWaveSeries concatena TODOS los cuadros dibujados (N × 2048) → wavetable de morph propia.
+    const url = URL.createObjectURL(new Blob([wavBuffer(userWaveSeries(uw))], { type: 'audio/wav' }));
     registerWaveTable(name, [url], { frameLen: 2048 });
   } catch (err) {
     console.warn('[wavetable] registro de onda propia falló', err);

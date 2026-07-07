@@ -96,6 +96,15 @@ test('.wt solo en ondas de morph (una onda básica no lo emite)', () => {
   assert.doesNotMatch(code(r), /\.wt\(/);
 });
 
+test('onda PROPIA multi-cuadro (telar_user_*) emite .wt (morph); con 1 cuadro no', () => {
+  const uw2 = [[{ x: 0, y: 0 }, { x: 0.5, y: 1 }], [{ x: 0, y: 1 }, { x: 0.5, y: -1 }]];
+  const multi = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'telar_user_s', userWave: uw2, wtpos: 0.5 } }), out()], [E('s', 'o')]);
+  assert.match(code(multi), /\.s\("telar_user_s"\)\.wt\(0\.500\)/);
+  const uw1 = [[{ x: 0, y: 0 }, { x: 0.5, y: 1 }]];
+  const single = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'telar_user_s', userWave: uw1, wtpos: 0.5 } }), out()], [E('s', 'o')]);
+  assert.doesNotMatch(code(single), /\.wt\(/);
+});
+
 test('multi-oscilador: sin capas = una sola onda (sin stack, sin regresión)', () => {
   const r = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'sawtooth' } }), out()], [E('s', 'o')]);
   assert.match(code(r), /note\("c3"\)\.s\("sawtooth"\)/);

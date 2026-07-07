@@ -736,7 +736,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // ondas PROPIAS dibujadas (telar_user_<id>) de cada source → suenan aunque no se abra el estudio
       for (const nd of get().nodes) {
         const uw = nd.data.kind === 'source' ? nd.data.synth?.userWave : undefined;
-        if (uw && uw.length >= 2) await registerUserWave(`telar_user_${nd.id}`, uw);
+        if (uw && uw.length) await registerUserWave(`telar_user_${nd.id}`, uw);
       }
       await registerIrReverbs(); // espacios de reverb por IR (ir_hall, ir_plate…)
       await registerUserPacks(); // packs del usuario guardados (IndexedDB) → s("…")

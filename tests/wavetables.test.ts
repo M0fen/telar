@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { morphSeries, morphSeriesByName, wavBuffer, MORPH_WAVETABLES, userWaveFrame } from '../src/audio/wavetables.ts';
+import { morphSeries, morphSeriesByName, wavBuffer, MORPH_WAVETABLES, userWaveFrame, userFrames, userWaveSeries } from '../src/audio/wavetables.ts';
 
 const LEN = 2048;
 const FRAMES = 16;
@@ -96,4 +96,18 @@ test('userWaveFrame: interpola (suave) y normaliza — forma correcta (+@.25, -@
 test('userWaveFrame: es PERIÓDICO (el fin conecta con el principio, sin salto)', () => {
   const s = userWaveFrame([{ x: 0.1, y: 0.5 }, { x: 0.6, y: -0.5 }]);
   assert.ok(Math.abs(s[LEN - 1] - s[0]) < 0.05, `salto de loop ${Math.abs(s[LEN - 1] - s[0]).toFixed(3)}`);
+});
+
+test('userFrames: normaliza formato viejo (plano = 1 cuadro) y nuevo (cuadros)', () => {
+  assert.equal(userFrames([{ x: 0, y: 0 }, { x: 0.5, y: 1 }]).length, 1, 'array plano de puntos → 1 cuadro');
+  assert.equal(userFrames([[{ x: 0, y: 0 }], [{ x: 0, y: 1 }]]).length, 2, 'array de cuadros → tal cual');
+  assert.equal(userFrames([]).length, 0);
+  assert.equal(userFrames(undefined).length, 0);
+});
+
+test('userWaveSeries: concatena N cuadros (N × LEN); el formato viejo cuenta como 1', () => {
+  const s2 = userWaveSeries([[{ x: 0, y: 0 }, { x: 0.25, y: 1 }, { x: 0.75, y: -1 }], [{ x: 0, y: 1 }, { x: 0.5, y: -1 }]]);
+  assert.equal(s2.length, 2 * LEN);
+  const s1 = userWaveSeries([{ x: 0, y: 0 }, { x: 0.5, y: 1 }]); // plano → 1 cuadro
+  assert.equal(s1.length, LEN);
 });

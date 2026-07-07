@@ -5,7 +5,7 @@ import { AnalyserScope } from './AnalyserScope';
 import type { NodeData, SynthParams, OscLayer } from '../graph/types';
 import { SYNTH_WAVES, DEFAULT_SYNTH } from '../graph/types';
 import { SYNTH_PRESETS, PRESET_GENRES, presetByName, macroPatch } from '../graph/synthPresets';
-import { WAVETABLES, MORPH_WAVETABLES, isMorphWave, isUserWave, morphSeriesByName, userWaveFrame } from '../audio/wavetables';
+import { WAVETABLES, MORPH_WAVETABLES, isMorphWave, isUserWave, morphSeriesByName, userWaveFrame, userFrames, userWaveSeries } from '../audio/wavetables';
 import { MiniSlider } from '../nodes/MiniSlider';
 import { playSynthNote, playSourceSound } from '../audio/playNote';
 import { registerUserWave } from '../audio/engine';
@@ -251,7 +251,7 @@ function AdsrEnv({ syn, onChange }: { syn: SynthParams; onChange: (patch: Partia
 // (waterfall de todos los cuadros con el actual resaltado en el accent); para ondas
 // básicas, la forma única. Es la vista PRINCIPAL de la celda "onda"; el osciloscopio en
 // vivo va en una tira aparte, etiquetado (ya no se superponen). Solo para sintes.
-function WaveViz({ wave, wtpos = 0, userWave }: { wave: string; wtpos?: number; userWave?: { x: number; y: number }[] }) {
+function WaveViz({ wave, wtpos = 0, userWave }: { wave: string; wtpos?: number; userWave?: { x: number; y: number }[][] }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current; if (!c) return;
@@ -261,40 +261,28 @@ function WaveViz({ wave, wtpos = 0, userWave }: { wave: string; wtpos?: number; 
     c.width = Math.floor(W * dpr); c.height = Math.floor(H * dpr);
     const ctx = c.getContext('2d'); if (!ctx) return;
     ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
-    // ONDA PROPIA del usuario (telar_user_*): dibuja su forma interpolada.
-    if (isUserWave(wave) && userWave && userWave.length >= 2) {
-      const fr = userWaveFrame(userWave, 1024);
-      ctx.beginPath();
-      for (let i = 0; i <= W; i++) { const s = fr[Math.floor((i / W) * (fr.length - 1))]; const y = H / 2 - s * (H * 0.34); i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
-      ctx.strokeStyle = 'rgba(61,240,208,0.8)'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
-      ctx.shadowColor = 'rgba(61,240,208,0.5)'; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0;
-      return;
-    }
-    const morph = isMorphWave(wave) ? morphSeriesByName(wave) : null;
-    if (morph) {
-      // LANDSCAPE 3D: waterfall de TODOS los cuadros de la wavetable (perspectiva isométrica),
-      // atrás→adelante; el cuadro en la posición `wt` va resaltado en el accent. Así se ve el
-      // barrido completo del morph, no solo un cuadro. (Estilo Serum/Vital.)
-      const LEN = 2048;
-      const frames = morph.length / LEN;
+    // Serie de cuadros: ONDA PROPIA (telar_user_*, N cuadros dibujados) o tabla de morph de fábrica.
+    const data = isUserWave(wave) ? userWaveSeries(userWave) : (isMorphWave(wave) ? morphSeriesByName(wave) : null);
+    if (data) {
+      const LEN = 2048, frames = data.length / LEN;
+      if (frames <= 1) {
+        // UN cuadro: dibújalo como onda simple.
+        ctx.beginPath();
+        for (let i = 0; i <= W; i++) { const s = data[Math.floor((i / W) * (LEN - 1))]; const y = H / 2 - s * (H * 0.34); i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
+        ctx.strokeStyle = 'rgba(61,240,208,0.8)'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+        ctx.shadowColor = 'rgba(61,240,208,0.5)'; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0;
+        return;
+      }
+      // LANDSCAPE 3D: waterfall de TODOS los cuadros (perspectiva); el de la posición wt, resaltado.
       const cur = Math.round(Math.max(0, Math.min(1, wtpos)) * (frames - 1));
       const plotW = W * 0.80, amp = H * 0.12;
       for (let f = 0; f < frames; f++) {
         const t = frames > 1 ? f / (frames - 1) : 0; // 0 = atrás (arriba), 1 = frente (abajo)
-        const skewX = (1 - t) * (W * 0.17);
-        const baseY = H * 0.15 + t * (H * 0.68);
+        const skewX = (1 - t) * (W * 0.17), baseY = H * 0.15 + t * (H * 0.68);
         ctx.beginPath();
-        for (let i = 0; i <= plotW; i += 2) {
-          const s = morph[f * LEN + Math.floor((i / plotW) * (LEN - 1))];
-          const x = skewX + i, y = baseY - s * amp;
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        if (f === cur) {
-          ctx.strokeStyle = 'rgba(61, 240, 208, 0.98)'; ctx.lineWidth = 2;
-          ctx.shadowColor = 'rgba(61,240,208,0.7)'; ctx.shadowBlur = 9;
-        } else {
-          ctx.strokeStyle = `rgba(150,120,255,${(0.10 + 0.30 * t).toFixed(3)})`; ctx.lineWidth = 1; ctx.shadowBlur = 0;
-        }
+        for (let i = 0; i <= plotW; i += 2) { const s = data[f * LEN + Math.floor((i / plotW) * (LEN - 1))]; const x = skewX + i, y = baseY - s * amp; i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+        if (f === cur) { ctx.strokeStyle = 'rgba(61, 240, 208, 0.98)'; ctx.lineWidth = 2; ctx.shadowColor = 'rgba(61,240,208,0.7)'; ctx.shadowBlur = 9; }
+        else { ctx.strokeStyle = `rgba(150,120,255,${(0.10 + 0.30 * t).toFixed(3)})`; ctx.lineWidth = 1; ctx.shadowBlur = 0; }
         ctx.lineJoin = 'round'; ctx.stroke();
       }
       ctx.shadowBlur = 0;
@@ -395,7 +383,7 @@ export function SynthStudio() {
   // antes del return (regla de hooks). Usa node?.data (disponible ya); re-registra al cambiar.
   const nodeUserWave = node?.data.kind === 'source' ? (node.data as NodeData).synth?.userWave : undefined;
   useEffect(() => {
-    if (synthEditId && nodeUserWave && nodeUserWave.length >= 2) void registerUserWave(`telar_user_${synthEditId}`, nodeUserWave);
+    if (synthEditId && nodeUserWave && nodeUserWave.length >= 1) void registerUserWave(`telar_user_${synthEditId}`, nodeUserWave);
   }, [synthEditId, nodeUserWave]);
 
   if (!synthEditId || !node) return null;
@@ -415,6 +403,15 @@ export function SynthStudio() {
   const loopMode = syn.loopMode ?? 'natural';
   const set = (patch: Partial<SynthParams>) => update(synthEditId, { synthOn: true, synth: { ...syn, ...patch } });
   const userWaveName = `telar_user_${synthEditId}`; // nombre de la onda propia de ESTE nodo
+  // ONDA PROPIA multi-cuadro: cuadros normalizados + cuadro en edición + navegación.
+  const uframes = userFrames(syn.userWave);
+  const ufi = Math.max(0, Math.min(Math.max(0, uframes.length - 1), Math.round(num(syn.userFrame))));
+  const setCurFrame = (pts: { x: number; y: number }[]) => set({ userWave: uframes.map((fr, i) => (i === ufi ? pts : fr)) });
+  const addFrame = () => { const src = uframes[ufi]?.length ? uframes[ufi] : DEFAULT_USER_WAVE; set({ userWave: [...uframes, src.map((p) => ({ ...p }))], userFrame: uframes.length }); };
+  const removeFrame = () => { if (uframes.length <= 1) return; const nf = uframes.filter((_, i) => i !== ufi); set({ userWave: nf, userFrame: Math.min(ufi, nf.length - 1) }); };
+  const gotoFrame = (d: number) => set({ userFrame: Math.max(0, Math.min(uframes.length - 1, ufi + d)) });
+  // ¿OSC A está en modo MORPH? (tabla de fábrica, o la ONDA PROPIA con >1 cuadro → barre con wt)
+  const oscMorph = isMorphWave(syn.wave) || (syn.wave === userWaveName && uframes.length > 1);
   // --- MULTI-OSCILADOR: gestión de capas (OSC B/Sub…, se SUMAN a OSC A) ---
   const layers = syn.oscLayers ?? [];
   const addLayer = () => set({ oscLayers: [...layers, { wave: 'sawtooth', level: 0.6, octave: 0, detune: 0.1 }] });
@@ -602,7 +599,7 @@ export function SynthStudio() {
             {!isSample ? (
               <>
                 <div className="ss-viz-main">
-                  <span className="ss-viz-lbl">{isMorphWave(syn.wave) ? 'wavetable · cuadros' : 'onda'}</span>
+                  <span className="ss-viz-lbl">{oscMorph ? 'wavetable · cuadros' : 'onda'}</span>
                   <WaveViz wave={syn.wave ?? 'sawtooth'} wtpos={num(syn.wtpos)} userWave={syn.userWave} />
                 </div>
                 <div className="ss-viz-scope">
@@ -638,7 +635,7 @@ export function SynthStudio() {
         )}
 
         {/* wavetable de morph: posición del barrido (.wt) — estática (knob) o patroneable */}
-        {!isSample && isMorphWave(syn.wave) && (
+        {!isSample && oscMorph && (
         <div className="vs-sec">
           <h4>wavetable · morph (posición)</h4>
           <div className="vs-grid">
@@ -690,17 +687,24 @@ export function SynthStudio() {
         {!isSample && (
         <div className="vs-sec">
           <h4>editor de onda · dibuja la tuya {syn.wave === userWaveName && <i className="ss-kind">en uso · OSC A</i>}</h4>
-          {syn.userWave && syn.userWave.length >= 2 ? (
+          {uframes.length >= 1 ? (
             <>
-              <WaveEditor points={syn.userWave} onChange={(p) => set({ userWave: p })} />
+              <div className="ss-frame-nav">
+                <button onClick={() => gotoFrame(-1)} disabled={ufi === 0} title="cuadro anterior">◂</button>
+                <b>cuadro {ufi + 1}/{uframes.length}</b>
+                <button onClick={() => gotoFrame(1)} disabled={ufi >= uframes.length - 1} title="cuadro siguiente">▸</button>
+                <button onClick={addFrame} title="añadir un cuadro (duplica el actual); con varios cuadros morfeas entre ellos con la posición (wt)">+ cuadro</button>
+                <button onClick={removeFrame} disabled={uframes.length <= 1} title="quitar el cuadro actual">− cuadro</button>
+              </div>
+              <WaveEditor points={uframes[ufi] ?? []} onChange={setCurFrame} />
               <div className="ss-wave-actions">
                 <button className={syn.wave === userWaveName ? 'on' : ''} onClick={() => set({ wave: userWaveName })} title="usar tu onda dibujada como oscilador (OSC A)">▸ usar en OSC A</button>
-                <button onClick={() => set({ userWave: DEFAULT_USER_WAVE })} title="reiniciar la onda a la forma base">reset</button>
-                <span className="skb-hint">clic en vacío = añadir nodo · arrastra = mover · doble-clic = quitar</span>
+                <button onClick={() => set({ userWave: [DEFAULT_USER_WAVE], userFrame: 0 })} title="reiniciar a una onda de un solo cuadro">reset</button>
+                <span className="skb-hint">clic = añadir nodo · arrastra = mover · doble-clic = quitar{uframes.length > 1 ? ' · varios cuadros → morfea con la posición (wt)' : ''}</span>
               </div>
             </>
           ) : (
-            <button className="ss-osc-add" onClick={() => set({ userWave: DEFAULT_USER_WAVE })} title="crea una onda propia dibujable con nodos (se registra como telar_user_*)">✎ crear onda propia</button>
+            <button className="ss-osc-add" onClick={() => set({ userWave: [DEFAULT_USER_WAVE], userFrame: 0 })} title="crea una onda propia dibujable con nodos (se registra como telar_user_*)">✎ crear onda propia</button>
           )}
         </div>
         )}
@@ -735,9 +739,9 @@ export function SynthStudio() {
           <div className="vs-sec">
             <h4>oscilador · unísono</h4>
             <div className="vs-grid">
-              <MiniSlider label="unison" value={Number(syn.unison ?? 5)} min={1} max={9} step={1} disabled={syn.wave !== 'supersaw' && !isMorphWave(syn.wave)} onChange={(v) => set({ unison: v })} />
-              <MiniSlider label="detune" value={num(syn.detune)} min={0} max={0.5} step={0.01} disabled={syn.wave !== 'supersaw' && !isMorphWave(syn.wave)} onChange={(v) => set({ detune: v })} />
-              <MiniSlider label="spread" value={num(syn.spread)} min={0} max={1} step={0.02} disabled={syn.wave !== 'supersaw' && !isMorphWave(syn.wave)} onChange={(v) => set({ spread: v })} />
+              <MiniSlider label="unison" value={Number(syn.unison ?? 5)} min={1} max={9} step={1} disabled={syn.wave !== 'supersaw' && !oscMorph} onChange={(v) => set({ unison: v })} />
+              <MiniSlider label="detune" value={num(syn.detune)} min={0} max={0.5} step={0.01} disabled={syn.wave !== 'supersaw' && !oscMorph} onChange={(v) => set({ detune: v })} />
+              <MiniSlider label="spread" value={num(syn.spread)} min={0} max={1} step={0.02} disabled={syn.wave !== 'supersaw' && !oscMorph} onChange={(v) => set({ spread: v })} />
               <MiniSlider label="noise" value={num(syn.noise)} min={0} max={1} step={0.02} onChange={(v) => set({ noise: v })} />
             </div>
           </div>

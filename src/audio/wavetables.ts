@@ -254,3 +254,22 @@ export function userWaveFrame(points: { x: number; y: number }[], len = LEN): Fl
   if (max > 0) for (let i = 0; i < len; i++) out[i] /= max;
   return out;
 }
+
+// Normaliza el `userWave` a CUADROS ({x,y}[][]). Acepta el formato VIEJO (array plano de
+// puntos = 1 cuadro) para compatibilidad. Descarta cuadros vacíos. Pura.
+export function userFrames(uw: unknown): { x: number; y: number }[][] {
+  if (!Array.isArray(uw) || uw.length === 0) return [];
+  const first = uw[0] as { x?: unknown } | undefined;
+  if (first && typeof first.x === 'number') return [uw as { x: number; y: number }[]]; // plano → 1 cuadro
+  return (uw as { x: number; y: number }[][]).filter((f) => Array.isArray(f) && f.length > 0);
+}
+
+// Serie de cuadros de la ONDA PROPIA (N cuadros × LEN, concatenados) → lo que se registra como
+// telar_user_*. Cada cuadro por userWaveFrame (Catmull-Rom). Pura. Sin cuadros → un seno.
+export function userWaveSeries(uw: unknown): Float32Array {
+  const frames = userFrames(uw);
+  if (frames.length === 0) return userWaveFrame([]);
+  const out = new Float32Array(frames.length * LEN);
+  frames.forEach((f, i) => out.set(userWaveFrame(f), i * LEN));
+  return out;
+}

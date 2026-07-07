@@ -15,7 +15,7 @@ import type { NodeData, SynthParams, VoiceParams } from './types';
 import { channelEqActive, SYNTH_WAVES } from './types';
 import { OPS_BY_ID } from './ops';
 import { irRoomsize, knownIr } from '../audio/irRegistry';
-import { isMorphWave } from '../audio/wavetables';
+import { isMorphWave, isUserWave, userFrames } from '../audio/wavetables';
 
 // Prefijo del id de analyser por Source (onda por instrumento, Fase 3). El tap
 // `.analyze(...)` solo se añade cuando el scope de ese nodo está activo.
@@ -201,7 +201,8 @@ function applySynth(code: string, syn: SynthParams): string {
     // stack() con las capas extra del multi-oscilador (abajo).
     let a = '';
     if (syn.wave) a += `.s("${syn.wave}")`;
-    const morph = isMorphWave(syn.wave);
+    // MORPH: tablas telar_* de fábrica, o la ONDA PROPIA con >1 cuadro (barrido con .wt).
+    const morph = isMorphWave(syn.wave) || (isUserWave(syn.wave) && userFrames(syn.userWave).length > 1);
     // WAVETABLE de MORPH: posición del barrido entre cuadros. Patroneable (texto, el
     // diferencial de Telar) tiene prioridad sobre el valor estático.
     if (morph) {

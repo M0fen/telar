@@ -70,9 +70,12 @@ export interface SynthParams {
   // --- WAVETABLE de MORPH (wave = telar_*): posición del barrido entre cuadros ---
   wtpos?: number; // posición/morph estática 0..1 (cuál cuadro suena)
   wtpat?: string; // posición PATRONEABLE (p.ej. "0 .5 <.25 1>"); si está, pisa a wtpos → .wt("…")
-  // --- ONDA PROPIA (editor de nodos): puntos {x∈[0,1], y∈[-1,1]} que dibujan una forma de
-  // onda; se registra como wavetable de 1 cuadro `telar_user_<nodeId>`. Persistente. ---
-  userWave?: { x: number; y: number }[];
+  // --- ONDA PROPIA (editor de nodos): CUADROS dibujados; cada cuadro = puntos {x∈[0,1],
+  // y∈[-1,1]}. 1 cuadro = onda simple; VARIOS = tu MORPH propio (barrido con .wt()). Se
+  // registra como wavetable `telar_user_<nodeId>`. Persistente. (Compat: formato viejo de un
+  // solo array de puntos se normaliza a 1 cuadro.) ---
+  userWave?: { x: number; y: number }[][];
+  userFrame?: number; // cuadro que se está editando en el UI (0-based)
   noise?: number; // mezcla de ruido en el oscilador 0..1
   pw?: number; // ancho de pulso (onda cuadrada/pulso) 0.01..0.99 (0.5 = simétrico)
   // afinación (desplaza la nota base del oscilador)
