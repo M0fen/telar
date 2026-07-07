@@ -333,6 +333,7 @@ body {
 .perf-lufs-nums b { color: var(--fg); font-weight: 600; }
 .perf-lufs-nums .over b { color: #e8d16a; }
 .perf-lufs-nums .clip b { color: #e46a6a; }
+.perf-lufs-nums .gr b { color: #6ab0e8; }
 .edit-tools { display: inline-flex; gap: 3px; }
 .et-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; background: transparent; border: 1px solid var(--line); color: var(--dim); border-radius: 2px; cursor: pointer; }
 .et-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-dim); }

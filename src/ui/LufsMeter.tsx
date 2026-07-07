@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLufs, startLufs, stopLufs, resetLufsIntegrated, type LufsReading } from '../audio/lufsMeter';
+import { getLimiterMetrics } from '../audio/masterLimiter';
 import { useGraphStore } from '../store/useGraphStore';
 
 // Objetivos de sonoridad habituales (LUFS integrada). El usuario elige la referencia
@@ -20,6 +21,7 @@ function fmt(v: number): string {
 // el audio). El botón ⟳ reinicia la integrada para medir un tramo desde cero.
 export function LufsMeter() {
   const [r, setR] = useState<LufsReading>({ momentary: -Infinity, short: -Infinity, integrated: -Infinity, truePeakDb: -Infinity });
+  const [grDb, setGrDb] = useState(0); // reducción del limitador true-peak
   const [target, setTarget] = useState(-14);
   const mastering = useGraphStore((s) => s.mastering);
   const playing = useGraphStore((s) => s.playing);
@@ -30,7 +32,7 @@ export function LufsMeter() {
     startLufs();
     let last = 0;
     const loop = (t: number) => {
-      if (t - last > 120) { setR(getLufs()); last = t; }
+      if (t - last > 120) { setR(getLufs()); setGrDb(getLimiterMetrics().gainReductionDb); last = t; }
       raf.current = requestAnimationFrame(loop);
     };
     raf.current = requestAnimationFrame(loop);
@@ -75,6 +77,7 @@ export function LufsMeter() {
         <span title="short-term (3 s)">S <b>{fmt(r.short)}</b></span>
         <span className={overTarget ? 'over' : ''} title="integrated (con gating BS.1770)">I <b>{fmt(r.integrated)}</b></span>
         <span className={clip ? 'clip' : ''} title="true-peak (dBFS)">pk <b>{isFinite(r.truePeakDb) ? r.truePeakDb.toFixed(1) : '−∞'}</b></span>
+        <span className={grDb < -0.1 ? 'gr' : ''} title="reducción del limitador true-peak (techo −1 dBTP; nunca clipea)">lim <b>{grDb < -0.1 ? grDb.toFixed(1) : '0'}</b></span>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@
 //     un patrón aplica .analyze(id) y suena por primera vez.
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio } from '@strudel/web';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
+import { ensureMasterLimiter, getMasterLimiterNode } from './masterLimiter';
 
 export const MASTER_ANALYSER_ID = 'telar-master';
 
@@ -325,8 +326,15 @@ let busSettings: MasterBusSettings = { limit: 0, glue: 0, sat: 0, width: 1, punc
 interface MasterChain {
   ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
   low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; glue: DynamicsCompressorNode; lim: DynamicsCompressorNode; makeup: GainNode; wired: boolean; dg: AudioNode | null;
+  outSink: AudioNode | null;   // a qué salida está conectado makeup (activo): tp o destino
+  bypassSink: AudioNode | null; bypassDg: AudioNode | null; // ídem para el bypass (dg → salida)
 }
 let masterChain: MasterChain | null = null;
+// LIMITADOR TRUE-PEAK como ÚLTIMA etapa: `tp → destination` fijo; el bus EQ/glue enruta su
+// salida a `tp` (o directo a destination si el worklet no cargó). tpToDest evita duplicar la
+// conexión tp→destino; tpKickCtx dispara la carga una vez por contexto.
+let tpToDest: AudioWorkletNode | null = null;
+let tpKickCtx: BaseAudioContext | null = null;
 
 function busActive(s: MasterBusSettings): boolean {
   return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1;
@@ -414,7 +422,7 @@ export function applyMasterBus(): void {
       // cadena: entry(M/S) → merger → punch → EQ → sat → glue → lim → makeup
       merger.connect(punchGain); merger.connect(absShaper); // main + sidechain del transient
       punchGain.connect(low); low.connect(mid); mid.connect(high); high.connect(sat); sat.connect(glue); glue.connect(lim); lim.connect(makeup);
-      masterChain = { ctx, entry, sideW, sat, lastSat: 0, fastK, slowK, low, mid, high, glue, lim, makeup, wired: false, dg: null };
+      masterChain = { ctx, entry, sideW, sat, lastSat: 0, fastK, slowK, low, mid, high, glue, lim, makeup, wired: false, dg: null, outSink: null, bypassSink: null, bypassDg: null };
     }
     const mc = masterChain;
     const s = busSettings;
@@ -433,23 +441,43 @@ export function applyMasterBus(): void {
     mc.glue.ratio.value = gl > 0.01 ? 2 + gl * 2 : 1;
     mc.lim.threshold.value = -3 - s.limit * 9;      // más limit → umbral más bajo (-3..-12)
     mc.makeup.gain.value = 1 + s.limit * 0.6 + gl * 0.35 - s.sat * 0.15; // compensa nivel (limiter + glue − saturación)
+    // LIMITADOR TRUE-PEAK: carga el worklet una vez por contexto; al estar listo, re-aplica el
+    // bus para enrutar la salida por él. Es la ÚLTIMA etapa (tp → destino, fijo). Fallback: si
+    // el worklet no cargó, sink = ctx.destination → salida directa (nunca muda).
+    if (tpKickCtx !== ctx) { tpKickCtx = ctx; void ensureMasterLimiter(ctx, () => applyMasterBus()); }
+    const tp = getMasterLimiterNode(ctx);
+    const sink: AudioNode = tp ?? ctx.destination;
+    if (tp && tpToDest !== tp) { try { tp.connect(ctx.destination); } catch { /* ya */ } tpToDest = tp; }
+
     const active = busActive(s);
-    if (active && (!mc.wired || mc.dg !== dg)) {
-      // (re)cablea: dg → cadena → destino, quitando el enlace directo dg → destino
-      if (mc.wired && mc.dg && mc.dg !== dg) { try { mc.dg.disconnect(mc.entry); } catch { /* */ } }
-      try { dg.disconnect(ctx.destination); } catch { /* puede no estar conectado directo */ }
-      try { dg.connect(mc.entry); } catch { /* ya conectado */ }
-      try { mc.makeup.disconnect(); } catch { /* */ }
-      mc.makeup.connect(ctx.destination);
-      mc.wired = true;
-      mc.dg = dg;
-    } else if (!active && mc.wired) {
-      // bypass: restaura el enlace directo dg → destino
-      try { mc.makeup.disconnect(); } catch { /* */ }
-      try { (mc.dg ?? dg).disconnect(mc.entry); } catch { /* */ }
-      try { dg.connect(ctx.destination); } catch { /* */ }
-      mc.wired = false;
-      mc.dg = null;
+    if (active) {
+      // entrada del bus: dg → entry (rompe cualquier enlace directo dg → salida)
+      if (!mc.wired || mc.dg !== dg) {
+        if (mc.wired && mc.dg && mc.dg !== dg) { try { mc.dg.disconnect(mc.entry); } catch { /* */ } }
+        try { dg.disconnect(ctx.destination); } catch { /* */ }
+        if (tp) { try { dg.disconnect(tp); } catch { /* */ } }
+        try { dg.connect(mc.entry); } catch { /* */ }
+        mc.wired = true; mc.dg = dg; mc.bypassSink = null; mc.bypassDg = null;
+      }
+      // salida: makeup → sink (reconcilia si el sink cambió, p.ej. el worklet llegó tarde)
+      if (mc.outSink !== sink) {
+        try { mc.makeup.disconnect(); } catch { /* */ }
+        try { mc.makeup.connect(sink); } catch { /* */ }
+        mc.outSink = sink;
+      }
+    } else {
+      // bypass del EQ/glue pero MANTIENE el limitador: dg → sink
+      if (mc.wired) {
+        try { mc.makeup.disconnect(); } catch { /* */ }
+        try { (mc.dg ?? dg).disconnect(mc.entry); } catch { /* */ }
+        mc.wired = false; mc.dg = null; mc.outSink = null;
+      }
+      if (mc.bypassSink !== sink || mc.bypassDg !== dg) {
+        try { dg.disconnect(ctx.destination); } catch { /* */ }
+        if (tp) { try { dg.disconnect(tp); } catch { /* */ } }
+        try { dg.connect(sink); } catch { /* */ }
+        mc.bypassSink = sink; mc.bypassDg = dg;
+      }
     }
   } catch {
     /* nunca romper el audio */
