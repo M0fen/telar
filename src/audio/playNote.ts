@@ -3,7 +3,7 @@ import type { SynthParams, VoiceParams } from '../graph/types';
 import { SYNTH_WAVES } from '../graph/types';
 import { isMorphWave } from './wavetables';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
-import { ensureEngine, ensureAudioReady } from './engine';
+import { ensureEngine, ensureAudioReady, registerWavetables } from './engine';
 import { toast } from '../store/useNotifyStore';
 
 // Reporta un fallo de audición SIN spamear: con throttle (una vez cada ~4 s) e ignorando
@@ -196,6 +196,7 @@ export async function playSourceSound(
 ): Promise<void> {
   await ensureEngine();
   await ensureAudioReady();
+  await registerWavetables(); // el source puede sonar con una wavetable (telar_*) al audicionar sin Play
   const ctx = getAudioContext();
   try {
     await superdough(sourceAuditionValue(code, syn, synthOn, note, nodeId, begin, end), ctx.currentTime + 0.03, holdSec, 0.5, 0.5);
@@ -305,6 +306,7 @@ export async function playSynthNote(
 ): Promise<void> {
   await ensureEngine(); // registra osciladores/samples (idempotente) por si no hubo Play
   await ensureAudioReady(); // reanuda el AudioContext + carga worklets (1ª vez)
+  await registerWavetables(); // registra las wavetables de morph (telar_*) — la audición puede usarlas ANTES de Play
   const ctx = getAudioContext();
   try {
     // superdough MUTA el value (le añade duration) → pasamos un objeto fresco.
