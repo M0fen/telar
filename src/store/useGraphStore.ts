@@ -13,7 +13,7 @@ import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
 import { compileGraph, applyMaster, sanitizeMasterFx, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
-import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, setMasterBus, setChannelEqs } from '../audio/engine';
+import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
 import { registerUserPacks } from '../lib/userPacks';
 import { registerCloudBank } from '../lib/cloudBank';
@@ -732,7 +732,12 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // ANTES de sonar (si no, el audio sale sin procesamiento). Gesto de Play.
       await ensureAudioReady();
       await registerDownloadedSamples(); // re-registra samples de YouTube guardados
-      await registerWavetables(); // wavetables propias (wt_telar_*)
+      await registerWavetables(); // wavetables propias (wt_telar_* + telar_* de morph)
+      // ondas PROPIAS dibujadas (telar_user_<id>) de cada source → suenan aunque no se abra el estudio
+      for (const nd of get().nodes) {
+        const uw = nd.data.kind === 'source' ? nd.data.synth?.userWave : undefined;
+        if (uw && uw.length >= 2) await registerUserWave(`telar_user_${nd.id}`, uw);
+      }
       await registerIrReverbs(); // espacios de reverb por IR (ir_hall, ir_plate…)
       await registerUserPacks(); // packs del usuario guardados (IndexedDB) → s("…")
       await registerCloudBank(); // banco propio en la nube (R2) → s("…") vía proxy

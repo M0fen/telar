@@ -215,6 +215,42 @@ export const MORPH_WAVETABLES = Object.keys(MORPH_GENERATORS).map((k) => ({ name
 
 // ¿Es una onda de wavetable de MORPH (telar_*)? La distingue de las de 1 ciclo (wt_telar_*,
 // que empiezan por wt_) y de los osciladores básicos. Las de morph aceptan .wt() + unísono.
+// Excluye la onda PROPIA del usuario (telar_user_*, 1 cuadro → sin morph/wt).
 export function isMorphWave(wave?: string): boolean {
-  return !!wave && wave.startsWith('telar_');
+  return !!wave && wave.startsWith('telar_') && !wave.startsWith('telar_user_');
+}
+
+// ¿Es la onda PROPIA del usuario (dibujada con nodos)? Nombre telar_user_*.
+export function isUserWave(wave?: string): boolean {
+  return !!wave && wave.startsWith('telar_user_');
+}
+
+// Interpola los PUNTOS del editor (x∈[0,1], y∈[-1,1]) en un cuadro de LEN muestras, PERIÓDICO
+// (el último punto conecta con el primero) y NORMALIZADO. Pura (Node). Con <2 puntos cae a un
+// seno. Interpolación CATMULL-ROM (curva SUAVE que PASA por los puntos) → sin esquinas duras =
+// mucho menos aspereza/aliasing que la lineal, respetando lo dibujado.
+export function userWaveFrame(points: { x: number; y: number }[], len = LEN): Float32Array {
+  const out = new Float32Array(len);
+  const pts = (points ?? [])
+    .filter((p) => p && isFinite(p.x) && isFinite(p.y))
+    .map((p) => ({ x: Math.max(0, Math.min(1, p.x)), y: Math.max(-1, Math.min(1, p.y)) }))
+    .sort((a, b) => a.x - b.x);
+  if (pts.length < 2) { for (let i = 0; i < len; i++) out[i] = Math.sin((i / len) * Math.PI * 2); return out; }
+  const n = pts.length;
+  for (let i = 0; i < len; i++) {
+    const x = i / len;
+    // i1 = último punto con x ≤ actual (con envoltura periódica); segmento [i1, i1+1]
+    let i1 = -1; for (let j = 0; j < n; j++) if (pts[j].x <= x) i1 = j;
+    let x1: number, x2: number;
+    if (i1 === -1) { i1 = n - 1; x1 = pts[i1].x - 1; x2 = pts[0].x; }        // antes del primero → viene del último
+    else if (i1 === n - 1) { x1 = pts[i1].x; x2 = pts[0].x + 1; }            // tras el último → envuelve al primero
+    else { x1 = pts[i1].x; x2 = pts[i1 + 1].x; }
+    // 4 puntos de control envueltos; Catmull-Rom uniforme sobre las Y (pasa por p1 y p2)
+    const p0 = pts[(i1 - 1 + n) % n].y, p1 = pts[i1].y, p2 = pts[(i1 + 1) % n].y, p3 = pts[(i1 + 2) % n].y;
+    const t = x2 === x1 ? 0 : (x - x1) / (x2 - x1), t2 = t * t, t3 = t2 * t;
+    out[i] = 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+  }
+  let max = 0; for (let i = 0; i < len; i++) max = Math.max(max, Math.abs(out[i]));
+  if (max > 0) for (let i = 0; i < len; i++) out[i] /= max;
+  return out;
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { morphSeries, morphSeriesByName, wavBuffer, MORPH_WAVETABLES } from '../src/audio/wavetables.ts';
+import { morphSeries, morphSeriesByName, wavBuffer, MORPH_WAVETABLES, userWaveFrame } from '../src/audio/wavetables.ts';
 
 const LEN = 2048;
 const FRAMES = 16;
@@ -74,4 +74,26 @@ test('wavBuffer: cabecera RIFF/WAVE/PCM correcta y tamaño de datos = n*2', () =
   assert.equal(v.getUint16(22, true), 1, 'mono');
   assert.equal(tag(36), 'data');
   assert.equal(v.getUint32(40, true), n * 2, 'bytes de datos');
+});
+
+// --- userWaveFrame: onda dibujada con nodos (editor) -----------------------------------
+test('userWaveFrame: <2 puntos → seno (fallback), longitud LEN', () => {
+  const s = userWaveFrame([]);
+  assert.equal(s.length, LEN);
+  assert.ok(Math.abs(s[512] - 1) < 1e-3, 'seno: pico en 1/4 de ciclo');
+});
+
+test('userWaveFrame: interpola (suave) y normaliza — forma correcta (+@.25, -@.75, 0@0)', () => {
+  const s = userWaveFrame([{ x: 0, y: 0 }, { x: 0.25, y: 1 }, { x: 0.5, y: 0 }, { x: 0.75, y: -1 }]);
+  assert.equal(s.length, LEN);
+  let max = 0; for (let i = 0; i < LEN; i++) max = Math.max(max, Math.abs(s[i]));
+  assert.ok(Math.abs(max - 1) < 1e-6, 'normalizado a pico 1');
+  assert.ok(s[Math.round(0.25 * LEN)] > 0.7, 'fuerte positivo cerca de x=0.25');
+  assert.ok(s[Math.round(0.75 * LEN)] < -0.7, 'fuerte negativo cerca de x=0.75');
+  assert.ok(Math.abs(s[0]) < 0.2, 'cerca de 0 en x=0');
+});
+
+test('userWaveFrame: es PERIÓDICO (el fin conecta con el principio, sin salto)', () => {
+  const s = userWaveFrame([{ x: 0.1, y: 0.5 }, { x: 0.6, y: -0.5 }]);
+  assert.ok(Math.abs(s[LEN - 1] - s[0]) < 0.05, `salto de loop ${Math.abs(s[LEN - 1] - s[0]).toFixed(3)}`);
 });

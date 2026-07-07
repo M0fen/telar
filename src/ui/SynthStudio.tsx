@@ -5,9 +5,10 @@ import { AnalyserScope } from './AnalyserScope';
 import type { NodeData, SynthParams, OscLayer } from '../graph/types';
 import { SYNTH_WAVES, DEFAULT_SYNTH } from '../graph/types';
 import { SYNTH_PRESETS, PRESET_GENRES, presetByName, macroPatch } from '../graph/synthPresets';
-import { WAVETABLES, MORPH_WAVETABLES, isMorphWave, morphSeriesByName } from '../audio/wavetables';
+import { WAVETABLES, MORPH_WAVETABLES, isMorphWave, isUserWave, morphSeriesByName, userWaveFrame } from '../audio/wavetables';
 import { MiniSlider } from '../nodes/MiniSlider';
 import { playSynthNote, playSourceSound } from '../audio/playNote';
+import { registerUserWave } from '../audio/engine';
 import { midiToName, noteToMidi } from './pianoRollHelpers';
 import { firstSampleName, resolveSampleUrl } from '../lib/sampleResolve';
 import { sampleDuration } from '../lib/audioMeta';
@@ -26,6 +27,8 @@ const KEY_MAP: Record<string, number> = {
 // clases de altura (para etiquetar cada tecla con su nota) y tecla-PC por semitono (ayuda visual).
 const PITCH = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const KEY_LABEL: Record<number, string> = Object.fromEntries(Object.entries(KEY_MAP).map(([k, s]) => [s, k.toUpperCase()]));
+// forma inicial de la onda propia al crear el editor (un "triángulo" base para empezar a moldear).
+const DEFAULT_USER_WAVE = [{ x: 0, y: 0 }, { x: 0.25, y: 1 }, { x: 0.5, y: 0 }, { x: 0.75, y: -1 }];
 
 // Teclado tocable: dispara notas con el timbre ACTUAL del synth (superdough en vivo)
 // vía ratón o teclado del PC. Al tocar una tecla FIJA la nota base (tonalidad) que el
@@ -248,7 +251,7 @@ function AdsrEnv({ syn, onChange }: { syn: SynthParams; onChange: (patch: Partia
 // (waterfall de todos los cuadros con el actual resaltado en el accent); para ondas
 // básicas, la forma única. Es la vista PRINCIPAL de la celda "onda"; el osciloscopio en
 // vivo va en una tira aparte, etiquetado (ya no se superponen). Solo para sintes.
-function WaveViz({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
+function WaveViz({ wave, wtpos = 0, userWave }: { wave: string; wtpos?: number; userWave?: { x: number; y: number }[] }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current; if (!c) return;
@@ -258,6 +261,15 @@ function WaveViz({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
     c.width = Math.floor(W * dpr); c.height = Math.floor(H * dpr);
     const ctx = c.getContext('2d'); if (!ctx) return;
     ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+    // ONDA PROPIA del usuario (telar_user_*): dibuja su forma interpolada.
+    if (isUserWave(wave) && userWave && userWave.length >= 2) {
+      const fr = userWaveFrame(userWave, 1024);
+      ctx.beginPath();
+      for (let i = 0; i <= W; i++) { const s = fr[Math.floor((i / W) * (fr.length - 1))]; const y = H / 2 - s * (H * 0.34); i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
+      ctx.strokeStyle = 'rgba(61,240,208,0.8)'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+      ctx.shadowColor = 'rgba(61,240,208,0.5)'; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0;
+      return;
+    }
     const morph = isMorphWave(wave) ? morphSeriesByName(wave) : null;
     if (morph) {
       // LANDSCAPE 3D: waterfall de TODOS los cuadros de la wavetable (perspectiva isométrica),
@@ -307,8 +319,41 @@ function WaveViz({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
     ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
     ctx.shadowColor = 'rgba(120,90,255,0.6)'; ctx.shadowBlur = 7;
     ctx.stroke(); ctx.shadowBlur = 0;
-  }, [wave, wtpos]);
+  }, [wave, wtpos, userWave]);
   return <canvas ref={ref} className="ss-waveshape" />;
+}
+
+// Editor de ONDA con NODOS: arrastra puntos, clic en vacío = AÑADIR, doble-clic = QUITAR.
+// Dibuja la forma interpolada (userWaveFrame) + los nodos. El resultado se registra como
+// telar_user_<id> (efecto en el estudio) y suena en OSC A. Es lo que pediste: nodos editables.
+function WaveEditor({ points, onChange }: { points: { x: number; y: number }[]; onChange: (p: { x: number; y: number }[]) => void }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const drag = useRef<number | null>(null);
+  const AY = 0.42; // fracción de alto que ocupa la amplitud ±1
+
+  useEffect(() => {
+    const c = ref.current; if (!c) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const W = c.clientWidth, H = c.clientHeight; if (!W || !H) return;
+    c.width = Math.floor(W * dpr); c.height = Math.floor(H * dpr);
+    const ctx = c.getContext('2d'); if (!ctx) return;
+    ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, H / 2); ctx.lineTo(W, H / 2); ctx.stroke();
+    const fr = userWaveFrame(points, 1024);
+    ctx.beginPath();
+    for (let i = 0; i <= W; i++) { const s = fr[Math.floor((i / W) * (fr.length - 1))]; const y = H / 2 - s * (H * AY); i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
+    ctx.strokeStyle = 'rgba(61,240,208,0.85)'; ctx.lineWidth = 1.6; ctx.lineJoin = 'round'; ctx.stroke();
+    for (const p of points) { const x = p.x * W, y = H / 2 - p.y * (H * AY); ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fillStyle = '#3df0d0'; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#04070a'; ctx.stroke(); }
+  }, [points]);
+
+  const rc = () => ref.current!.getBoundingClientRect();
+  const toXY = (e: React.PointerEvent) => { const r = rc(); let y = Math.max(-1, Math.min(1, -((e.clientY - r.top) / r.height - 0.5) / AY)); if (Math.abs(y) < 0.06) y = 0; /* imán al cero */ return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y }; };
+  const hit = (e: { clientX: number; clientY: number }) => { const r = rc(), px = e.clientX - r.left, py = e.clientY - r.top; let b = -1, bd = 11; points.forEach((p, i) => { const d = Math.hypot(px - p.x * r.width, py - (r.height / 2 - p.y * r.height * AY)); if (d < bd) { bd = d; b = i; } }); return b; };
+  const down = (e: React.PointerEvent) => { e.preventDefault(); const h = hit(e); if (h >= 0) { drag.current = h; (e.currentTarget as Element).setPointerCapture(e.pointerId); } else { onChange([...points, toXY(e)]); } };
+  const move = (e: React.PointerEvent) => { if (drag.current == null) return; const p = toXY(e); onChange(points.map((pt, i) => (i === drag.current ? p : pt))); };
+  const up = () => { drag.current = null; };
+  const dbl = (e: React.MouseEvent) => { const h = hit(e); if (h >= 0 && points.length > 2) onChange(points.filter((_, i) => i !== h)); };
+  return <canvas ref={ref} className="ss-waveedit" onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerLeave={up} onDoubleClick={dbl} />;
 }
 
 export function SynthStudio() {
@@ -346,6 +391,13 @@ export function SynthStudio() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // ONDA PROPIA: registra telar_user_<id> al abrir/editar (para audición y OSC A). DEBE ir
+  // antes del return (regla de hooks). Usa node?.data (disponible ya); re-registra al cambiar.
+  const nodeUserWave = node?.data.kind === 'source' ? (node.data as NodeData).synth?.userWave : undefined;
+  useEffect(() => {
+    if (synthEditId && nodeUserWave && nodeUserWave.length >= 2) void registerUserWave(`telar_user_${synthEditId}`, nodeUserWave);
+  }, [synthEditId, nodeUserWave]);
+
   if (!synthEditId || !node) return null;
   const data = node.data as NodeData;
   const syn: SynthParams = { ...DEFAULT_SYNTH, ...(data.synth ?? {}) };
@@ -362,6 +414,7 @@ export function SynthStudio() {
   const reverse = !!syn.reverse;
   const loopMode = syn.loopMode ?? 'natural';
   const set = (patch: Partial<SynthParams>) => update(synthEditId, { synthOn: true, synth: { ...syn, ...patch } });
+  const userWaveName = `telar_user_${synthEditId}`; // nombre de la onda propia de ESTE nodo
   // --- MULTI-OSCILADOR: gestión de capas (OSC B/Sub…, se SUMAN a OSC A) ---
   const layers = syn.oscLayers ?? [];
   const addLayer = () => set({ oscLayers: [...layers, { wave: 'sawtooth', level: 0.6, octave: 0, detune: 0.1 }] });
@@ -433,7 +486,7 @@ export function SynthStudio() {
           <input className="vs-name" value={data.name ?? ''} placeholder={isSample ? 'sample…' : 'synth…'} onChange={(e) => update(synthEditId, { name: e.target.value })} />
           <span className="vs-title">estudio de sonido{isSample && sampleName ? <i className="ss-kind">sample · {sampleName}</i> : <i className="ss-kind">synth</i>}</span>
           <div className="ss-tools">
-            <button className={`ss-stop${playing ? ' on' : ''}`} onClick={() => { if (playing) void stopTransport(); else void play(); }} title={playing ? 'parar el transporte (espacio)' : 'reproducir el transporte (espacio)'}>{playing ? '⏹' : '▶'}</button>
+            <button className={`ss-stop${playing ? ' on' : ''}`} onClick={() => { if (playing) void stopTransport(); else void play(); }} title={playing ? 'parar TODO el proyecto (transporte) · espacio' : 'reproducir TODO el proyecto (transporte) · espacio'}>{playing ? '⏹ parar' : '▶ proyecto'}</button>
             <button onClick={undo} disabled={!canUndo} title="deshacer (Ctrl+Z)">↶</button>
             <button onClick={redo} disabled={!canRedo} title="rehacer (Ctrl+⇧Z)">↷</button>
             {!isSample && <button onClick={initSynth} title="init: sonido base limpio">init</button>}
@@ -461,7 +514,7 @@ export function SynthStudio() {
           <button
             className="ss-play"
             onPointerDown={() => void playSourceSound(data.code ?? '', syn, on, baseNote, synthEditId, isSample ? 2.4 : 1.4, begin, end)}
-            title={on ? 'escuchar el sonido procesado — al instante' : 'escuchar el sonido ORIGINAL (sin modificar) — al instante'}
+            title={on ? 'escucha SOLO este sonido procesado (un toque) — no es el transporte del proyecto' : 'escucha SOLO este sonido ORIGINAL (un toque) — no es el transporte del proyecto'}
           >▶ escuchar</button>
           {!isSample && (
             <>
@@ -550,7 +603,7 @@ export function SynthStudio() {
               <>
                 <div className="ss-viz-main">
                   <span className="ss-viz-lbl">{isMorphWave(syn.wave) ? 'wavetable · cuadros' : 'onda'}</span>
-                  <WaveViz wave={syn.wave ?? 'sawtooth'} wtpos={num(syn.wtpos)} />
+                  <WaveViz wave={syn.wave ?? 'sawtooth'} wtpos={num(syn.wtpos)} userWave={syn.userWave} />
                 </div>
                 <div className="ss-viz-scope">
                   <span className="ss-viz-lbl">salida en vivo</span>
@@ -630,6 +683,25 @@ export function SynthStudio() {
               <button className="ss-osc-add" onClick={addLayer} title="añadir una capa de oscilador (OSC B / Sub) sumada a OSC A">+ capa de oscilador</button>
             )}
           </div>
+        </div>
+        )}
+
+        {/* EDITOR DE ONDA con nodos: dibuja tu propia forma → telar_user_<id> → OSC A */}
+        {!isSample && (
+        <div className="vs-sec">
+          <h4>editor de onda · dibuja la tuya {syn.wave === userWaveName && <i className="ss-kind">en uso · OSC A</i>}</h4>
+          {syn.userWave && syn.userWave.length >= 2 ? (
+            <>
+              <WaveEditor points={syn.userWave} onChange={(p) => set({ userWave: p })} />
+              <div className="ss-wave-actions">
+                <button className={syn.wave === userWaveName ? 'on' : ''} onClick={() => set({ wave: userWaveName })} title="usar tu onda dibujada como oscilador (OSC A)">▸ usar en OSC A</button>
+                <button onClick={() => set({ userWave: DEFAULT_USER_WAVE })} title="reiniciar la onda a la forma base">reset</button>
+                <span className="skb-hint">clic en vacío = añadir nodo · arrastra = mover · doble-clic = quitar</span>
+              </div>
+            </>
+          ) : (
+            <button className="ss-osc-add" onClick={() => set({ userWave: DEFAULT_USER_WAVE })} title="crea una onda propia dibujable con nodos (se registra como telar_user_*)">✎ crear onda propia</button>
+          )}
         </div>
         )}
 
