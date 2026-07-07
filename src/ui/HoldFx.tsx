@@ -11,6 +11,12 @@ export function HoldFx({ label, title, active, onDown, onUp }: {
   const [latched, setLatched] = useState(false);
   const press = (e: React.PointerEvent) => {
     e.preventDefault();
+    // FRENA el pointerdown ANTES de que llegue al nodo de React Flow: con Shift, React Flow
+    // (multiSelectionKeyCode="Shift") ALTERNA la selección → deselecciona el source → su fila
+    // de performance (visible solo con el nodo seleccionado) se DESMONTA justo al fijar (latch),
+    // y no deja sostener/ajustar el efecto. El `nodrag`/stopPropagation de mousedown del wrapper
+    // no basta: React Flow v12 selecciona por pointer events. Estos botones nunca tocan selección.
+    e.stopPropagation();
     onDown();
     if (e.shiftKey) {
       // fijado: permanece hasta soltar Shift (cursor libre)
