@@ -280,6 +280,26 @@ export async function playVoiceNote(name: string, v: VoiceParams, note: string, 
   }
 }
 
+// Reproduce la MELODÍA COMPLETA del sampler de voz: agenda cada nota (ya convertida a nombre;
+// null = silencio) en su paso, con la voz PROCESADA (mismos FX que el resultado). Preview
+// aislado — NO toca el transporte. La melodía abarca 1 ciclo (como en el patrón compilado).
+export async function playVoiceMelody(name: string, v: VoiceParams, notes: (string | null)[], stepSec: number, holdSec: number, begin = 0, end = 1): Promise<void> {
+  await ensureEngine();
+  await ensureAudioReady();
+  const ctx = getAudioContext();
+  try {
+    const t0 = ctx.currentTime + 0.06;
+    notes.forEach((note, i) => {
+      if (note == null) return;
+      const val = voiceToValue(v, name, begin, end);
+      val.note = note;
+      void superdough(val, t0 + i * stepSec, holdSec, 0.5, 0.5);
+    });
+  } catch (err) {
+    reportAudioErr('voz', err);
+  }
+}
+
 // Audiciona UN golpe de batería/sample (una celda del secuenciador) al instante, con
 // su banco. Feedback inmediato al colocar/probar pasos. note opcional (para pitchear
 // samples melódicos como el cencerro).

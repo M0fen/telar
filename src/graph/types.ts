@@ -226,11 +226,10 @@ export interface VoiceParams {
   polish?: boolean; // "pulir": paso-alto (quita retumbe) + compresor (nivela dinámica)
   harmony?: number; // doblaje/armonía en semitonos sobre la melodía (0 = off; 7=5ª, 12=8ª, -12=8ª↓)
   // GLIDE/portamento entre notas de la melodía (autotune "suave", tipo T-Pain →
-  // Frank Ocean): desliza el pitch de una nota a la siguiente. 0 = snap duro
-  // (robótico), >0 = deslizamiento. OJO: hoy se emite `.slide()`, que superdough
-  // solo aplica en el synth zzfx → INERTE para la voz (sample). Portamento real
-  // pendiente (pitch-env penv/pdecay como MelodicSeq, o legato entre notas).
-  glide?: number; // 0..1 cantidad de portamento (0 = off; hoy INERTE, ver compile.ts)
+  // Frank Ocean): cada nota entra con un barrido de pitch (scoop) que decae. 0 = snap
+  // duro (robótico), >0 = deslizamiento. Se emite con penv/pdecay (envolvente de pitch,
+  // como el slide del 808 en MelodicSeq) → SÍ actúa sobre la voz (sample re-pitcheado).
+  glide?: number; // 0..1 cantidad de glide (0 = off) — ver applyVoice en compile.ts
   vibrato?: number; // 0..8 Hz de vibrato vocal (0 = off) — vida en notas sostenidas
   vibratoDepth?: number; // profundidad del vibrato en semitonos (def 0.3)
 }

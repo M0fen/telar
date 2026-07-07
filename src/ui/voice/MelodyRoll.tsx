@@ -12,8 +12,8 @@ interface Row { val: string; label: string; sub: string; acc: boolean; root: boo
 // las filas son GRADOS (autotune); sin escala son notas cromáticas (2 octavas).
 // `audition(note, force)` suena la voz PROCESADA a ese pitch (idéntica al resultado):
 // al poner/dibujar una nota (si `live`) y SIEMPRE al pulsar la tecla (force) para probar.
-export function MelodyRoll({ melody, scale, onMelody, onScale, audition }: {
-  melody: string; scale: string; onMelody: (m: string) => void; onScale: (s: string) => void; audition: (note: string, force?: boolean) => void;
+export function MelodyRoll({ melody, scale, onMelody, onScale, audition, onPlay }: {
+  melody: string; scale: string; onMelody: (m: string) => void; onScale: (s: string) => void; audition: (note: string, force?: boolean) => void; onPlay: () => void;
 }) {
   const tokens = useMemo(() => (melody.trim() ? melody.trim().split(/\s+/) : []), [melody]);
   const [steps, setSteps] = useState(() => Math.max(1, Math.min(16, tokens.length || 8)));
@@ -102,6 +102,7 @@ export function MelodyRoll({ melody, scale, onMelody, onScale, audition }: {
             <button onClick={() => setOct((o) => Math.min(7, o + 1))}>+</button>
           </div>
         )}
+        <button className="vs-roll-play" onClick={onPlay} title="reproducir la melodía COMPLETA (la voz cantándola) — preview, no toca el transporte">▶ melodía</button>
         <button className="vs-roll-clear" onClick={() => onMelody('')} title="borrar la melodía (voz a su pitch real)">limpiar</button>
       </div>
 
@@ -147,8 +148,8 @@ export function MelodyRoll({ melody, scale, onMelody, onScale, audition }: {
 
 // Sección "melodía · sampler": el piano roll + armonía + autotune suave (glide/vibrato).
 // Presentacional — el estado (voice params) vive en VoiceStudio.
-export function MelodySection({ v, melodic, set, audition }: {
-  v: VoiceParams; melodic: boolean; set: (patch: Partial<VoiceParams>) => void; audition: (note: string, force?: boolean) => void;
+export function MelodySection({ v, melodic, set, audition, onPlayMelody }: {
+  v: VoiceParams; melodic: boolean; set: (patch: Partial<VoiceParams>) => void; audition: (note: string, force?: boolean) => void; onPlayMelody: () => void;
 }) {
   return (
     <div className="vs-sec">
@@ -159,6 +160,7 @@ export function MelodySection({ v, melodic, set, audition }: {
         onMelody={(m) => set({ melody: m })}
         onScale={(s) => set({ scale: s })}
         audition={audition}
+        onPlay={onPlayMelody}
       />
       <p className="vs-hint">{melodic
         ? 'clic en la TECLA (izq. ♪) = probar esa nota con tus FX · clic en la reja = poner nota · arrastrar = dibujar la línea · fila «nat» = pitch natural'

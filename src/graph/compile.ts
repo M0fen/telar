@@ -393,12 +393,13 @@ function applyVoice(code: string, v: VoiceParams): string {
     // doblaje/armonía: convierte cada nota en un intervalo [0, h] (dyad) → coros.
     const harm = Math.round(num(v.harmony, 0));
     if (harm !== 0) out += `.add(note("[0,${harm}]"))`;
-    // GLIDE/portamento: desliza el pitch entre notas (autotune "suave"). OJO: `.slide()`
-    // solo lo aplica el synth zzfx de superdough → INERTE para la voz (sample). Se deja
-    // emitido (inofensivo) hasta implementar portamento real (penv/pdecay como MelodicSeq,
-    // o legato entre notas). TODO: hoy este mando de voz no tiene efecto audible.
+    // GLIDE/portamento: cada nota ENTRA con un barrido de pitch que decae (como el slide del
+    // 808 en MelodicSeq) → sensación de deslizamiento entre notas ("autotune suave"). Antes se
+    // emitía `.slide()`, que superdough SOLO lee en el synth zzfx → INERTE para la voz (sample);
+    // `penv/pdecay` SÍ actúa sobre samples re-pitcheados por note()/n(). Barrido desde abajo
+    // (scoop): 1..4 semitonos, decae en ~30..150 ms según la cantidad de glide.
     const glide = c01(num(v.glide, 0));
-    if (glide > 0.01) out += `.slide(${(glide * 1.0).toFixed(2)})`;
+    if (glide > 0.01) out += `.penv(${(-(1 + glide * 3)).toFixed(2)}).pdecay(${(0.03 + glide * 0.12).toFixed(3)})`;
   } else if (v.tempo && !hasLoopCode) {
     // AL TEMPO: encaja la voz en N ciclos (loopAt = varispeed). loopAt lee el cps EN
     // VIVO (_loopAt usa state.controls._cps), así que la voz sigue los cambios de BPM

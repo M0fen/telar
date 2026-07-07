@@ -51,6 +51,23 @@ export function scaleName(scale: string): string {
 // superdough. El piano roll se ancla ahí para que la voz suene (no octavas arriba).
 export const NATURAL_MIDI = 36;
 
+// Convierte un token de la melodía del sampler a NOMBRE de nota para reproducirla: en modo
+// escala el token es un GRADO (0,2,4…) → nota de ese grado (raíz en c2, igual que el piano
+// roll y el compilador); en cromático el token YA es una nota. '~'/inválido → null (silencio).
+export function melodyTokenToNote(token: string, scale: string): string | null {
+  const t = (token ?? '').trim();
+  if (!t || t === '~') return null;
+  if (scale.trim()) {
+    const st = SCALE_STEPS[scaleName(scale)] ?? SCALE_STEPS.minor;
+    const d = parseInt(t, 10);
+    if (!isFinite(d)) return null;
+    const len = st.length;
+    const semi = st[((d % len) + len) % len] + 12 * Math.floor(d / len);
+    return midiToName(NATURAL_MIDI + semi);
+  }
+  return t;
+}
+
 // picos (máximos por bloque) del canal 0 de un buffer, para dibujar la onda. HILO B / B4.
 export function peaksOf(buf: AudioBuffer, N = 160): number[] {
   const dch = buf.getChannelData(0);

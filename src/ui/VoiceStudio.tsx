@@ -6,9 +6,9 @@ import type { NodeData, VoiceParams } from '../graph/types';
 import { DEFAULT_VOICE } from '../graph/types';
 import { getVoiceUrl, setVoiceUrl } from '../lib/voiceUrls';
 import { audioBufferToWav } from '../lib/wavEncode';
-import { playVoiceSample, playVoiceNote } from '../audio/playNote';
+import { playVoiceSample, playVoiceNote, playVoiceMelody } from '../audio/playNote';
 import { toast } from '../store/useNotifyStore';
-import { clamp01, peaksOf, sliceBuffer, AT_ROOTS } from './voice/voiceUtils';
+import { clamp01, peaksOf, sliceBuffer, AT_ROOTS, melodyTokenToNote } from './voice/voiceUtils';
 import { MelodySection } from './voice/MelodyRoll';
 import { VoiceWave } from './voice/VoiceWave';
 import { AutotuneSection, type AtState } from './voice/AutotuneSection';
@@ -230,6 +230,18 @@ export function VoiceStudio() {
     const dur = bufRef.current?.duration ?? 3;
     const ee = Math.min(Math.max(bb + 0.02, clamp01(d?.end ?? 1)), bb + Math.max(0.35, 1.6 / dur));
     void playVoiceNote(name, vv, note, bb, ee, 1.5);
+  };
+  // ▶ MELODÍA: reproduce la melodía COMPLETA del sampler (la voz cantándola) como preview
+  // aislado — no toca el transporte. Abarca 1 ciclo al tempo del proyecto.
+  const playMelody = () => {
+    if (!name) { setWarpMsg('⚠ esta voz no tiene un sample s("…") reconocible → no se puede oír.'); return; }
+    const toks = (v.melody ?? '').trim() ? (v.melody ?? '').trim().split(/\s+/) : [];
+    if (!toks.length) { setWarpMsg('⚠ no hay melodía pintada todavía.'); return; }
+    const notes = toks.map((t) => melodyTokenToNote(t, v.scale ?? ''));
+    const cps = useGraphStore.getState().cps || 0.5;
+    const stepSec = Math.max(0.12, 1 / cps / toks.length); // la melodía abarca 1 ciclo
+    setWarpMsg('▶ melodía (preview) · se guarda sola en el proyecto');
+    void playVoiceMelody(name, v, notes, stepSec, Math.min(stepSec * 1.05, 0.7), b, e);
   };
   // «con FX»: audiciona con efectos, PERO antes detecta las causas comunes de silencio y
   // avisa (en vez de sonar mudo sin explicación): sin sample, gain en 0, o «pos» empujando
@@ -516,7 +528,7 @@ export function VoiceStudio() {
         )}
 
         {/* melodía con piano roll (SAMPLER: re-dispara la voz por notas — no corrige el tono) */}
-        <MelodySection v={v} melodic={melodic} set={set} audition={audition} />
+        <MelodySection v={v} melodic={melodic} set={set} audition={audition} onPlayMelody={playMelody} />
 
         {/* B2 — AUTOTUNE REAL: corrige el tono de la toma grabada (tus palabras, tu tiempo) */}
         {audioUrl && (

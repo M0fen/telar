@@ -325,6 +325,14 @@ test('eco vocal al tempo: delaysync solo se emite si difiere del 3/16 del motor'
   assert.match(code(negra), /\.delaysync\(0\.25\)/);
 });
 
+test('voz glide: emite penv/pdecay (antes .slide, INERTE en samples); sin glide no', () => {
+  const g = C([src('s', 's("voz_1")', { voice: { melody: 'c d e', glide: 0.5 } }), out()], [E('s', 'o')]);
+  assert.match(code(g), /\.penv\(-2\.50\)\.pdecay\(0\.090\)/); // scoop que decae
+  assert.doesNotMatch(code(g), /\.slide\(/);                   // ya no se emite el no-op
+  const noGlide = C([src('s', 's("voz_1")', { voice: { melody: 'c d e' } }), out()], [E('s', 'o')]);
+  assert.doesNotMatch(code(noGlide), /\.penv\(/);
+});
+
 test('P0.2 swing del máster: semicorcheas (n=8) — el tumbao del dembow', () => {
   const m = applyMaster('s("hh*16")', { gain: 1, filter: 0, room: 0, swing: 0.3 });
   assert.match(m, /\.swingBy\(0\.30, 8\)/);

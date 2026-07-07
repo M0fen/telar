@@ -1540,6 +1540,8 @@ button.pal-item { width: 100%; }
 .vs-stepper b i { font-style: normal; font-size: 7px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
 .vs-roll-clear { background: #04070a; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 10px; padding: 5px 10px; border-radius: 2px; cursor: pointer; margin-left: auto; }
 .vs-roll-clear:hover { border-color: var(--warn); color: var(--warn); }
+.vs-roll-play { background: #04070a; border: 1px solid var(--accent-dim); color: var(--accent); font-family: var(--mono); font-size: 10px; padding: 5px 11px; border-radius: 2px; cursor: pointer; }
+.vs-roll-play:hover { background: var(--accent); color: #02110e; border-color: var(--accent); }
 .vs-roll-grid { max-height: 246px; overflow-y: auto; border: 1px solid var(--line); border-radius: 3px; background: #04070a; }
 .vs-roll-row { display: flex; align-items: stretch; height: 16px; }
 .vs-roll-row.acc { background: rgba(255,255,255,0.018); }

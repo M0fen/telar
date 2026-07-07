@@ -4,8 +4,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   clamp01, midiToName, noteToMidi, scaleName, SCALE_STEPS, NATURAL_MIDI,
-  PC_FLAT, ACCIDENTAL, AT_ROOTS, AT_SCALE_NAMES,
+  PC_FLAT, ACCIDENTAL, AT_ROOTS, AT_SCALE_NAMES, melodyTokenToNote,
 } from '../src/ui/voice/voiceUtils';
+
+test('melodyTokenToNote: grado en escala → nota (raíz c2); cromático → tal cual; ~ → null', () => {
+  // menor: grados [0,2,3,5,7,8,10] sobre c2 (midi 36). grado 0 = c2, grado 1 = d2 (36+2)
+  assert.equal(melodyTokenToNote('0', 'C:minor'), 'c2');
+  assert.equal(melodyTokenToNote('1', 'C:minor'), midiToName(NATURAL_MIDI + SCALE_STEPS.minor[1]));
+  assert.equal(melodyTokenToNote('7', 'C:minor'), midiToName(NATURAL_MIDI + 12)); // grado 7 = octava (c3)
+  assert.equal(melodyTokenToNote('eb4', ''), 'eb4'); // cromático: el token ya es nota
+  assert.equal(melodyTokenToNote('~', 'C:minor'), null);
+  assert.equal(melodyTokenToNote('', ''), null);
+});
 
 test('clamp01 acota a [0,1]', () => {
   assert.equal(clamp01(-0.5), 0);
