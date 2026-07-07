@@ -50,11 +50,14 @@ export interface OpDef {
 // envolvente + vibrato + carácter (ruido/distorsión/coarse). Todo nativo del motor
 // (superdough). Se aplica como sufijos al patrón del Source en el compilador.
 export interface SynthParams {
-  wave?: string; // sawtooth | square | triangle | sine | supersaw
-  // oscilador / unísono (supersaw) / carácter
-  spread?: number; // supersaw: ancho estéreo del unísono 0..1
-  unison?: number; // supersaw: nº de voces 1..9 (grosor)
-  detune?: number; // supersaw: desafinado entre voces 0..0.5
+  wave?: string; // sawtooth | square | triangle | sine | supersaw | telar_* (wavetable de morph)
+  // oscilador / unísono (supersaw + wavetable) / carácter
+  spread?: number; // ancho estéreo del unísono 0..1 (supersaw y wavetable de morph)
+  unison?: number; // nº de voces 1..9 (grosor) (supersaw y wavetable de morph)
+  detune?: number; // desafinado entre voces 0..0.5 (supersaw y wavetable de morph)
+  // --- WAVETABLE de MORPH (wave = telar_*): posición del barrido entre cuadros ---
+  wtpos?: number; // posición/morph estática 0..1 (cuál cuadro suena)
+  wtpat?: string; // posición PATRONEABLE (p.ej. "0 .5 <.25 1>"); si está, pisa a wtpos → .wt("…")
   noise?: number; // mezcla de ruido en el oscilador 0..1
   pw?: number; // ancho de pulso (onda cuadrada/pulso) 0.01..0.99 (0.5 = simétrico)
   // afinación (desplaza la nota base del oscilador)
@@ -126,6 +129,7 @@ export const DEFAULT_SYNTH: SynthParams = {
   spread: 0.4,
   unison: 5,
   detune: 0.18,
+  wtpos: 0,
   noise: 0,
   pw: 0.5,
   octave: 0,

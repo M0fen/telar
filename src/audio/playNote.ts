@@ -1,6 +1,7 @@
 import { superdough, getAudioContext } from '@strudel/web';
 import type { SynthParams, VoiceParams } from '../graph/types';
 import { SYNTH_WAVES } from '../graph/types';
+import { isMorphWave } from './wavetables';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureEngine, ensureAudioReady } from './engine';
 import { toast } from '../store/useNotifyStore';
@@ -47,6 +48,18 @@ export function synthToValue(syn: SynthParams, note: string | number, nodeId?: s
     if (dt > 0.001) v.detune = dt;
     const sp = num(syn.spread, 0);
     if (sp > 0.001) v.spread = sp;
+  }
+  // WAVETABLE de MORPH: audiciona a la posición estática del knob (v.s ya es la tabla).
+  if (isMorphWave(syn.wave)) {
+    v.wt = num(syn.wtpos, 0);
+    const u = Math.round(num(syn.unison, 1));
+    if (u > 1) {
+      v.unison = u;
+      const dt = num(syn.detune, 0.18);
+      if (dt > 0.001) v.detune = dt;
+      const sp = num(syn.spread, 0);
+      if (sp > 0.001) v.spread = sp;
+    }
   }
   const noise = num(syn.noise, 0);
   if (noise > 0.001) v.noise = noise;

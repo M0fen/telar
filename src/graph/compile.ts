@@ -15,6 +15,7 @@ import type { NodeData, SynthParams, VoiceParams } from './types';
 import { channelEqActive, SYNTH_WAVES } from './types';
 import { OPS_BY_ID } from './ops';
 import { irRoomsize, knownIr } from '../audio/irRegistry';
+import { isMorphWave } from '../audio/wavetables';
 
 // Prefijo del id de analyser por Source (onda por instrumento, Fase 3). El tap
 // `.analyze(...)` solo se añade cuando el scope de ese nodo está activo.
@@ -195,8 +196,15 @@ function applySynth(code: string, syn: SynthParams): string {
   const sample = isSampleSource(code);
   let out = code;
   if (!sample) {
-    // --- OSCILADOR: forma de onda + unísono (supersaw) + ruido + FM ---
+    // --- OSCILADOR: forma de onda + morph (wavetable) + unísono + ruido + FM ---
     if (syn.wave) out += `.s("${syn.wave}")`;
+    const morph = isMorphWave(syn.wave);
+    // WAVETABLE de MORPH: posición del barrido entre cuadros. Patroneable (texto, el
+    // diferencial de Telar) tiene prioridad sobre el valor estático.
+    if (morph) {
+      const pat = (syn.wtpat || '').trim();
+      out += pat ? `.wt("${pat}")` : `.wt(${n(syn.wtpos, 0).toFixed(3)})`;
+    }
     if (syn.wave === 'supersaw') {
       const unison = Math.round(n(syn.unison, 5));
       if (unison > 1) out += `.unison(${unison})`;
@@ -204,6 +212,17 @@ function applySynth(code: string, syn: SynthParams): string {
       if (detune > 0.001) out += `.detune(${detune.toFixed(3)})`;
       const spread = n(syn.spread, 0);
       if (spread > 0.001) out += `.spread(${spread.toFixed(2)})`;
+    } else if (morph) {
+      // El oscilador wavetable soporta el MISMO unísono (voces/detune/spread). detune/spread
+      // no hacen nada con 1 voz → se emiten SOLO al engordar (voces>1), dejando el morph puro por defecto.
+      const unison = Math.round(n(syn.unison, 1));
+      if (unison > 1) {
+        out += `.unison(${unison})`;
+        const detune = n(syn.detune, 0.18);
+        if (detune > 0.001) out += `.detune(${detune.toFixed(3)})`;
+        const spread = n(syn.spread, 0);
+        if (spread > 0.001) out += `.spread(${spread.toFixed(2)})`;
+      }
     }
     const noise = n(syn.noise, 0);
     if (noise > 0.001) out += `.noise(${noise.toFixed(2)})`;

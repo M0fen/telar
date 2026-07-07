@@ -27,6 +27,7 @@ const VALID_METHODS = new Set<string>([
   'shape','distort','distorttype','distortvol','crush','coarse','triode','drive','overshape','ring','ringf','ringdf','comb','smear','scram','binshift','freeze','waveloss',
   'speed','unit','begin','end','loop','loopBegin','loopEnd','cut','clip','legato','chop','striate','slice','splice','fit','loopAt','loopAtCps',
   'vowel','noise','fm','fmh','fmi','detune','unison','spread','penv','pdecay','pattack','pcurve','vib','vibmod','octave','octaveR','semitone','ctranspose','mtranspose',
+  'wt','wavetablePosition',
   'accelerate','slide','stretch','warp','duck','duckorbit','duckattack','duckdepth','duckonset','tremolosync','tremolodepth','tremolophase','tremoloshape','tremoloskew',
   'phaser','phasercenter','phaserdepth','phasersweep','leslie','djf','squiz','chorus','enhance',
   'stut','echo','ply','plyWith','plyForEach','stutter',

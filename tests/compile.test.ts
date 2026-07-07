@@ -73,6 +73,29 @@ test('synth oscillator emits the waveform', () => {
   assert.match(code(r), /\.s\("sawtooth"\)/);
 });
 
+test('wavetable de morph emite .s(tabla).wt(posición estática)', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'telar_sweep', wtpos: 0.5 } }), out()], [E('s', 'o')]);
+  assert.match(code(r), /\.s\("telar_sweep"\)\.wt\(0\.500\)/);
+});
+
+test('wavetable de morph: el patrón de posición (wtpat) pisa al valor estático', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'telar_sweep', wtpos: 0.5, wtpat: '0 .5 <.25 1>' } }), out()], [E('s', 'o')]);
+  assert.match(code(r), /\.wt\("0 \.5 <\.25 1>"\)/);
+  assert.doesNotMatch(code(r), /\.wt\(0\.500\)/);
+});
+
+test('wavetable de morph: unísono solo al engordar (voces>1); 1 voz = morph puro', () => {
+  const puro = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'telar_sweep', unison: 1, detune: 0.18, spread: 0.4 } }), out()], [E('s', 'o')]);
+  assert.doesNotMatch(code(puro), /\.unison\(|\.detune\(|\.spread\(/);
+  const gordo = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'telar_sweep', unison: 5, detune: 0.2, spread: 0.5 } }), out()], [E('s', 'o')]);
+  assert.match(code(gordo), /\.unison\(5\)\.detune\(0\.200\)\.spread\(0\.50\)/);
+});
+
+test('.wt solo en ondas de morph (una onda básica no lo emite)', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'sawtooth', wtpos: 0.5 } }), out()], [E('s', 'o')]);
+  assert.doesNotMatch(code(r), /\.wt\(/);
+});
+
 test('synth on a SAMPLE never overrides it with an oscillator (regression)', () => {
   const r = C([src('s', 's("kick")', { synthOn: true, synth: { wave: 'sawtooth', cutoff: 800 } }), out()], [E('s', 'o')]);
   assert.doesNotMatch(code(r), /\.s\("sawtooth"\)/);

@@ -5,7 +5,7 @@ import { AnalyserScope } from './AnalyserScope';
 import type { NodeData, SynthParams } from '../graph/types';
 import { SYNTH_WAVES, DEFAULT_SYNTH } from '../graph/types';
 import { SYNTH_PRESETS, PRESET_GENRES, presetByName, macroPatch } from '../graph/synthPresets';
-import { WAVETABLES } from '../audio/wavetables';
+import { WAVETABLES, MORPH_WAVETABLES, isMorphWave, morphSeriesByName } from '../audio/wavetables';
 import { MiniSlider } from '../nodes/MiniSlider';
 import { playSynthNote, playSourceSound } from '../audio/playNote';
 import { midiToName, noteToMidi } from './pianoRollHelpers';
@@ -231,7 +231,7 @@ function AdsrEnv({ syn, onChange }: { syn: SynthParams; onChange: (patch: Partia
 // con glow y degradado. Vive detrás del osciloscopio en vivo (que solo pinta al sonar),
 // así el panel siempre muestra la "wavetable". Solo para sintes (los samples tienen su
 // propia onda en el recorte de arriba).
-function WaveShape({ wave }: { wave: string }) {
+function WaveShape({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current; if (!c) return;
@@ -241,7 +241,16 @@ function WaveShape({ wave }: { wave: string }) {
     const ctx = c.getContext('2d'); if (!ctx) return;
     ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
     const mid = H / 2, amp = H * 0.32, cycles = 2;
+    // Wavetable de MORPH: dibuja el CUADRO real en la posición wt (se actualiza al mover el knob).
+    const morph = isMorphWave(wave) ? morphSeriesByName(wave) : null;
+    const LEN = 2048;
+    const frame = morph ? (() => {
+      const frames = morph.length / LEN;
+      const idx = Math.round(Math.max(0, Math.min(1, wtpos)) * (frames - 1));
+      return morph.subarray(idx * LEN, idx * LEN + LEN);
+    })() : null;
     const fn = (t: number): number => {
+      if (frame) { const i = Math.floor(((t * cycles) % 1) * LEN) % LEN; return frame[i]; }
       const ph = t * cycles * Math.PI * 2;
       switch (wave) {
         case 'sine': return Math.sin(ph);
@@ -258,7 +267,7 @@ function WaveShape({ wave }: { wave: string }) {
     ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
     ctx.shadowColor = 'rgba(120,90,255,0.6)'; ctx.shadowBlur = 7;
     ctx.stroke(); ctx.shadowBlur = 0;
-  }, [wave]);
+  }, [wave, wtpos]);
   return <canvas ref={ref} className="ss-waveshape" />;
 }
 
@@ -472,7 +481,7 @@ export function SynthStudio() {
 
         {/* panorama: onda en vivo + envolvente ADSR */}
         <div className="ss-viz">
-          <div className="ss-viz-cell hero"><span className="ss-viz-lbl">onda</span>{!isSample && <WaveShape wave={syn.wave ?? 'sawtooth'} />}<AnalyserScope nodeId={synthEditId} className="ss-scope" /></div>
+          <div className="ss-viz-cell hero"><span className="ss-viz-lbl">onda</span>{!isSample && <WaveShape wave={syn.wave ?? 'sawtooth'} wtpos={num(syn.wtpos)} />}<AnalyserScope nodeId={synthEditId} className="ss-scope" /></div>
           <div className="ss-viz-cell"><span className="ss-viz-lbl">envolvente · arrastra</span><AdsrEnv syn={syn} onChange={set} /></div>
         </div>
 
@@ -488,7 +497,28 @@ export function SynthStudio() {
             {WAVETABLES.map((wt) => (
               <button key={wt.name} className={`ss-wt${syn.wave === wt.name ? ' on' : ''}`} onClick={() => set({ wave: wt.name })} title={`wavetable · ${wt.label}`}>{wt.label}</button>
             ))}
+            <span className="ss-wt-sep">morph</span>
+            {MORPH_WAVETABLES.map((wt) => (
+              <button key={wt.name} className={`ss-wt${syn.wave === wt.name ? ' on' : ''}`} onClick={() => set({ wave: wt.name, unison: 1 })} title={`wavetable de morph · ${wt.label} — barre los cuadros con .wt()`}>{wt.label}</button>
+            ))}
           </div>
+        </div>
+        )}
+
+        {/* wavetable de morph: posición del barrido (.wt) — estática (knob) o patroneable */}
+        {!isSample && isMorphWave(syn.wave) && (
+        <div className="vs-sec">
+          <h4>wavetable · morph (posición)</h4>
+          <div className="vs-grid">
+            <MiniSlider label="posición (wt)" value={num(syn.wtpos)} min={0} max={1} step={0.01} disabled={!!(syn.wtpat || '').trim()} onChange={(v) => set({ wtpos: v })} />
+          </div>
+          <input
+            className="ss-wtpat"
+            value={syn.wtpat ?? ''}
+            placeholder="patrón de posición · p.ej. 0 .5 <.25 1>"
+            onChange={(e) => set({ wtpat: e.target.value })}
+            title="barre el morph como un PATRÓN alineado a los pasos (pisa la posición estática). Vacío = usa el knob."
+          />
         </div>
         )}
 
@@ -522,9 +552,9 @@ export function SynthStudio() {
           <div className="vs-sec">
             <h4>oscilador · unísono</h4>
             <div className="vs-grid">
-              <MiniSlider label="unison" value={Number(syn.unison ?? 5)} min={1} max={9} step={1} disabled={syn.wave !== 'supersaw'} onChange={(v) => set({ unison: v })} />
-              <MiniSlider label="detune" value={num(syn.detune)} min={0} max={0.5} step={0.01} disabled={syn.wave !== 'supersaw'} onChange={(v) => set({ detune: v })} />
-              <MiniSlider label="spread" value={num(syn.spread)} min={0} max={1} step={0.02} disabled={syn.wave !== 'supersaw'} onChange={(v) => set({ spread: v })} />
+              <MiniSlider label="unison" value={Number(syn.unison ?? 5)} min={1} max={9} step={1} disabled={syn.wave !== 'supersaw' && !isMorphWave(syn.wave)} onChange={(v) => set({ unison: v })} />
+              <MiniSlider label="detune" value={num(syn.detune)} min={0} max={0.5} step={0.01} disabled={syn.wave !== 'supersaw' && !isMorphWave(syn.wave)} onChange={(v) => set({ detune: v })} />
+              <MiniSlider label="spread" value={num(syn.spread)} min={0} max={1} step={0.02} disabled={syn.wave !== 'supersaw' && !isMorphWave(syn.wave)} onChange={(v) => set({ spread: v })} />
               <MiniSlider label="noise" value={num(syn.noise)} min={0} max={1} step={0.02} onChange={(v) => set({ noise: v })} />
             </div>
           </div>

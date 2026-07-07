@@ -177,3 +177,9 @@ export function morphWavetables(): MorphTable[] {
 
 // Lista para el selector de wavetables de morph (Fase 2).
 export const MORPH_WAVETABLES = Object.keys(MORPH_PROFILES).map((k) => ({ name: `telar_${k}`, label: k }));
+
+// ¿Es una onda de wavetable de MORPH (telar_*)? La distingue de las de 1 ciclo (wt_telar_*,
+// que empiezan por wt_) y de los osciladores básicos. Las de morph aceptan .wt() + unísono.
+export function isMorphWave(wave?: string): boolean {
+  return !!wave && wave.startsWith('telar_');
+}
