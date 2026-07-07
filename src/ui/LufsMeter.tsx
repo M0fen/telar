@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getLufs, startLufs, stopLufs, resetLufsIntegrated, type LufsReading } from '../audio/lufsMeter';
-import { getLimiterMetrics } from '../audio/masterLimiter';
+import { getLimiterMetrics, setLimiterBypass } from '../audio/masterLimiter';
 import { useGraphStore } from '../store/useGraphStore';
 
 // Objetivos de sonoridad habituales (LUFS integrada). El usuario elige la referencia
@@ -22,6 +22,7 @@ function fmt(v: number): string {
 export function LufsMeter() {
   const [r, setR] = useState<LufsReading>({ momentary: -Infinity, short: -Infinity, integrated: -Infinity, truePeakDb: -Infinity });
   const [grDb, setGrDb] = useState(0); // reducción del limitador true-peak
+  const [ceilingOn, setCeilingOn] = useState(true); // limitador true-peak (A/B)
   const [target, setTarget] = useState(-14);
   const mastering = useGraphStore((s) => s.mastering);
   const playing = useGraphStore((s) => s.playing);
@@ -65,6 +66,11 @@ export function LufsMeter() {
           onClick={() => void autoMaster(target)}
           title={playing ? `auto-master: mide la mezcla y la deja a ${target} LUFS (limiter + EQ pulido + ganancia), sin clipear` : 'dale a play primero — mide la mezcla sonando'}
         >{mastering ? 'midiendo…' : '⚡ auto'}</button>
+        <button
+          className={`perf-lufs-auto${ceilingOn ? ' on' : ''}`}
+          title={ceilingOn ? 'limitador true-peak ACTIVO (techo −1 dBTP, nunca clipea). Clic = bypass para A/B' : 'limitador true-peak en BYPASS. Clic = activar'}
+          onClick={() => { const nv = !ceilingOn; setCeilingOn(nv); setLimiterBypass(!nv); }}
+        >TP</button>
         <button className="perf-lufs-reset" title="reiniciar la medida integrada" onClick={resetLufsIntegrated}>⟳</button>
       </div>
       <div className="perf-lufs-bar" title="sonoridad instantánea (400 ms / 3 s) vs. objetivo">
