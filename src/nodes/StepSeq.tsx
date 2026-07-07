@@ -127,6 +127,7 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   const [chord, setChord] = useState('nota'); // acorde por paso al afinar ('nota' = sin acorde)
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
   const dragPitch = useRef<{ li: number; si: number; startY: number; startMidi: number } | null>(null); // arrastre de pitch activo
+  const dragBar = useRef<'vel' | 'nudge' | null>(null); // arrastre en las sub-filas del panel ≋ (DEBE ir aquí: lo usa el useEffect de pointerup de abajo — antes se declaraba más tarde y crasheaba con TDZ)
   const [saved, setSaved] = useState(false); // pulso "en vivo": cada cambio se guarda y suena al instante
   const savedT = useRef<number | undefined>(undefined);
   const pulseSaved = () => { setSaved(true); clearTimeout(savedT.current); savedT.current = window.setTimeout(() => setSaved(false), 700); };
@@ -305,7 +306,6 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     const nl = lanes.map((l, i) => (i === li ? { ...l, nudge: (l.nudge ?? Array(steps).fill(0)).map((x, j) => (j === si ? v : x)) } : l));
     setLanes(nl); commit(nl);
   };
-  const dragBar = useRef<'vel' | 'nudge' | null>(null); // arrastre activo en las sub-filas del panel ≋
   // afinar por paso: CLIC + ARRASTRE VERTICAL relativo (tipo perilla). Con captura de
   // puntero se arrastra libremente arriba/abajo y el pitch sube/baja fluido. scale-lock engancha.
   const setNoteAt = (li: number, si: number, nn: string) => {
