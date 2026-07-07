@@ -287,6 +287,24 @@ export function SynthStudio() {
   const [saveName, setSaveName] = useState('');
   const [ab, setAb] = useState<SynthParams | null>(null); // slot B para comparar A/B
   const [fitMsg, setFitMsg] = useState(''); // "encajar" — DEBE ir antes del return (los hooks no van tras un return condicional)
+  const playing = useGraphStore((s) => s.playing);
+  const play = useGraphStore((s) => s.play);
+  const stopTransport = useGraphStore((s) => s.stop);
+  // ESPACIO = play/parar el transporte también con el estudio ABIERTO. El atajo global se
+  // inhibe cuando hay un modal abierto (App.tsx), así que aquí lo replicamos. No interfiere
+  // al escribir en un campo de texto (nombre, patrón de morph…). DEBE ir antes del return.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      e.preventDefault();
+      const st = useGraphStore.getState();
+      if (st.playing) void st.stop(); else void st.play();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (!synthEditId || !node) return null;
   const data = node.data as NodeData;
@@ -370,6 +388,7 @@ export function SynthStudio() {
           <input className="vs-name" value={data.name ?? ''} placeholder={isSample ? 'sample…' : 'synth…'} onChange={(e) => update(synthEditId, { name: e.target.value })} />
           <span className="vs-title">estudio de sonido{isSample && sampleName ? <i className="ss-kind">sample · {sampleName}</i> : <i className="ss-kind">synth</i>}</span>
           <div className="ss-tools">
+            <button className={`ss-stop${playing ? ' on' : ''}`} onClick={() => { if (playing) void stopTransport(); else void play(); }} title={playing ? 'parar el transporte (espacio)' : 'reproducir el transporte (espacio)'}>{playing ? '⏹' : '▶'}</button>
             <button onClick={undo} disabled={!canUndo} title="deshacer (Ctrl+Z)">↶</button>
             <button onClick={redo} disabled={!canRedo} title="rehacer (Ctrl+⇧Z)">↷</button>
             {!isSample && <button onClick={initSynth} title="init: sonido base limpio">init</button>}
