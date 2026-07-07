@@ -227,30 +227,53 @@ function AdsrEnv({ syn, onChange }: { syn: SynthParams; onChange: (patch: Partia
   );
 }
 
-// Visor de ONDA estático (estilo Vital): dibuja la forma del oscilador seleccionado
-// con glow y degradado. Vive detrás del osciloscopio en vivo (que solo pinta al sonar),
-// así el panel siempre muestra la "wavetable". Solo para sintes (los samples tienen su
-// propia onda en el recorte de arriba).
-function WaveShape({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
+// Visor de ONDA (estilo Serum/Vital): para wavetables de morph dibuja el LANDSCAPE 3D
+// (waterfall de todos los cuadros con el actual resaltado en el accent); para ondas
+// básicas, la forma única. Es la vista PRINCIPAL de la celda "onda"; el osciloscopio en
+// vivo va en una tira aparte, etiquetado (ya no se superponen). Solo para sintes.
+function WaveViz({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current; if (!c) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const W = c.clientWidth, H = c.clientHeight;
+    if (!W || !H) return;
     c.width = Math.floor(W * dpr); c.height = Math.floor(H * dpr);
     const ctx = c.getContext('2d'); if (!ctx) return;
     ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
-    const mid = H / 2, amp = H * 0.32, cycles = 2;
-    // Wavetable de MORPH: dibuja el CUADRO real en la posición wt (se actualiza al mover el knob).
     const morph = isMorphWave(wave) ? morphSeriesByName(wave) : null;
-    const LEN = 2048;
-    const frame = morph ? (() => {
+    if (morph) {
+      // LANDSCAPE 3D: waterfall de TODOS los cuadros de la wavetable (perspectiva isométrica),
+      // atrás→adelante; el cuadro en la posición `wt` va resaltado en el accent. Así se ve el
+      // barrido completo del morph, no solo un cuadro. (Estilo Serum/Vital.)
+      const LEN = 2048;
       const frames = morph.length / LEN;
-      const idx = Math.round(Math.max(0, Math.min(1, wtpos)) * (frames - 1));
-      return morph.subarray(idx * LEN, idx * LEN + LEN);
-    })() : null;
+      const cur = Math.round(Math.max(0, Math.min(1, wtpos)) * (frames - 1));
+      const plotW = W * 0.80, amp = H * 0.12;
+      for (let f = 0; f < frames; f++) {
+        const t = frames > 1 ? f / (frames - 1) : 0; // 0 = atrás (arriba), 1 = frente (abajo)
+        const skewX = (1 - t) * (W * 0.17);
+        const baseY = H * 0.15 + t * (H * 0.68);
+        ctx.beginPath();
+        for (let i = 0; i <= plotW; i += 2) {
+          const s = morph[f * LEN + Math.floor((i / plotW) * (LEN - 1))];
+          const x = skewX + i, y = baseY - s * amp;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        if (f === cur) {
+          ctx.strokeStyle = 'rgba(61, 240, 208, 0.98)'; ctx.lineWidth = 2;
+          ctx.shadowColor = 'rgba(61,240,208,0.7)'; ctx.shadowBlur = 9;
+        } else {
+          ctx.strokeStyle = `rgba(150,120,255,${(0.10 + 0.30 * t).toFixed(3)})`; ctx.lineWidth = 1; ctx.shadowBlur = 0;
+        }
+        ctx.lineJoin = 'round'; ctx.stroke();
+      }
+      ctx.shadowBlur = 0;
+      return;
+    }
+    // onda BÁSICA (no wavetable): forma única, clara (2 ciclos).
+    const mid = H / 2, amp = H * 0.34, cycles = 2;
     const fn = (t: number): number => {
-      if (frame) { const i = Math.floor(((t * cycles) % 1) * LEN) % LEN; return frame[i]; }
       const ph = t * cycles * Math.PI * 2;
       switch (wave) {
         case 'sine': return Math.sin(ph);
@@ -258,13 +281,13 @@ function WaveShape({ wave, wtpos = 0 }: { wave: string; wtpos?: number }) {
         case 'triangle': return Math.asin(Math.sin(ph)) * (2 / Math.PI);
         case 'sawtooth': { const x = (t * cycles) % 1; return 1 - 2 * x; }
         case 'supersaw': { const x = (t * cycles) % 1; return (1 - 2 * x) * 0.7 + Math.sin(ph * 1.01) * 0.3; }
-        default: return Math.sin(ph) * 0.7 + Math.sin(ph * 2 + 0.6) * 0.3; // wavetable genérica
+        default: return Math.sin(ph) * 0.7 + Math.sin(ph * 2 + 0.6) * 0.3;
       }
     };
     ctx.beginPath();
     for (let i = 0; i <= W; i++) { const y = mid - fn(i / W) * amp; i === 0 ? ctx.moveTo(i, y) : ctx.lineTo(i, y); }
-    ctx.strokeStyle = 'rgba(150,120,255,0.55)';
-    ctx.lineWidth = 1.6; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(150,120,255,0.6)';
+    ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
     ctx.shadowColor = 'rgba(120,90,255,0.6)'; ctx.shadowBlur = 7;
     ctx.stroke(); ctx.shadowBlur = 0;
   }, [wave, wtpos]);
@@ -505,7 +528,22 @@ export function SynthStudio() {
 
         {/* panorama: onda en vivo + envolvente ADSR */}
         <div className="ss-viz">
-          <div className="ss-viz-cell hero"><span className="ss-viz-lbl">onda</span>{!isSample && <WaveShape wave={syn.wave ?? 'sawtooth'} wtpos={num(syn.wtpos)} />}<AnalyserScope nodeId={synthEditId} className="ss-scope" /></div>
+          <div className="ss-viz-cell hero">
+            {!isSample ? (
+              <>
+                <div className="ss-viz-main">
+                  <span className="ss-viz-lbl">{isMorphWave(syn.wave) ? 'wavetable · cuadros' : 'onda'}</span>
+                  <WaveViz wave={syn.wave ?? 'sawtooth'} wtpos={num(syn.wtpos)} />
+                </div>
+                <div className="ss-viz-scope">
+                  <span className="ss-viz-lbl">salida en vivo</span>
+                  <AnalyserScope nodeId={synthEditId} className="ss-scope" />
+                </div>
+              </>
+            ) : (
+              <><span className="ss-viz-lbl">salida en vivo</span><AnalyserScope nodeId={synthEditId} className="ss-scope" /></>
+            )}
+          </div>
           <div className="ss-viz-cell"><span className="ss-viz-lbl">envolvente · arrastra</span><AdsrEnv syn={syn} onChange={set} /></div>
         </div>
 
