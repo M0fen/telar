@@ -35,7 +35,7 @@ const SOUND_PRO = `FUNDAMENTOS DE SONIDO PRO (aplícalos siempre):
 - SEPARACIÓN de graves: bombo y bajo/sub NO pelean → sidechain del bajo al bombo, ambos al centro y en mono; reserva la zona sub a 1 elemento.
 - CARÁCTER: drive/shape suave = calor y que un sonido "corte"; transient/punch realza el ataque; reverb corta (room/plate) pega, larga (hall) da profundidad → mándala por SEND (room del master), sin ahogar el canal seco.
 - ESTÉREO: graves y voz al centro; hats/perc/arps/stabs/leads repartidos a los lados; ancho con criterio sin romper la mono-compatibilidad de los graves.
-- DINÁMICA/ARREGLO: intro→build→drop→break; los elementos ENTRAN y salen por secciones, no todos a la vez; glue-comp de bus para pegar; deja headroom (picos < -1 dBTP).`;
+- DINÁMICA: la BASE es un LOOP LLENO — kick, caja, hats y bajo suenan TODOS desde el compás 1 (no vacíes el loop). La estructura intro→build→drop→break es un paso APARTE, solo si la piden; no es la base. Glue-comp de bus para pegar; deja headroom (picos < -1 dBTP).`;
 
 // INSTRUMENTOS: guía por rol → banda → cómo hacerlo en Telar → tip pro.
 const INSTRUMENTS = `INSTRUMENTOS (rol → banda → cómo hacerlo en Telar → tip):
