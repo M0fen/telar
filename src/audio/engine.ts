@@ -9,7 +9,7 @@
 //     en marcha → es el camino nativo de hot-swap (el reloj no se reinicia).
 //   - getAnalyserById(id) devuelve un AnalyserNode de Web Audio; se crea cuando
 //     un patrón aplica .analyze(id) y suena por primera vez.
-import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio } from '@strudel/web';
+import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureMasterLimiter, getMasterLimiterNode } from './masterLimiter';
 
@@ -644,7 +644,16 @@ let wavetablesDone = false;
 export async function registerWavetables(): Promise<void> {
   if (wavetablesDone) return;
   await ensureEngine();
-  const { wavetableSamples } = await import('./wavetables');
+  const { wavetableSamples, morphWavetables } = await import('./wavetables');
   await samples(wavetableSamples());
+  // Tablas de MORPH multi-cuadro por el motor wavetable integrado de superdough:
+  // registerWaveTable(nombre, [url], {frameLen}) parte el WAV en cuadros de 2048; en el
+  // patrón, note("..").s("telar_sweep").wt("0 .33 .66 1") barre los cuadros (patroneable).
+  // Defensivo (regla 4): si el registro de una tabla falla, no tumbar el resto del init.
+  try {
+    for (const t of morphWavetables()) registerWaveTable(t.name, [t.url], { frameLen: 2048 });
+  } catch (err) {
+    console.warn('[wavetable] registro de tablas de morph falló', err);
+  }
   wavetablesDone = true;
 }
