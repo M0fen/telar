@@ -113,70 +113,105 @@ export const WAVETABLES: Wavetable[] = Object.keys(PROFILES).map((k) => ({
 
 const FRAMES = 16; // cuadros por tabla de morph (barrido suave, WAV pequeño)
 
-// Perfil de morph: t∈[0,1] (posición del barrido) → amplitudes de armónicos de ESE cuadro.
-type MorphProfile = (t: number) => number[];
+// Generador de UN cuadro (LEN muestras) en la posición de morph t∈[0,1].
+type FrameGen = (t: number) => Float32Array;
 
-// sweep: seno (t=0) → saw (t=1). El fundamental (h=1) es constante; el resto de armónicos
-// crece con t como 1/h → el timbre se abre de seno puro a diente de sierra a lo largo del barrido.
-const sweepProfile: MorphProfile = (t) => {
-  const H = 40;
-  const a = new Array(H).fill(0);
-  a[0] = 1;
-  for (let h = 2; h <= H; h++) a[h - 1] = t * (1 / h);
-  return a;
+// helper: perfil de ARMÓNICOS (amps por t) → cuadro por síntesis aditiva (additive normaliza).
+const fromAmps = (amps: (t: number) => number[]): FrameGen => (t) => additive(amps(t));
+
+// helper: función de onda por-muestra (t, fase) → cuadro normalizado (dominio del TIEMPO).
+// Para tablas que no se describen bien como suma de armónicos (wavefolder, etc.).
+const fromWave = (fn: (t: number, phase: number) => number): FrameGen => (t) => {
+  const out = new Float32Array(LEN);
+  let max = 0;
+  for (let i = 0; i < LEN; i++) { const v = fn(t, (i / LEN) * Math.PI * 2); out[i] = v; const av = Math.abs(v); if (av > max) max = av; }
+  if (max > 0) for (let i = 0; i < LEN; i++) out[i] /= max;
+  return out;
 };
 
-// formant: un formante (pico gaussiano) que se desplaza por los armónicos con t → timbre
-// "vocal" que barre de grave/oscuro a brillante/nasal. Fundamental de base + pico móvil.
-const formantProfile: MorphProfile = (t) => {
-  const H = 32;
-  const a = new Array(H).fill(0);
-  const center = 2 + t * (H - 6); // el pico recorre los armónicos con la posición
-  const width = 3;
-  for (let h = 1; h <= H; h++) {
-    const d = (h - center) / width;
-    a[h - 1] = Math.exp(-d * d) + (h === 1 ? 0.35 : 0);
-  }
+// espectro pseudo-aleatorio DETERMINISTA (LCG) → para la tabla "chaos" (grit digital que morfa).
+const randSpec = (seed: number, H: number): number[] => {
+  let s = seed >>> 0;
+  const a = new Array(H);
+  for (let h = 0; h < H; h++) { s = (Math.imul(s, 1103515245) + 12345) >>> 0; a[h] = (s / 0xffffffff) / (h + 1); }
   return a;
 };
+const CHAOS_A = randSpec(7, 24), CHAOS_B = randSpec(99, 24);
 
-const MORPH_PROFILES: Record<string, MorphProfile> = { sweep: sweepProfile, formant: formantProfile };
+// --- BANCO DE FÁBRICA de wavetables de MORPH (todas GENERADAS → CC0, ~64KB, patroneables) ---
+// Cada una barre un timbre a lo largo de sus cuadros con .wt(pos). Distintos "sabores" para
+// motivar la creatividad (como los presets de un plugin), sin descargas ni licencias.
+const MORPH_GENERATORS: Record<string, FrameGen> = {
+  // seno → diente de sierra (el clásico "abre el brillo")
+  sweep: fromAmps((t) => { const H = 40, a = new Array(H).fill(0); a[0] = 1; for (let h = 2; h <= H; h++) a[h - 1] = t * (1 / h); return a; }),
+  // formante (pico) que se desplaza por los armónicos → "vocal" que barre
+  formant: fromAmps((t) => { const H = 32, a = new Array(H).fill(0), cf = 2 + t * (H - 6); for (let h = 1; h <= H; h++) { const d = (h - cf) / 3; a[h - 1] = Math.exp(-d * d) + (h === 1 ? 0.35 : 0); } return a; }),
+  // ancho de pulso: cuadrada → pulso fino (PWM, clásico de bajos/leads)
+  pwm: fromAmps((t) => { const d = 0.5 - t * 0.45, H = 40, a = new Array(H); for (let h = 1; h <= H; h++) a[h - 1] = (2 / (h * Math.PI)) * Math.sin(h * Math.PI * d); return a; }),
+  // seno → cuadrada (solo los armónicos IMPARES crecen) → timbre hueco de videojuego
+  square: fromAmps((t) => { const H = 39, a = new Array(H).fill(0); a[0] = 1; for (let h = 3; h <= H; h += 2) a[h - 1] = t * (1 / h); return a; }),
+  // órgano: los armónicos ENTRAN uno a uno con la posición (como subir drawbars)
+  drawbars: fromAmps((t) => { const H = 24, a = new Array(H); for (let h = 1; h <= H; h++) a[h - 1] = h === 1 ? 1 : (1 / h) * Math.max(0, Math.min(1, t * H - (h - 1))); return a; }),
+  // metálico: un énfasis que viaja por parciales altos e "inarmónicos" → campana/FM-ish
+  bell: fromAmps((t) => { const parts = [1, 4, 6, 9, 11, 14], H = 16, a = new Array(H).fill(0); parts.forEach((p, k) => { const w = Math.exp(-Math.pow(k / (parts.length - 1) - t, 2) / 0.08); if (p <= H) a[p - 1] = w; }); return a; }),
+  // barrido "resonante": saw con un pico de armónicos que SUBE → como un filtro barrido, en la tabla
+  reso: fromAmps((t) => { const H = 40, cf = 1 + t * (H - 4), a = new Array(H); for (let h = 1; h <= H; h++) a[h - 1] = (1 / h) * (1 + 4 * Math.exp(-Math.pow((h - cf) / 2, 2))); return a; }),
+  // wavefolder (dominio del tiempo): más pliegues → más armónicos (timbre "West-coast")
+  fold: fromWave((t, ph) => Math.sin((1 + t * 6) * Math.sin(ph))),
+  // seno → triángulo (armónicos impares 1/h² alternando signo) → barrido SUAVE
+  soft: fromAmps((t) => { const H = 32, a = new Array(H).fill(0); a[0] = 1; for (let h = 3; h <= H; h += 2) a[h - 1] = t * (((h - 1) / 2) % 2 === 0 ? 1 : -1) * (1 / (h * h)); return a; }),
+  // hueco de órgano: crece una QUINTA/octava sobre el fundamental (h=2,3) → registro "hollow"
+  fifth: fromAmps((t) => { const H = 24, a = new Array(H).fill(0); a[0] = 1; a[1] = t * 0.4; a[2] = t * 0.7; a[5] = t * 0.3; return a; }),
+  // saw con NOTCHES de peine que se desplazan (metálico/phasery)
+  comb: fromAmps((t) => { const H = 40, a = new Array(H); for (let h = 1; h <= H; h++) a[h - 1] = (1 / h) * Math.abs(Math.sin(h * (0.3 + t * 2.2))); return a; }),
+  // grit digital: interpola entre dos espectros aleatorios fijos (áspero, evoluciona)
+  chaos: fromAmps((t) => CHAOS_A.map((v, i) => v * (1 - t) + CHAOS_B[i] * t)),
+  // DOS formantes que se mueven ("ah → ee") → vocal más rica
+  vowel2: fromAmps((t) => { const H = 32, a = new Array(H).fill(0), c1 = 2 + t * 6, c2 = 8 + t * 14; for (let h = 1; h <= H; h++) { const d1 = (h - c1) / 2.5, d2 = (h - c2) / 3; a[h - 1] = Math.exp(-d1 * d1) + 0.7 * Math.exp(-d2 * d2) + (h === 1 ? 0.3 : 0); } return a; }),
+  // hard-sync (dominio del tiempo): saw a ratio creciente → barrido agresivo tipo sync
+  sync: fromWave((t, ph) => { const p = ((ph / (Math.PI * 2)) * (1 + t * 3)) % 1; return 1 - 2 * p; }),
+  // pico resonante ESTRECHO que sube (silbido/whistle, más afilado que formant)
+  peak: fromAmps((t) => { const H = 48, cf = 2 + t * (H - 6), a = new Array(H).fill(0); for (let h = 1; h <= H; h++) { const d = (h - cf) / 1.2; a[h - 1] = Math.exp(-d * d); } a[0] += 0.25; return a; }),
+  // triángulo → diente de sierra (entran los armónicos PARES) → de dulce a mordiente
+  tri2saw: fromAmps((t) => { const H = 36, a = new Array(H).fill(0); a[0] = 1; for (let h = 2; h <= H; h++) { const tri = h % 2 === 1 ? (1 / (h * h)) * (((h - 1) / 2) % 2 === 0 ? 1 : -1) : 0; a[h - 1] = tri * (1 - t) + (1 / h) * t; } return a; }),
+  // parciales altos brillantes que se desplazan → "glass"/shimmer
+  glass: fromAmps((t) => { const H = 40, a = new Array(H).fill(0); a[0] = 0.5; const parts = [7, 10, 13, 17, 21, 26]; parts.forEach((p, k) => { if (p <= H) a[p - 1] = 0.8 * Math.exp(-Math.pow(k / (parts.length - 1) - t, 2) / 0.1); }); return a; }),
+  // pluck: de brillante (rolloff suave) a apagado (rolloff pronunciado) → cuerda que se apaga
+  pluck: fromAmps((t) => { const H = 40, a = new Array(H), roll = 0.5 + t * 3.5; for (let h = 1; h <= H; h++) a[h - 1] = Math.pow(h, -roll); return a; }),
+};
 
-// Serie de cuadros concatenada (FRAMES × LEN) a partir de un perfil de morph. Pura (Node).
-export function morphSeries(profile: MorphProfile, frames = FRAMES): Float32Array {
+// Serie de cuadros concatenada (FRAMES × LEN) a partir de un generador de cuadro. Pura (Node).
+export function morphSeries(gen: FrameGen, frames = FRAMES): Float32Array {
   const out = new Float32Array(frames * LEN);
-  for (let f = 0; f < frames; f++) {
-    const t = frames === 1 ? 0 : f / (frames - 1);
-    out.set(additive(profile(t)), f * LEN);
-  }
+  for (let f = 0; f < frames; f++) out.set(gen(frames === 1 ? 0 : f / (frames - 1)), f * LEN);
   return out;
 }
 
 // Serie de cuadros por nombre (`telar_sweep` → su Float32Array). Puro, sin Blob URL, para
-// tests/preview. Devuelve null si el nombre no es una tabla de morph.
+// tests/preview/visor. Devuelve null si el nombre no es una tabla de morph.
 export function morphSeriesByName(name: string): Float32Array | null {
-  const p = MORPH_PROFILES[name.replace(/^telar_/, '')];
-  return p ? morphSeries(p) : null;
+  const g = MORPH_GENERATORS[name.replace(/^telar_/, '')];
+  return g ? morphSeries(g) : null;
 }
 
 export interface MorphTable { name: string; label: string; url: string; frames: number; }
 
 let cachedMorph: MorphTable[] | null = null;
 
-// Construye las tablas de morph UNA vez (Blob URL por tabla) para registerWaveTable.
+// Construye TODAS las tablas de morph UNA vez (Blob URL por tabla) para registerWaveTable.
 // Se registran como sonidos `telar_*`; en el patrón: note("..").s("telar_sweep").wt("0 .5 1").
 // (Blob URL en vez de data URI: fetch lo resuelve igual y evita cadenas gigantes.)
 export function morphWavetables(): MorphTable[] {
   if (cachedMorph) return cachedMorph;
-  cachedMorph = Object.entries(MORPH_PROFILES).map(([key, profile]) => {
-    const url = URL.createObjectURL(new Blob([wavBuffer(morphSeries(profile))], { type: 'audio/wav' }));
+  cachedMorph = Object.entries(MORPH_GENERATORS).map(([key, gen]) => {
+    const url = URL.createObjectURL(new Blob([wavBuffer(morphSeries(gen))], { type: 'audio/wav' }));
     return { name: `telar_${key}`, label: key, url, frames: FRAMES };
   });
   return cachedMorph;
 }
 
-// Lista para el selector de wavetables de morph (Fase 2).
-export const MORPH_WAVETABLES = Object.keys(MORPH_PROFILES).map((k) => ({ name: `telar_${k}`, label: k }));
+// Lista para el selector de wavetables de morph.
+export const MORPH_WAVETABLES = Object.keys(MORPH_GENERATORS).map((k) => ({ name: `telar_${k}`, label: k }));
 
 // ¿Es una onda de wavetable de MORPH (telar_*)? La distingue de las de 1 ciclo (wt_telar_*,
 // que empiezan por wt_) y de los osciladores básicos. Las de morph aceptan .wt() + unísono.

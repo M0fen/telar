@@ -7,16 +7,16 @@ const FRAMES = 16;
 
 // --- morphSeries: estructura de la serie de cuadros -----------------------------------
 test('morphSeries: concatena FRAMES cuadros de 2048 (longitud exacta)', () => {
-  const s = morphSeries((_t) => [1]); // perfil trivial (solo fundamental)
+  const s = morphSeries((_t) => new Float32Array(LEN)); // generador trivial (cuadro vacío)
   assert.equal(s.length, FRAMES * LEN);
 });
 
-test('morphSeries: cada cuadro queda normalizado a [-1,1]', () => {
-  const s = morphSeries((t) => [1, t, t * 0.5, t * 0.3]); // morph con armónicos crecientes
+test('morphSeries: cada cuadro de una tabla real queda normalizado a [-1,1] (ninguno mudo)', () => {
+  const s = morphSeriesByName('telar_reso')!; // saw + pico resonante: todos los cuadros con fundamental
   for (let f = 0; f < FRAMES; f++) {
     let max = 0;
     for (let i = 0; i < LEN; i++) max = Math.max(max, Math.abs(s[f * LEN + i]));
-    assert.ok(max <= 1.0001 && max > 0.5, `cuadro ${f}: pico ${max} fuera de rango`);
+    assert.ok(max <= 1.0001 && max > 0.5, `cuadro ${f}: pico ${max} fuera de rango (o mudo)`);
   }
 });
 
@@ -50,16 +50,20 @@ test('morphSeriesByName: nombre desconocido → null', () => {
   assert.equal(morphSeriesByName('bd'), null);
 });
 
-test('MORPH_WAVETABLES: expone al menos sweep y formant', () => {
+test('MORPH_WAVETABLES: banco de fábrica ampliado (>= 8 tablas, incluye las nuevas)', () => {
   const names = MORPH_WAVETABLES.map((t) => t.name);
-  assert.ok(names.includes('telar_sweep'), 'falta telar_sweep');
-  assert.ok(names.includes('telar_formant'), 'falta telar_formant');
+  for (const k of ['sweep', 'formant', 'pwm', 'square', 'drawbars', 'bell', 'reso', 'fold']) {
+    assert.ok(names.includes(`telar_${k}`), `falta telar_${k}`);
+  }
+  assert.ok(MORPH_WAVETABLES.length >= 8, `se esperaban >=8 tablas, hay ${MORPH_WAVETABLES.length}`);
+  // toda tabla listada debe generar una serie válida (no null) y del tamaño correcto
+  for (const t of MORPH_WAVETABLES) assert.equal(morphSeriesByName(t.name)?.length, FRAMES * LEN, `tabla ${t.name} inválida`);
 });
 
 // --- wavBuffer: cabecera WAV PCM válida (lo que registerWaveTable va a decodificar) -----
 test('wavBuffer: cabecera RIFF/WAVE/PCM correcta y tamaño de datos = n*2', () => {
   const n = FRAMES * LEN;
-  const buf = wavBuffer(morphSeries((t) => [1, t]));
+  const buf = wavBuffer(morphSeriesByName('telar_sweep')!);
   assert.equal(buf.byteLength, 44 + n * 2, 'tamaño total = 44 (cabecera) + n*2 (16-bit)');
   const v = new DataView(buf);
   const tag = (o: number) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
