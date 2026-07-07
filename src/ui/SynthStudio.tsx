@@ -23,6 +23,9 @@ const KEY_MAP: Record<string, number> = {
   a: 0, w: 1, s: 2, e: 3, d: 4, f: 5, t: 6, g: 7, y: 8, h: 9, u: 10, j: 11,
   k: 12, o: 13, l: 14, p: 15,
 };
+// clases de altura (para etiquetar cada tecla con su nota) y tecla-PC por semitono (ayuda visual).
+const PITCH = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const KEY_LABEL: Record<number, string> = Object.fromEntries(Object.entries(KEY_MAP).map(([k, s]) => [s, k.toUpperCase()]));
 
 // Teclado tocable: dispara notas con el timbre ACTUAL del synth (superdough en vivo)
 // vía ratón o teclado del PC. Al tocar una tecla FIJA la nota base (tonalidad) que el
@@ -32,19 +35,24 @@ function SynthKeyboard({ syn, nodeId, baseNote, onPick }: { syn: SynthParams; no
   const [oct, setOct] = useState(() => Math.max(0, Math.min(6, Math.floor(baseMidi / 12) - 1)));
   const [hold, setHold] = useState(0.6);
   const [active, setActive] = useState<Set<number>>(new Set());
+  const [lastNote, setLastNote] = useState(''); // última nota tocada (readout)
+  const [pickMode, setPickMode] = useState(false); // "fijar tono": el próximo toque fija la base
   const octRef = useRef(oct); octRef.current = oct;
   const synRef = useRef(syn); synRef.current = syn;
   const holdRef = useRef(hold); holdRef.current = hold;
   const pickRef = useRef(onPick); pickRef.current = onPick;
+  const pickModeRef = useRef(pickMode); pickModeRef.current = pickMode;
   const pressed = useRef<Set<string>>(new Set());
 
-  // clic/tecla = AUDICIONAR (probar libremente, sin tocar el sonido del source).
-  // shift+clic = FIJAR el tono base. Antes cada toque fijaba el tono → el source se
-  // re-pitcheaba al vuelo ("pitchea la nota y no deja ubicarla"). Ahora es no-destructivo.
+  // clic/tecla = AUDICIONAR (probar libremente, sin tocar el sonido del source). Fijar el tono
+  // base (lo que reproduce el patrón) es EXPLÍCITO: con shift+clic o el botón "fijar tono".
+  // Antes cada toque fijaba el tono → el source se re-pitcheaba al vuelo (confuso). No-destructivo.
   const trigger = (semi: number, setBase = false) => {
     const midi = (octRef.current + 1) * 12 + semi; // c(oct) = (oct+1)*12 en MIDI
+    const name = midiToName(midi);
     void playSynthNote(synRef.current, midi, holdRef.current, nodeId);
-    if (setBase) pickRef.current(midiToName(midi));
+    if (setBase || pickModeRef.current) { pickRef.current(name); setPickMode(false); } // fija la base
+    setLastNote(name);
     setActive((a) => new Set(a).add(semi));
     window.setTimeout(() => setActive((a) => { const n = new Set(a); n.delete(semi); return n; }), 170);
   };
@@ -68,25 +76,28 @@ function SynthKeyboard({ syn, nodeId, baseNote, onPick }: { syn: SynthParams; no
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const noteName = (semi: number) => { const m = (oct + 1) * 12 + semi; return PITCH[m % 12] + (Math.floor(m / 12) - 1); };
   const isBase = (semi: number) => (oct + 1) * 12 + semi === baseMidi;
   return (
     <div className="skb">
       <div className="skb-ctl">
-        <div className="vs-stepper" title="octava base del teclado">
+        <div className="vs-stepper" title="octava desde la que empieza el teclado (mueve el rango, no la tonalidad)">
           <button onClick={() => setOct((o) => Math.max(0, o - 1))}>−</button>
           <b>C{oct}<i>8va</i></b>
           <button onClick={() => setOct((o) => Math.min(6, o + 1))}>+</button>
         </div>
-        <div className="skb-tono" title="tonalidad/nota base que toca el sonido">
+        <div className="skb-tono" title="tonalidad/nota base que el sonido reproduce en el patrón">
           <span>tono</span>
           <button onClick={() => pickRef.current(midiToName((noteToMidi(baseNote) ?? 48) - 1))} title="−1 semitono">−</button>
           <b>{baseNote}</b>
           <button onClick={() => pickRef.current(midiToName((noteToMidi(baseNote) ?? 48) + 1))} title="+1 semitono">+</button>
         </div>
-        <label className="skb-hold" title="duración de cada nota">sostener
-          <input type="range" min={0.1} max={2.5} step={0.05} value={hold} onChange={(e) => setHold(parseFloat(e.target.value))} />
+        <button className={`skb-pick${pickMode ? ' on' : ''}`} onClick={() => setPickMode((p) => !p)} title="fijar el tono base: actívalo y toca una tecla (o usa shift+clic)">🎯 fijar tono</button>
+        <label className="skb-hold" title="cuánto suena cada nota al probarla — súbelo para oír el morph mientras mueves la posición (wt)">duración
+          <input type="range" min={0.1} max={6} step={0.05} value={hold} onChange={(e) => setHold(parseFloat(e.target.value))} />
+          <b>{hold.toFixed(1)}s</b>
         </label>
-        <span className="skb-hint">clic = probar la nota · shift+clic = fijar el tono · (A W S E D F T G Y H U J…)</span>
+        <span className="skb-note" title="última nota tocada">♪ {lastNote || '—'}</span>
       </div>
       <div className="skb-keys">
         {[0, 1].map((o) =>
@@ -95,15 +106,21 @@ function SynthKeyboard({ syn, nodeId, baseNote, onPick }: { syn: SynthParams; no
             const black = BLACK_AFTER[wo] !== undefined ? o * 12 + BLACK_AFTER[wo] : null;
             return (
               <div className="skb-wkey-wrap" key={semi}>
-                <button className={`skb-wkey${active.has(semi) ? ' on' : ''}${isBase(semi) ? ' base' : ''}`} onPointerDown={(e) => trigger(semi, e.shiftKey)} />
+                <button className={`skb-wkey${active.has(semi) ? ' on' : ''}${isBase(semi) ? ' base' : ''}`} onPointerDown={(e) => trigger(semi, e.shiftKey)} title={`${noteName(semi)}${KEY_LABEL[semi] ? ` · tecla ${KEY_LABEL[semi]}` : ''}${isBase(semi) ? ' · TONO base' : ''}`}>
+                  {KEY_LABEL[semi] && <span className="skb-pc">{KEY_LABEL[semi]}</span>}
+                  <span className="skb-nn">{noteName(semi)}</span>
+                </button>
                 {black !== null && (
-                  <button className={`skb-bkey${active.has(black) ? ' on' : ''}${isBase(black) ? ' base' : ''}`} onPointerDown={(e) => { e.stopPropagation(); trigger(black, e.shiftKey); }} />
+                  <button className={`skb-bkey${active.has(black) ? ' on' : ''}${isBase(black) ? ' base' : ''}`} onPointerDown={(e) => { e.stopPropagation(); trigger(black, e.shiftKey); }} title={`${noteName(black)}${KEY_LABEL[black] ? ` · tecla ${KEY_LABEL[black]}` : ''}`}>
+                    {KEY_LABEL[black] && <span className="skb-pc">{KEY_LABEL[black]}</span>}
+                  </button>
                 )}
               </div>
             );
           }),
         )}
       </div>
+      <span className="skb-hint">clic o teclas <b>A W S E D F T G Y H U J</b> = probar la nota · <b>🎯</b> o <b>shift+clic</b> = fijar el tono base (amarillo)</span>
     </div>
   );
 }

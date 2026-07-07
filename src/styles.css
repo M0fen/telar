@@ -1779,6 +1779,18 @@ button.pal-item { width: 100%; }
 .skb-bkey { position: absolute; top: 0; right: -18%; width: 36%; height: 60%; z-index: 2; background: linear-gradient(#04090b, #0b1620); border: 1px solid #000; border-radius: 0 0 3px 3px; cursor: pointer; padding: 0; box-shadow: 0 2px 3px rgba(0,0,0,0.5); }
 .skb-bkey:hover { background: #0f2831; }
 .skb-bkey.on { background: var(--accent); }
+/* piano pulido: toggle "fijar tono", readout de nota, etiquetas de nota/tecla-PC */
+.skb-pick { background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 9px; letter-spacing: 0.04em; padding: 4px 9px; border-radius: 3px; }
+.skb-pick:hover { border-color: var(--accent-dim); color: var(--accent); }
+.skb-pick.on { background: #ffcf4a; color: #1a1200; border-color: #ffcf4a; }
+.skb-note { font-size: 12px; font-family: var(--mono); color: var(--accent); letter-spacing: 0.03em; margin-left: auto; min-width: 42px; }
+.skb-wkey { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 0 0 4px; }
+.skb-nn { font-size: 8px; font-family: var(--mono); color: var(--dim); pointer-events: none; }
+.skb-wkey.on .skb-nn { color: #02110e; }
+.skb-pc { font-size: 7px; font-family: var(--mono); color: var(--faint); letter-spacing: 0.02em; pointer-events: none; margin-bottom: 2px; }
+.skb-wkey.on .skb-pc { color: rgba(2,17,14,0.7); }
+.skb-bkey { display: flex; align-items: flex-end; justify-content: center; padding: 0 0 3px; }
+.skb-bkey .skb-pc { color: rgba(200,220,255,0.45); margin: 0; }
 
 /* línea de tiempo / song mode */
 .song { width: 100%; }
