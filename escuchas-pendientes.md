@@ -64,6 +64,16 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 ## 9 · Galería de sonidos
 - [ ] Cargar **dirt-samples** (y algún pack más) → **"otros" se reduce fuerte**; buscar "bass" / "perc" / "fx" devuelve decenas, no dos. Congas/güiro/timbales caen en **percusión**; air-horn/sirena/scratch en **fx**.
 
+## 10 · Síntesis wavetable (Synth Studio) — NUEVO, sin verificar
+- [ ] Source `note(...)` → estudio de sonido → OSC A, separador **morph**: elegir cualquiera de las **18 tablas** → mover **posición (wt)** barre el timbre; el **landscape 3D** muestra los cuadros con el actual resaltado.
+- [ ] Audicionar una wavetable (teclado/▶) **SIN dar Play antes** → suena (no "sound telar_* not found").
+- [ ] **Multi-oscilador**: "+ capa de oscilador" (OSC B) → engorda; octava −1 + sine = sub; filtro/ADSR compartidos. Sin capas = idéntico a un oscilador.
+- [ ] **Editor de onda con nodos**: "crear onda propia" → arrastrar/añadir (clic)/quitar (doble-clic) nodos → curva **suave** (Catmull-Rom); **imán al cero**; "usar en OSC A" suena.
+- [ ] **Morph propio multi-cuadro**: "+ cuadro", dibujar cuadros distintos, "usar en OSC A" → aparece **posición (wt)** + landscape de TUS cuadros → morfea entre ellos.
+- [ ] **Piano** del estudio: nombres de nota + teclas PC + "🎯 fijar tono" (amarillo) + duración larga para oír el morph mientras mueves wt. Los **dos ▶** se distinguen ("▶ proyecto"=transporte, "▶ escuchar"=este sonido).
+- [ ] Agudos MUY altos de una onda dibujada: ¿aliasing tolerable? (sin band-limiting aún).
+- [ ] Todo **persiste** al cerrar/reabrir el estudio y al guardar/cargar el proyecto.
+
 ---
 
 ## Interfaz / calidad visual (mirar, sin audio)
