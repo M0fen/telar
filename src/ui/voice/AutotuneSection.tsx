@@ -3,16 +3,17 @@ import { AT_ROOTS, AT_SCALE_NAMES } from './voiceUtils';
 
 // Estado de la sección de corrección (vive en VoiceStudio para sobrevivir a
 // cerrar/reabrir el panel, igual que antes del split).
-export interface AtState { root: number; scale: string; speed: number; gate: number }
+export interface AtState { root: number; scale: string; speed: number; gate: number; deEss: number }
 
 // B2 — AUTOTUNE REAL (corrige el tono de la toma) + B5 — LIMPIAR (noise gate).
 // Presentacional: la lógica async (worker, bake) queda en VoiceStudio.
-export function AutotuneSection({ at, busy, onAt, onRun, onClean }: {
+export function AutotuneSection({ at, busy, onAt, onRun, onClean, onCleanPreview }: {
   at: AtState;
   busy: boolean;
   onAt: (patch: Partial<AtState>) => void;
   onRun: (bake: boolean) => void;
   onClean: () => void;
+  onCleanPreview: () => void;
 }) {
   return (
     <div className="vs-sec">
@@ -30,9 +31,11 @@ export function AutotuneSection({ at, busy, onAt, onRun, onClean }: {
       <p className="vs-hint">corrige el TONO de tu toma a la escala (tus palabras y tu tiempo intactos). <b>retune 0</b> = duro/robótico (T-Pain) · <b>alto</b> = natural. «probar» previsualiza; «aplicar» lo hornea. Distinto del «sampler» de arriba (que re-dispara notas).</p>
       <div className="vs-at">
         <MiniSlider label="ruido" value={at.gate} min={0} max={1} step={0.05} onChange={(x) => onAt({ gate: x })} />
-        <button className="vs-crop" disabled={busy} onClick={onClean} title="limpiar: silencia el ruido de fondo / hiss entre frases (noise gate) y lo hornea en la voz. El de-esser (suavizar eses) llegará después.">✧ limpiar</button>
+        <MiniSlider label="de-ess" value={at.deEss} min={0} max={1} step={0.05} onChange={(x) => onAt({ deEss: x })} />
+        <button className="vs-fxbtn" disabled={busy} onClick={onCleanPreview} title="probar la limpieza (ruido + de-ess) SIN hornear — para dialar el de-ess y oírlo antes de aplicar">{busy ? '⋯' : '▶ probar'}</button>
+        <button className="vs-crop" disabled={busy} onClick={onClean} title="aplicar: hornea la limpieza (ruido + de-ess) en la voz. Irreversible en la sesión (para reajustar, usa «restablecer» y vuelve a probar).">✧ limpiar</button>
       </div>
-      <p className="vs-hint">limpiar = quita el ruido de fondo (noise gate). Sube «ruido» si queda hiss entre frases; bájalo si se come el final de las palabras.</p>
+      <p className="vs-hint">limpiar = noise gate + de-esser. Usa <b>«▶ probar»</b> para oír el ajuste SIN hornear (itéralo), y <b>«✧ limpiar»</b> para aplicarlo. «ruido» quita el hiss; «de-ess» suaviza las eses (sube si las «s» pican; baja si cecea). Ojo: aplicarlo dos veces sobre la misma voz ya no añade efecto.</p>
     </div>
   );
 }

@@ -76,7 +76,7 @@ export function VoiceStudio() {
   // granular, vibrato, recorte… todo lo que un disparo estático no puede mostrar).
   const [ctxPreview, setCtxPreview] = useState(false);
   // B2 — autotune real (corrección de tono): escala/raíz/velocidad de retune + B5 gate.
-  const [at, setAt] = useState<AtState>({ root: 0, scale: 'menor', speed: 0, gate: 0.4 });
+  const [at, setAt] = useState<AtState>({ root: 0, scale: 'menor', speed: 0, gate: 0.4, deEss: 0.4 });
   const [atBusy, setAtBusy] = useState(false);
   // B4 — comping: varias tomas + qué toma suena en cada tramo
   const [takes, setTakes] = useState<Take[]>([]);
@@ -347,12 +347,30 @@ export function VoiceStudio() {
     try {
       const { cleanVoice } = await import('../audio/voiceClean');
       const region = sliceBuffer(buf, b, e);
-      const cleaned = cleanVoice(region, { gate: at.gate });
+      const cleaned = cleanVoice(region, { gate: at.gate, deEss: at.deEss });
       await bakeBuffer(cleaned);
       playAudioBuffer(cleaned);
       setWarpMsg('✓ voz limpiada (ruido de fondo silenciado).');
     } catch (err) {
       const m = emsg(err); setWarpMsg('✗ error al limpiar: ' + m); toast.err('Limpiar: ' + m);
+    } finally {
+      setAtBusy(false);
+    }
+  };
+  // PREVISUALIZAR la limpieza (gate + de-esser) SIN hornear → así puedes DIALAR el de-ess/ruido
+  // y oírlo, iterando sin destruir la toma. («limpiar» sí hornea, e irreversible: re-aplicarlo
+  // sobre una voz YA limpia no hace nada — por eso hace falta este preview para ajustar.)
+  const previewClean = async () => {
+    const buf = bufRef.current;
+    if (!buf || atBusy) return;
+    setAtBusy(true);
+    setWarpMsg('probando limpieza…');
+    try {
+      const { cleanVoice } = await import('../audio/voiceClean');
+      playAudioBuffer(cleanVoice(sliceBuffer(buf, b, e), { gate: at.gate, deEss: at.deEss }));
+      setWarpMsg('▶ previsualización (sin hornear) · «limpiar» lo aplica de verdad.');
+    } catch (err) {
+      const m = emsg(err); setWarpMsg('✗ error al probar: ' + m);
     } finally {
       setAtBusy(false);
     }
@@ -508,6 +526,7 @@ export function VoiceStudio() {
             onAt={(patch) => setAt((x) => ({ ...x, ...patch }))}
             onRun={(bake) => void runAutotune(bake)}
             onClean={() => void applyClean()}
+            onCleanPreview={() => void previewClean()}
           />
         )}
 
