@@ -1655,6 +1655,19 @@ button.pal-item { width: 100%; }
 .ss-waves > button:hover { border-color: var(--accent-dim); color: var(--accent); }
 .ss-waves .ss-wt { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; padding: 5px 9px; }
 .ss-wt-sep { color: var(--faint); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; margin: 0 2px 0 6px; }
+.ss-wtpat { width: 100%; margin-top: 6px; background: #04070a; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 11px; padding: 5px 8px; border-radius: 2px; }
+.ss-wtpat:focus { border-color: var(--accent); color: var(--accent); outline: none; }
+/* multi-oscilador: filas de capas (OSC A/B/Sub sumados) */
+.ss-osc-layers { display: flex; flex-direction: column; gap: 7px; }
+.ss-osc-row { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.ss-osc-row .tn-ms { flex: 1 1 82px; min-width: 72px; }
+.ss-osc-tag { color: var(--accent); font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; min-width: 40px; }
+.ss-osc-wave { color: var(--dim); font-family: var(--mono); font-size: 11px; min-width: 58px; }
+.ss-osc-sel { background: #04070a; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 11px; padding: 3px 6px; border-radius: 2px; }
+.ss-osc-del { background: transparent; border: 1px solid var(--line); color: var(--faint); cursor: pointer; border-radius: 2px; padding: 2px 8px; line-height: 1; }
+.ss-osc-del:hover { color: #ff6b6b; border-color: #ff6b6b; }
+.ss-osc-add { background: #04070a; border: 1px dashed var(--line); color: var(--dim); font-family: var(--mono); font-size: 11px; padding: 6px 11px; border-radius: 2px; cursor: pointer; align-self: flex-start; }
+.ss-osc-add:hover { border-color: var(--accent); color: var(--accent); }
 /* columnas auto-ajustables: encajan 2-3 secciones por fila según el ancho → menos scroll */
 .ss-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); gap: 2px 22px; align-items: start; }
 .ss-cols .vs-grid { grid-template-columns: 1fr 1fr; }

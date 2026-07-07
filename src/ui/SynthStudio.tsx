@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSynthPresetsStore } from '../store/useSynthPresetsStore';
 import { AnalyserScope } from './AnalyserScope';
-import type { NodeData, SynthParams } from '../graph/types';
+import type { NodeData, SynthParams, OscLayer } from '../graph/types';
 import { SYNTH_WAVES, DEFAULT_SYNTH } from '../graph/types';
 import { SYNTH_PRESETS, PRESET_GENRES, presetByName, macroPatch } from '../graph/synthPresets';
 import { WAVETABLES, MORPH_WAVETABLES, isMorphWave, morphSeriesByName } from '../audio/wavetables';
@@ -322,6 +322,11 @@ export function SynthStudio() {
   const reverse = !!syn.reverse;
   const loopMode = syn.loopMode ?? 'natural';
   const set = (patch: Partial<SynthParams>) => update(synthEditId, { synthOn: true, synth: { ...syn, ...patch } });
+  // --- MULTI-OSCILADOR: gestión de capas (OSC B/Sub…, se SUMAN a OSC A) ---
+  const layers = syn.oscLayers ?? [];
+  const addLayer = () => set({ oscLayers: [...layers, { wave: 'sawtooth', level: 0.6, octave: 0, detune: 0.1 }] });
+  const setLayer = (i: number, patch: Partial<OscLayer>) => set({ oscLayers: layers.map((l, j) => (j === i ? { ...l, ...patch } : l)) });
+  const removeLayer = (i: number) => set({ oscLayers: layers.filter((_, j) => j !== i) });
   const applyPreset = (i: number) => {
     if (i < 0) return;
     const p = SYNTH_PRESETS[i];
@@ -538,6 +543,38 @@ export function SynthStudio() {
             onChange={(e) => set({ wtpat: e.target.value })}
             title="barre el morph como un PATRÓN alineado a los pasos (pisa la posición estática). Vacío = usa el knob."
           />
+        </div>
+        )}
+
+        {/* MULTI-OSCILADOR: capas (OSC B/Sub…) sumadas a OSC A dentro de la misma voz */}
+        {!isSample && (
+        <div className="vs-sec">
+          <h4>capas de oscilador · multi-osc {layers.length > 0 && <i className="ss-kind">{layers.length + 1} osc sumados</i>}</h4>
+          <div className="ss-osc-layers">
+            {layers.length > 0 && (
+              <div className="ss-osc-row">
+                <span className="ss-osc-tag">OSC A</span>
+                <span className="ss-osc-wave" title="onda principal (arriba)">{isMorphWave(syn.wave) ? `wt·${syn.wave?.replace('telar_', '')}` : (syn.wave ?? 'sawtooth')}</span>
+                <MiniSlider label="nivel" value={num(syn.levelA)} min={0} max={1} step={0.02} onChange={(v) => set({ levelA: v })} />
+              </div>
+            )}
+            {layers.map((l, i) => (
+              <div className="ss-osc-row" key={i}>
+                <span className="ss-osc-tag">OSC {String.fromCharCode(66 + i)}</span>
+                <select className="ss-osc-sel" value={l.wave} onChange={(e) => setLayer(i, { wave: e.target.value })} title="onda de la capa">
+                  {SYNTH_WAVES.map((w) => <option key={w} value={w}>{w}</option>)}
+                  {MORPH_WAVETABLES.map((wt) => <option key={wt.name} value={wt.name}>wt · {wt.label}</option>)}
+                </select>
+                <MiniSlider label="nivel" value={num(l.level)} min={0} max={1} step={0.02} onChange={(v) => setLayer(i, { level: v })} />
+                <MiniSlider label="octava" value={Number(l.octave ?? 0)} min={-2} max={2} step={1} onChange={(v) => setLayer(i, { octave: Math.round(v) })} />
+                <MiniSlider label="detune" value={num(l.detune)} min={-0.5} max={0.5} step={0.01} onChange={(v) => setLayer(i, { detune: v })} />
+                <button className="ss-osc-del" onClick={() => removeLayer(i)} title="quitar esta capa">×</button>
+              </div>
+            ))}
+            {layers.length < 2 && (
+              <button className="ss-osc-add" onClick={addLayer} title="añadir una capa de oscilador (OSC B / Sub) sumada a OSC A">+ capa de oscilador</button>
+            )}
+          </div>
         </div>
         )}
 

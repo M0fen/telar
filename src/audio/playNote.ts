@@ -308,7 +308,23 @@ export async function playSynthNote(
   const ctx = getAudioContext();
   try {
     // superdough MUTA el value (le añade duration) → pasamos un objeto fresco.
-    await superdough(synthToValue(syn, note, nodeId), ctx.currentTime + 0.03, holdSec, 0.5, 0.5);
+    const base = synthToValue(syn, note, nodeId);
+    const at = ctx.currentTime + 0.03;
+    // MULTI-OSCILADOR: si hay capas, la audición dispara OSC A + cada capa como voz aparte
+    // (misma cadena de filtro/envolvente que trae `base`), para que el preview del teclado
+    // suene igual que el patrón. Sin capas: una sola voz (comportamiento de siempre).
+    const layers = (Array.isArray(syn.oscLayers) ? syn.oscLayers : []).filter((l) => l && l.wave && num(l.level, 0) > 0.001);
+    if (!layers.length) { await superdough(base, at, holdSec, 0.5, 0.5); return; }
+    const baseGain = typeof base.gain === 'number' ? base.gain : 0.85;
+    const baseNote = typeof base.note === 'number' ? base.note : (typeof note === 'number' ? note : null);
+    await superdough({ ...base, gain: baseGain * num(syn.levelA, 1) }, at, holdSec, 0.5, 0.5);
+    for (const l of layers) {
+      const v: Record<string, unknown> = { ...base, s: l.wave, gain: baseGain * num(l.level, 0.6) };
+      // capa = oscilador simple: quita lo específico de OSC A (unísono/morph/FM)
+      delete v.unison; delete v.detune; delete v.spread; delete v.wt; delete v.fmi; delete v.fmh;
+      if (baseNote != null) v.note = baseNote + Math.round(num(l.octave, 0)) * 12 + num(l.detune, 0);
+      void superdough(v, at, holdSec, 0.5, 0.5);
+    }
   } catch (err) {
     reportAudioErr('synth', err);
   }

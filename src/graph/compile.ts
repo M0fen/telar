@@ -196,49 +196,70 @@ function applySynth(code: string, syn: SynthParams): string {
   const sample = isSampleSource(code);
   let out = code;
   if (!sample) {
-    // --- OSCILADOR: forma de onda + morph (wavetable) + unísono + ruido + FM ---
-    if (syn.wave) out += `.s("${syn.wave}")`;
+    // --- OSCILADOR A: forma de onda + morph (wavetable) + unísono + ruido + FM ---
+    // Los sufijos de OSC A se acumulan en `a` (no en `out`) para poder envolverlo en un
+    // stack() con las capas extra del multi-oscilador (abajo).
+    let a = '';
+    if (syn.wave) a += `.s("${syn.wave}")`;
     const morph = isMorphWave(syn.wave);
     // WAVETABLE de MORPH: posición del barrido entre cuadros. Patroneable (texto, el
     // diferencial de Telar) tiene prioridad sobre el valor estático.
     if (morph) {
       const pat = (syn.wtpat || '').trim();
-      out += pat ? `.wt("${pat}")` : `.wt(${n(syn.wtpos, 0).toFixed(3)})`;
+      a += pat ? `.wt("${pat}")` : `.wt(${n(syn.wtpos, 0).toFixed(3)})`;
     }
     if (syn.wave === 'supersaw') {
       const unison = Math.round(n(syn.unison, 5));
-      if (unison > 1) out += `.unison(${unison})`;
+      if (unison > 1) a += `.unison(${unison})`;
       const detune = n(syn.detune, 0.18);
-      if (detune > 0.001) out += `.detune(${detune.toFixed(3)})`;
+      if (detune > 0.001) a += `.detune(${detune.toFixed(3)})`;
       const spread = n(syn.spread, 0);
-      if (spread > 0.001) out += `.spread(${spread.toFixed(2)})`;
+      if (spread > 0.001) a += `.spread(${spread.toFixed(2)})`;
     } else if (morph) {
       // El oscilador wavetable soporta el MISMO unísono (voces/detune/spread). detune/spread
       // no hacen nada con 1 voz → se emiten SOLO al engordar (voces>1), dejando el morph puro por defecto.
       const unison = Math.round(n(syn.unison, 1));
       if (unison > 1) {
-        out += `.unison(${unison})`;
+        a += `.unison(${unison})`;
         const detune = n(syn.detune, 0.18);
-        if (detune > 0.001) out += `.detune(${detune.toFixed(3)})`;
+        if (detune > 0.001) a += `.detune(${detune.toFixed(3)})`;
         const spread = n(syn.spread, 0);
-        if (spread > 0.001) out += `.spread(${spread.toFixed(2)})`;
+        if (spread > 0.001) a += `.spread(${spread.toFixed(2)})`;
       }
     }
     const noise = n(syn.noise, 0);
-    if (noise > 0.001) out += `.noise(${noise.toFixed(2)})`;
+    if (noise > 0.001) a += `.noise(${noise.toFixed(2)})`;
     // ancho de pulso (timbre de la onda cuadrada/pulso; base de PWM)
     const pw = n(syn.pw, 0.5);
-    if (Math.abs(pw - 0.5) > 0.001) out += `.pw(${pw.toFixed(3)})`;
+    if (Math.abs(pw - 0.5) > 0.001) a += `.pw(${pw.toFixed(3)})`;
     // FM (operador: índice + ratio + forma de onda del modulador + envolvente del índice)
     const fm = n(syn.fm, 0);
     if (fm > 0.01) {
-      out += `.fm(${fm.toFixed(2)})`;
+      a += `.fm(${fm.toFixed(2)})`;
       const fmh = n(syn.fmh, 1);
-      if (Math.abs(fmh - 1) > 0.001) out += `.fmh(${fmh.toFixed(2)})`;
-      if (syn.fmwave && syn.fmwave !== 'sine') out += `.fmwave("${syn.fmwave}")`;
+      if (Math.abs(fmh - 1) > 0.001) a += `.fmh(${fmh.toFixed(2)})`;
+      if (syn.fmwave && syn.fmwave !== 'sine') a += `.fmwave("${syn.fmwave}")`;
       const fa = n(syn.fmattack, 0), fd = n(syn.fmdecay, 0), fs = n(syn.fmsustain, 1);
       if (fa > 0.001 || fd > 0.001 || fs < 0.999)
-        out += `.fmattack(${fa.toFixed(3)}).fmdecay(${fd.toFixed(3)}).fmsustain(${fs.toFixed(2)})`;
+        a += `.fmattack(${fa.toFixed(3)}).fmdecay(${fd.toFixed(3)}).fmsustain(${fs.toFixed(2)})`;
+    }
+    // MULTI-OSCILADOR: capas extra (OSC B, Sub…) SUMADAS a OSC A en un stack(). Los sufijos
+    // compartidos de abajo (envolvente/filtro/fx) se reparten a cada capa; como el filtro es
+    // LINEAL, filtrar cada capa por igual ≡ filtrar la suma (= multi-osc de Serum). El nivel por
+    // capa va en .gain (sobrevive: el gain de NODO se aplica con .mul(gain())). Sin capas: 1 onda.
+    const layers = (Array.isArray(syn.oscLayers) ? syn.oscLayers : []).filter((l) => l && l.wave && n(l.level, 0) > 0.001);
+    if (layers.length > 0) {
+      const layerExpr = (wave: string, level: number, oct: number, det: number): string => {
+        let s = `${code}.s("${wave}")`;
+        const off = oct * 12 + det; // octava (×12) + desafinado fino, en semitonos
+        if (Math.abs(off) > 0.0005) s += `.add(note(${off.toFixed(3)}))`;
+        return s + `.gain(${level.toFixed(2)})`;
+      };
+      const parts = [`${code}${a}.gain(${n(syn.levelA, 1).toFixed(2)})`];
+      for (const l of layers) parts.push(layerExpr(l.wave, n(l.level, 0.6), Math.round(n(l.octave, 0)), n(l.detune, 0)));
+      out = `stack(${parts.join(', ')})`;
+    } else {
+      out += a;
     }
   } else {
     // --- SAMPLE: reproducción de la muestra (tras el .begin()/.end() ya inyectado) ---

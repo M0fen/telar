@@ -49,9 +49,21 @@ export interface OpDef {
 // Synth "tocable" (Fase 4 + expansión): oscilador + FM + ADSR + filtro con
 // envolvente + vibrato + carácter (ruido/distorsión/coarse). Todo nativo del motor
 // (superdough). Se aplica como sufijos al patrón del Source en el compilador.
+// Capa de oscilador extra (multi-oscilador estilo Serum: OSC B, Sub…). Se SUMAN a OSC A
+// (la onda principal `wave`) DENTRO de la misma voz, compartiendo filtro y envolvente.
+export interface OscLayer {
+  wave: string;    // onda de la capa (sawtooth|square|triangle|sine|supersaw|telar_*)
+  level: number;   // nivel de mezcla 0..1
+  octave?: number; // desplazamiento en octavas -2..+2 (sub = -1/-2)
+  detune?: number; // desafinado fino en semitonos (engrosa/beating), p.ej. 0.1
+}
+
 export interface SynthParams {
   wave?: string; // sawtooth | square | triangle | sine | supersaw | telar_* (wavetable de morph)
   // oscilador / unísono (supersaw + wavetable) / carácter
+  // --- MULTI-OSCILADOR: capas extra sumadas a OSC A (misma voz; filtro/envolvente comunes) ---
+  levelA?: number;        // nivel de OSC A cuando hay capas (0..1); sin capas se ignora
+  oscLayers?: OscLayer[]; // capas extra (OSC B, Sub…); vacío/undefined = un solo oscilador
   spread?: number; // ancho estéreo del unísono 0..1 (supersaw y wavetable de morph)
   unison?: number; // nº de voces 1..9 (grosor) (supersaw y wavetable de morph)
   detune?: number; // desafinado entre voces 0..0.5 (supersaw y wavetable de morph)
@@ -130,6 +142,7 @@ export const DEFAULT_SYNTH: SynthParams = {
   unison: 5,
   detune: 0.18,
   wtpos: 0,
+  levelA: 1,
   noise: 0,
   pw: 0.5,
   octave: 0,

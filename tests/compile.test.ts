@@ -96,6 +96,40 @@ test('.wt solo en ondas de morph (una onda básica no lo emite)', () => {
   assert.doesNotMatch(code(r), /\.wt\(/);
 });
 
+test('multi-oscilador: sin capas = una sola onda (sin stack, sin regresión)', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: { wave: 'sawtooth' } }), out()], [E('s', 'o')]);
+  assert.match(code(r), /note\("c3"\)\.s\("sawtooth"\)/);
+  assert.doesNotMatch(code(r), /stack\(/);
+});
+
+test('multi-oscilador: una capa extra → stack(OSC A.gain, capa) + filtro/envolvente compartidos', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: {
+    wave: 'sawtooth', levelA: 0.8,
+    oscLayers: [{ wave: 'square', level: 0.5, octave: -1 }],
+    cutoff: 1000,
+  } }), out()], [E('s', 'o')]);
+  const c = code(r);
+  assert.match(c, /stack\(/);
+  assert.match(c, /note\("c3"\)\.s\("sawtooth"\)\.gain\(0\.80\)/);                       // OSC A con su nivel
+  assert.match(c, /note\("c3"\)\.s\("square"\)\.add\(note\(-12\.000\)\)\.gain\(0\.50\)/); // capa -1 octava
+  assert.match(c, /\.attack\(/);   // envolvente compartida, tras el stack
+  assert.match(c, /\.lpf\(1000\)/); // filtro compartido, tras el stack
+});
+
+test('multi-oscilador: capa con detune fino suma semitonos fraccionarios', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: {
+    wave: 'sawtooth', oscLayers: [{ wave: 'sawtooth', level: 0.6, detune: 0.1 }],
+  } }), out()], [E('s', 'o')]);
+  assert.match(code(r), /\.s\("sawtooth"\)\.add\(note\(0\.100\)\)\.gain\(0\.60\)/);
+});
+
+test('multi-oscilador: una capa de nivel ~0 se ignora (no genera stack)', () => {
+  const r = C([src('s', 'note("c3")', { synthOn: true, synth: {
+    wave: 'sawtooth', oscLayers: [{ wave: 'square', level: 0 }],
+  } }), out()], [E('s', 'o')]);
+  assert.doesNotMatch(code(r), /stack\(/);
+});
+
 test('synth on a SAMPLE never overrides it with an oscillator (regression)', () => {
   const r = C([src('s', 's("kick")', { synthOn: true, synth: { wave: 'sawtooth', cutoff: 800 } }), out()], [E('s', 'o')]);
   assert.doesNotMatch(code(r), /\.s\("sawtooth"\)/);
