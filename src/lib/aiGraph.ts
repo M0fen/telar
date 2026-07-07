@@ -9,6 +9,7 @@ import type { Node, Edge } from '@xyflow/react';
 import type { ProjectSnapshot } from './projectStore';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
+import { sanitizeMasterFx } from '../graph/compile';
 
 // tokens que no aparecen en mini-notación de Strudel y sí en código malicioso/roto.
 const DANGER = /\b(import|require|fetch|eval|Function|window|document|globalThis|constructor|__proto__|prototype|process|async|await|XMLHttpRequest|location|cookie|localStorage)\b|`|=>/;
@@ -234,7 +235,17 @@ export function sanitizeAiGraph(raw: unknown): SanitizeResult {
     if (extractedCps != null && extractedCps > 0 && extractedCps <= 4) { cps = extractedCps; warnings.push(`tempo del proyecto tomado del nodo de tempo → cps ${cps.toFixed(3)}`); }
     else { cps = 0.5; warnings.push('cps fuera de rango → 0.5 (120bpm)'); }
   }
-  const master = r.master && typeof r.master === 'object' ? (r.master as ProjectSnapshot['master']) : undefined;
+  // MÁSTER: NodIa alucina valores fuera de escala (p.ej. filter:-3, cuyo rango es -1..1; al
+  // compilar, applyMaster lo recorta a -1 = lpf(100 Hz) = salida MUDA). Se pasa por el MISMO
+  // saneador que los imports (sanitizeMasterFx): resetea a NEUTRO los campos fuera de rango y
+  // describe qué cambió → esas notas entran en la "revisión del proyecto" para transparencia.
+  // NO-OP para un máster en rango (notes vacío).
+  let master = r.master && typeof r.master === 'object' ? (r.master as ProjectSnapshot['master']) : undefined;
+  if (master) {
+    const sane = sanitizeMasterFx(master);
+    master = sane.master;
+    for (const note of sane.notes) warnings.push(`máster: ${note}`);
+  }
 
   return {
     snap: { nodes, edges, cps, beatsPerCycle: 4, transpose: 0, ...(master ? { master } : {}) },

@@ -65,3 +65,29 @@ test('sanitizeAiGraph: si no queda ningún instrumento, lanza error para reinten
     /no produjo audio|reintenta/,
   );
 });
+
+// --- ACEPTACIÓN: un máster alucinado por NodIa (fuera de rango) NUNCA deja la salida muda ---
+test('sanitizeAiGraph: sanea el máster fuera de rango (filter:-3 → 0 neutro) y lo reporta en la revisión', () => {
+  const { snap, warnings } = sanitizeAiGraph({
+    nodes: [
+      { id: 'k', type: 'source', data: { kind: 'source', name: 'kick', code: 's("bd*4").bank("RolandTR909")' } },
+      { id: 'o', type: 'out', data: { kind: 'out' } },
+    ],
+    edges: [],
+    master: { gain: 1, filter: -3, crush: 5, room: 0.2 }, // filter/crush fuera de rango, room OK
+  });
+  const master = snap.master as Record<string, number>;
+  assert.equal(master.filter, 0, 'filter -3 (rango -1..1) → 0 = sin filtro, SUENA');
+  assert.equal(master.crush, 0, 'crush 5 (rango 0..1) → 0 = sin crush');
+  assert.equal(master.room, 0.2, 'room en rango → intacto');
+  assert.ok(warnings.some((w) => /máster:.*filtro.*-3.*0.*neutro/.test(w)), `la revisión lista el filtro reseteado: ${JSON.stringify(warnings)}`);
+});
+
+test('sanitizeAiGraph: un máster en rango NO añade avisos (no-op)', () => {
+  const { warnings } = sanitizeAiGraph({
+    nodes: [{ id: 'k', type: 'source', data: { kind: 'source', code: 's("bd*4")' } }, { id: 'o', type: 'out', data: { kind: 'out' } }],
+    edges: [],
+    master: { gain: 1, filter: -0.3, room: 0.2, crush: 0.4 },
+  });
+  assert.ok(!warnings.some((w) => w.startsWith('máster:')), 'sin avisos de máster para valores en rango');
+});
