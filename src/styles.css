@@ -299,6 +299,8 @@ body {
 .packs-hint { font-size: 9px; color: var(--faint); margin-top: 6px; line-height: 1.4; }
 .perf-bus { display: flex; align-items: center; gap: 12px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); }
 .perf-bus-tag { font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+.perf-sc { background: #04070a; border: 1px solid var(--accent-dim); color: var(--accent); font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+.perf-sc:hover { background: var(--accent); color: #02110e; border-color: var(--accent); }
 /* medidor LUFS (M2) */
 .perf-lufs { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 5px; }
 .perf-lufs-head { display: flex; align-items: center; gap: 8px; }

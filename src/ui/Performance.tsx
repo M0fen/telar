@@ -40,6 +40,7 @@ function PerfFxRow({ master, setMaster }: { master: MasterFx; setMaster: (p: Par
 export function Performance() {
   const master = useGraphStore((s) => s.master);
   const setMaster = useGraphStore((s) => s.setMaster);
+  const autoSidechain = useGraphStore((s) => s.autoSidechain);
   const mode = useGraphStore((s) => s.mode);
   const userIrs = useIrStore((s) => s.userIrs);
   const irInput = useRef<HTMLInputElement | null>(null);
@@ -145,6 +146,7 @@ export function Performance() {
         </div>
         <div className="perf-bus">
           <span className="perf-bus-tag">bus</span>
+          <button className="perf-sc" onClick={() => autoSidechain()} title="sidechain al bombo: duckea TODAS las pistas al bombo (bd/kick/808) = pump de hard-techno/house. Ctrl+Z lo deshace.">⏬ pump</button>
           <div className="perf-cell">
             <Knob value={master.limit ?? 0} min={0} max={1} step={0.01} size={34} defaultValue={0} label="limiter (evita clipping + loudness)" onChange={(v) => setMaster({ limit: v })} />
             <span className="perf-cap">limiter</span>

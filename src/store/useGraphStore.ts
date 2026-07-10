@@ -144,6 +144,7 @@ interface GraphState {
   // inserta un sidechain DUCK entre una fuente (a duckear) y su Out, disparado por otra
   // fuente (el kick). Devuelve el id del nodo sidechain o null si no se pudo. (mezcla IA)
   insertSidechain: (targetId: string, triggerId: string, depth?: number, attack?: number) => string | null;
+  autoSidechain: () => void; // "pump al bombo": duckea todas las pistas al bombo detectado (bd/kick/808)
   // desplaza un conjunto de nodos por (dx,dy). Lo usa el arrastre del Out, que
   // mueve todo su grafo aguas arriba como una unidad.
   moveNodesBy: (ids: string[] | Set<string>, dx: number, dy: number) => void;
@@ -352,6 +353,51 @@ export const useGraphStore = create<GraphState>((set, get) => {
       set({ nodes: [...nodes, scNode], edges: kept });
       get().recompile();
       return id;
+    },
+
+    // AUTO-SIDECHAIN ("pump al bombo"): detecta el bombo (bd/kick/808) y duckea TODAS las demás
+    // pistas a él en UNA sola operación (un recompile / un undo). Clásico de hard-techno/house.
+    autoSidechain: () => {
+      const nodes = get().nodes;
+      const sources = nodes.filter((n) => n.data.kind === 'source');
+      // Puntúa cuán "bombo" es un source. OJO: no usamos \b (word boundary) porque en
+      // regex el '_' y los dígitos son caracteres de palabra → nombres reales como
+      // "808bd", "kick_deep" o "bd*4" quedaban fuera. Buscamos por subcadena con una
+      // frontera que SÍ permite dígitos/guiones bajos adyacentes (evitando solo letras,
+      // p.ej. "abduct"). Preferimos un bombo real (bombo/kick/bd) sobre el 808 (que suele
+      // ser el bajo/sub) como disparador del pump.
+      const kickScore = (n: GNode): number => {
+        const hay = `${n.data.name ?? ''} ${n.data.code ?? ''}`.toLowerCase();
+        if (/(^|[^a-z])(bombo|kick|kik)/.test(hay) || /(^|[^a-z])bd([^a-z]|$)/.test(hay)) return 2;
+        if (/(^|[^a-z])808([^a-z]|$)/.test(hay) || /(^|[^a-z])boom([^a-z]|$)/.test(hay)) return 1;
+        return 0;
+      };
+      const kick = sources
+        .map((n) => ({ n, s: kickScore(n) }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) => b.s - a.s)[0]?.n;
+      if (!kick) { toast.warn('Sidechain: no encontré un bombo (bd/kick/808/bombo). Renombra el source del bombo así (doble clic en su nombre) o usa el sidechain manual.'); return; }
+      const newNodes: GNode[] = [];
+      let newEdges = [...get().edges];
+      let count = 0;
+      for (const s of sources) {
+        if (s.id === kick.id) continue;
+        const outEdges = newEdges.filter((e) => e.source === s.id && nodes.some((n) => n.id === e.target && n.data.kind === 'out'));
+        if (!outEdges.length) continue; // el source debe alimentar un Out para insertar en medio
+        const hasDuck = [...nodes, ...newNodes].some((n) => n.data.kind === 'fx' && n.data.opId === 'sidechain' && n.data.params?.mode === 'duck' && newEdges.some((e) => e.source === s.id && e.target === n.id));
+        if (hasDuck) continue; // ya bombea
+        const id = nextId('fx');
+        newNodes.push({ id, type: 'fx', position: { x: s.position.x + 150, y: s.position.y + 46 }, data: { kind: 'fx', opId: 'sidechain', params: { mode: 'duck', trigger: kick.id, depth: 0.6, attack: 0.1 } } });
+        newEdges = newEdges.filter((e) => !outEdges.includes(e));
+        newEdges.push({ id: `e_${s.id}_${id}`, source: s.id, target: id });
+        for (const oe of outEdges) newEdges.push({ id: `e_${id}_${oe.target}`, source: id, target: oe.target });
+        count++;
+      }
+      if (!count) { toast.warn('Sidechain: no había pistas para duckear al bombo (o ya bombean).'); return; }
+      pushPast(true);
+      set({ nodes: [...nodes, ...newNodes], edges: newEdges });
+      get().recompile();
+      toast.ok(`Sidechain: ${count} pista(s) bombean al bombo «${kick.data.name ?? 'bombo'}».`);
     },
 
     addSourceToOut: () => {
