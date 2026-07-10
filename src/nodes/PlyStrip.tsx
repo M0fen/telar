@@ -88,7 +88,7 @@ export function PlyStrip({ id, code }: { id: string; code: string }) {
           </button>
         ))}
       </div>
-      <p className="gate-hint">clic sube el nº de repeticiones (redoble) · ×2/×3/×4 = rolls · ideal para hats y fills</p>
+      <p className="gate-hint">clic sube el nº de repeticiones (redoble) · ×2 = doble ("tutu") · ×3/×4 = rolls · <b>para AÑADIR golpes distintos usa el secuenciador ▦</b></p>
     </div>
   );
 }

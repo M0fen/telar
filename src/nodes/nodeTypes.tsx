@@ -27,7 +27,7 @@ function isMelodicSeq(code: string): boolean {
   return /\bnote\(\s*["'`]|\bn\(\s*["'`]/.test(code) && !/\.loopAt\(/.test(code) && !code.includes('arrange');
 }
 // ¿el source es editable en el secuenciador de rejilla? Melódico (note/n), percusivo
-// (varios pasos o *N) o ARREGLADO por secciones (arrange → el secuenciador muestra
+// (uno o varios golpes) o ARREGLADO por secciones (arrange → el secuenciador muestra
 // pestañas y edita cada brazo; P0.3). Excluye solo loops de sample sueltos.
 function isSeqable(code: string): boolean {
   if (/\barrange\s*\(/.test(code)) return true; // secciones: StepSeq edita cada brazo
@@ -36,7 +36,12 @@ function isSeqable(code: string): boolean {
   if (isMelodicSeq(code)) return true;
   const m = /\b(?:s|sound)\(\s*["'`]([^"'`]*)/.exec(code);
   if (!m || /\bnote\(|\bn\(/.test(code)) return false;
-  return /\s/.test(m[1]) || /\*/.test(m[1]);
+  // Cualquier sonido con contenido es secuenciable — INCLUIDO un solo golpe s("bd").
+  // Antes exigía un espacio o un *N (≥2 pasos), así que un source de UN golpe ("tu")
+  // no ofrecía el secuenciador ▦ → el usuario solo tenía silencios/rolls (que apagan o
+  // repiten, NUNCA añaden golpes) y no podía hacer "tu" → "tutu". La rejilla es el
+  // editor universal (añade/quita golpes): un golpe suelto también entra.
+  return /\S/.test(m[1]);
 }
 import { wrapNumberAtCursor } from './sliderWidget';
 import { getEditor } from './highlight';

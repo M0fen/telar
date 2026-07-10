@@ -95,7 +95,7 @@ export function GateStrip({ id, code }: { id: string; code: string }) {
           />
         ))}
       </div>
-      <p className="gate-hint">apaga pasos para abrir huecos/silencios exactos · arrastra para pintar · el hueco se repite cada ciclo</p>
+      <p className="gate-hint">apaga pasos para abrir huecos/silencios exactos · arrastra para pintar · <b>para AÑADIR golpes usa el secuenciador ▦</b> (esto solo silencia)</p>
     </div>
   );
 }

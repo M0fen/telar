@@ -747,10 +747,14 @@ body {
 .seqs-rm { color: var(--faint); font-size: 11px; opacity: 0.6; }
 .seqs-rm:hover { color: #e46a6a; opacity: 1; }
 .seqs-row { display: grid; gap: 2px; flex: 1; }
-.seqs-cell { height: 20px; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; padding: 0; background: rgba(255,255,255,0.02); }
+.seqs-cell { height: 20px; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; padding: 0; background: rgba(255,255,255,0.055); }
+/* celda VACÍA (paso apagado): afordancia clara de "clic para encender". Antes era 2% de
+   blanco = invisible en oscuro, así que un paso recién añadido con «+» no se veía y
+   parecía que "no se podía" hacer tutu. Hover = se ilumina + borde acento. */
+.seqs-cell:hover { background: rgba(255,255,255,0.15); border-color: var(--accent-dim); }
 .seqs-cell.beat { border-left-color: var(--accent-dim); }
 .seqs-cell.on { background: var(--accent); opacity: 0.6; border-color: var(--accent-dim); }
-.seqs-cell.on:hover { opacity: 0.85; }
+.seqs-cell.on:hover { opacity: 0.85; background: var(--accent); }
 .seqs-cell.on.accent { opacity: 0.98; box-shadow: 0 0 7px var(--accent-dim); }
 .seqs-cell.on.ghost { opacity: 0.26; }
 .seqs-cell.play { box-shadow: inset 0 0 0 2px #e8d16a; }
