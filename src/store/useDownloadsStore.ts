@@ -20,6 +20,17 @@ interface DownloadsState {
   remove: (id: string) => Promise<void>;
 }
 
+// La web publicada (build estático en Vercel) NO tiene los endpoints /api/yt/* (son un
+// plugin del server de Vite, solo en `npm run dev`). Vercel responde a esas rutas con un
+// 404 de TEXTO PLANO ("The page could not be found"), que NO es JSON → `r.json()` lanzaba
+// «Unexpected token 'T', "The page c"… is not valid JSON». Leemos el JSON de forma segura
+// (solo si el content-type lo es) para dar un mensaje claro en vez del error críptico.
+const DEV_ONLY = 'El descargador de YouTube solo funciona en la app local (npm run dev); no está disponible en la web publicada.';
+async function readJson(r: Response): Promise<{ ok?: boolean; [k: string]: unknown } | null> {
+  if (!(r.headers.get('content-type') || '').includes('application/json')) return null;
+  return r.json().catch(() => null);
+}
+
 export const useDownloadsStore = create<DownloadsState>((set) => ({
   tracks: [],
   busy: false,
@@ -29,8 +40,8 @@ export const useDownloadsStore = create<DownloadsState>((set) => ({
   refresh: async () => {
     try {
       const r = await fetch('/api/yt/list');
-      const j = await r.json();
-      if (j.ok) set({ tracks: j.tracks as Track[] });
+      const j = await readJson(r);
+      if (j?.ok) set({ tracks: j.tracks as Track[] });
     } catch {
       /* servidor sin el plugin (build estático): silencioso */
     }
@@ -44,9 +55,14 @@ export const useDownloadsStore = create<DownloadsState>((set) => ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
-      const j = await r.json();
+      const j = await readJson(r);
+      if (!j) {
+        // respuesta no-JSON: el endpoint no existe (web publicada) o el server está caído.
+        set({ busy: false, error: DEV_ONLY, status: null });
+        return null;
+      }
       if (!j.ok) {
-        set({ busy: false, error: j.error ?? 'falló la descarga', status: null });
+        set({ busy: false, error: (j.error as string) ?? 'falló la descarga', status: null });
         return null;
       }
       const track = j.track as Track;
