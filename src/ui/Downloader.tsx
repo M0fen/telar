@@ -14,6 +14,7 @@ export function Downloader() {
   const busy = useDownloadsStore((s) => s.busy);
   const error = useDownloadsStore((s) => s.error);
   const status = useDownloadsStore((s) => s.status);
+  const available = useDownloadsStore((s) => s.available);
   const download = useDownloadsStore((s) => s.download);
   const refresh = useDownloadsStore((s) => s.refresh);
   const remove = useDownloadsStore((s) => s.remove);
@@ -105,16 +106,25 @@ export function Downloader() {
         <input
           type="text"
           value={url}
-          placeholder="pega un enlace de youtube…"
+          placeholder={available === false ? 'solo en la app local (npm run dev)' : 'pega un enlace de youtube…'}
+          disabled={available === false}
           onChange={(e) => setUrl(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void onDownload();
           }}
         />
-        <button onClick={() => void onDownload()} disabled={busy}>
+        <button onClick={() => void onDownload()} disabled={busy || available === false}>
           {busy ? '···' : '↓'}
         </button>
       </div>
+      {/* build estático (web publicada): yt-dlp corre en TU PC vía el server de Vite, así
+          que aquí no hay dónde ejecutarlo. Se avisa por adelantado en vez de fallar al pulsar. */}
+      {available === false && (
+        <p className="dl-status">
+          Bajar de YouTube solo funciona en la app local (<code>npm run dev</code>): necesita
+          <code> yt-dlp</code> en tu equipo. Para usar ese audio aquí, súbelo como sample a tu banco.
+        </p>
+      )}
       {status && !error && <p className="dl-status">{status}</p>}
       {error && <p className="dl-error">{error}</p>}
       {tracks.length > 0 && (

@@ -15,6 +15,10 @@ interface DownloadsState {
   busy: boolean;
   error: string | null;
   status: string | null;
+  // ¿hay servidor con el plugin de descargas? null = aún sin comprobar · false = web
+  // publicada (build estático): la UI se muestra deshabilitada con una nota, en vez de
+  // dejarte pegar un enlace para fallar al pulsar.
+  available: boolean | null;
   refresh: () => Promise<void>;
   download: (url: string) => Promise<Track | null>;
   remove: (id: string) => Promise<void>;
@@ -36,14 +40,18 @@ export const useDownloadsStore = create<DownloadsState>((set) => ({
   busy: false,
   error: null,
   status: null,
+  available: null,
 
   refresh: async () => {
     try {
       const r = await fetch('/api/yt/list');
       const j = await readJson(r);
-      if (j?.ok) set({ tracks: j.tracks as Track[] });
+      if (!j) { set({ available: false }); return; } // web publicada: sin plugin
+      set({ available: true });
+      if (j.ok) set({ tracks: j.tracks as Track[] });
     } catch {
-      /* servidor sin el plugin (build estático): silencioso */
+      /* servidor caído o sin el plugin (build estático): silencioso */
+      set({ available: false });
     }
   },
 
