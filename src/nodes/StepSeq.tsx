@@ -193,7 +193,7 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     return (
       <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
         <p className="seqs-none">patrón avanzado: usa secciones <code>arrange(…)</code>, melodía <code>note(…)</code>, alternancia <code>&lt;a b&gt;</code>, euclídeo <code>(3,8)</code> u otra estructura que no cabe en una rejilla fija. Tu patrón <b>sigue sonando igual</b> (la rejilla no lo toca). Para editarlo aquí puedes empezar una rejilla nueva:</p>
-        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; emit(buildSeq(parsed, [{ sound: base, steps: Array(8).fill(0), notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8)); }}>empezar rejilla de 8 pasos (reemplaza el patrón)</button>
+        <button className="seqs-norm" onClick={() => { const base = parsed.lanes[0]?.sound || 'bd'; emit(buildSeq(parsed, [{ sound: base, steps: [NORMAL, 0, 0, 0, 0, 0, 0, 0], notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) }], 8)); }}>empezar rejilla de 8 pasos (reemplaza el patrón)</button>
       </div>
     );
   }

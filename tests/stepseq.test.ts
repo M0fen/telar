@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseSeq, buildSeq, splitArrange, spliceArm, isMelodicCode, seedSilent, type Parsed } from '../src/nodes/stepseqCode.ts';
+import { parseSeq, buildSeq, splitArrange, spliceArm, isMelodicCode, seedSilent, NORMAL, type Parsed } from '../src/nodes/stepseqCode.ts';
 import { URBAN_KITS } from '../src/graph/instrumentKits.ts';
 
 // Round-trip de la rejilla (P0.1d, auditoría dancehall): lo que la rejilla no modela
@@ -287,7 +287,10 @@ test('seedSilent de rejilla: base sin golpes con banco/cola + pistas sembradas d
   const seed = seedSilent(ref);
   assert.ok(seed);
   assert.equal(seed!.seedFrom, ref);
-  assert.match(seed!.code, /^s\("~"\)\.bank\("RolandTR808"\)/); // suena a nada, banco conservado
+  // suena a nada (N silencios, conservando la longitud como ya hacía la rama melódica)
+  // y el banco se conserva. Antes colapsaba a s("~") = 1 paso.
+  assert.match(seed!.code, /^s\("~(?: ~)*"\)\.bank\("RolandTR808"\)/);
+  assert.equal(parseSeq(seed!.code)!.steps, 8); // misma longitud que la referencia
   // la UI siembra las pistas desde seedFrom con cero pasos:
   const p = parseSeq(seed!.seedFrom!)!;
   assert.deepEqual(p.lanes.map((l) => l.sound), ['bd', 'sd']);
@@ -448,4 +451,38 @@ test('P2.2 quitar el override: la pista vuelve a heredar el banco de la rejilla'
   const l = withLaneBank({ sound: 'sd', steps: [1], notes: [null], ratchet: [1], prob: [1], sfx: '.room(0.2).bank("LinnDrum")' }, '');
   assert.equal(laneOwnBank(l), '');
   assert.equal(l.sfx, '.room(0.2)'); // el resto del residuo queda intacto
+});
+
+// --- Barrido UX #1: la rejilla ya no se COLAPSA al vaciarse ------------------------
+// Antes, con todas las pistas apagadas buildSeq emitía s("~") (UN paso): al vaciar una
+// rejilla de 8 pasos para redibujarla, el contador saltaba 8→1 y se perdía la longitud.
+
+test('#1 vaciar la rejilla conserva el nº de pasos (no colapsa a s("~"))', () => {
+  const p = parsed('s("bd ~ ~ ~ ~ ~ ~ ~")');
+  assert.equal(p.steps, 8);
+  const emptied = p.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) }));
+  const out = buildSeq(p, emptied, p.steps);
+  assert.doesNotMatch(out, /s\("~"\)/, `no debe colapsar a un solo paso: ${out}`);
+  assert.equal(parseSeq(out)!.steps, 8, `debe conservar los 8 pasos: ${out}`);
+});
+
+test('#1 vaciar conserva también el banco elegido de la rejilla', () => {
+  const p = parsed('s("bd ~ bd ~").bank("RolandTR808")');
+  const emptied = p.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) }));
+  const out = buildSeq(p, emptied, p.steps);
+  assert.match(out, /\.bank\("RolandTR808"\)/); // la «caja» no se pierde al vaciar
+  assert.equal(parseSeq(out)!.steps, 4);
+});
+
+test('#1 «empezar rejilla de 8 pasos» siembra un golpe AUDIBLE (antes silenciaba)', () => {
+  // Semilla del botón del patrón avanzado (StepSeq): un golpe en el paso 1 de 8. Antes
+  // sembraba los 8 pasos a 0 → buildSeq devolvía s("~") = source MUDO y rejilla de 1 paso.
+  const base = parseSeq('s("bd")')!;
+  const seed = { sound: 'bd', steps: [NORMAL, 0, 0, 0, 0, 0, 0, 0], notes: Array(8).fill(null), ratchet: Array(8).fill(1), prob: Array(8).fill(1) };
+  const out = buildSeq(base, [seed], 8);
+  const rp = parseSeq(out)!;
+  assert.equal(rp.steps, 8, `rejilla de 8 pasos: ${out}`);
+  assert.equal(rp.lanes.length, 1);
+  assert.equal(rp.lanes[0].sound, 'bd');
+  assert.ok(rp.lanes[0].steps.some((v) => v > 0), 'debe sonar al menos un golpe');
 });

@@ -614,7 +614,9 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
     const bk = p.bank && !bankExempt(l.sound) && !laneOwnBank(l) ? `.bank("${p.bank}")` : '';
     return `note("${body}").s("${l.sound}")${g}${nudgeSfx(l, steps)}${grooveSfx(l, steps)}${bk}${l.sfx ?? ''}${levelSfx(l)}`;
   }
-  if (!active.length) return `s("~")${p.bank ? `.bank("${p.bank}")` : ''}${tail}`; // vacía: conserva el banco elegido
+  // vacía: conserva PASOS y banco. Antes emitía s("~") (1 paso) → al vaciar la rejilla,
+  // el nº de pasos colapsaba 8→1 (y "empezar rejilla" silenciaba). Emitimos N silencios.
+  if (!active.length) return `s("${Array(Math.max(1, steps)).fill('~').join(' ')}")${p.bank ? `.bank("${p.bank}")` : ''}${tail}`;
   // BANCO: global (en la cola) solo si NINGUNA pista es exenta NI trae banco propio.
   // Con mezcla (packs exentos, o una pista con su propia caja — P2.2), el banco de la
   // rejilla va POR SEGMENTO en las pistas que lo heredan (un global en la cola pisaría
