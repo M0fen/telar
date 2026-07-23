@@ -1,4 +1,5 @@
 import type { Edge, Node } from '@xyflow/react';
+import { aiFailMsg } from './aiError';
 import type { NodeData } from '../graph/types';
 import { useGraphStore } from '../store/useGraphStore';
 import { sampleDuration } from './audioMeta';
@@ -228,7 +229,7 @@ export async function requestAiFix(code: string, error: string | null, context: 
     body: JSON.stringify({ mode: 'fix', code, error, context, intent }),
   });
   const j = (await r.json().catch(() => null)) as { fix?: AiFix; error?: string } | null;
-  if (!r.ok || !j) throw new Error((j && j.error) || 'no se pudo reparar');
+  if (!r.ok || !j) throw new Error((j && j.error) || aiFailMsg(r, 'la reparación'));
   if (!j.fix || !j.fix.code) throw new Error(j.error || 'la IA no devolvió un arreglo');
   return j.fix;
 }
@@ -240,7 +241,7 @@ export async function requestAiHelp(question: string, context: unknown): Promise
   });
   if (!r.ok) {
     const j = await r.json().catch(() => null);
-    throw new Error((j && (j as { error?: string }).error) || 'no se pudo consultar la IA');
+    throw new Error((j && (j as { error?: string }).error) || aiFailMsg(r, 'Nod-IA'));
   }
   const j = (await r.json()) as { answer?: string };
   return j.answer ?? '';

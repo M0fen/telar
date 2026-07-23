@@ -3,6 +3,7 @@ import { validStrudel, sanitizeAiGraph } from './aiGraph';
 import { DEFAULT_CHANNEL_EQ, type ChannelEq } from '../graph/types';
 import type { MasterFx } from '../graph/compile';
 import { getLufs } from '../audio/lufsMeter';
+import { aiFailMsg } from './aiError';
 
 // AGENTE Nod-IA: convierte una instrucción en lenguaje natural en ACCIONES que se
 // aplican al proyecto (crear/editar/borrar sources, tempo, gain, EQ, master, o
@@ -35,7 +36,7 @@ export async function requestAgent(instruction: string, context: unknown): Promi
     body: JSON.stringify({ mode: 'act', instruction, context }),
   });
   const j = (await r.json().catch(() => null)) as { act?: { reply?: string; actions?: Action[] }; error?: string } | null;
-  if (!r.ok || !j) throw new Error((j && j.error) || 'no se pudo consultar a Nod-IA');
+  if (!r.ok || !j) throw new Error((j && j.error) || aiFailMsg(r));
   const act = j.act || {};
   return { reply: String(act.reply || ''), actions: Array.isArray(act.actions) ? act.actions : [] };
 }
@@ -89,7 +90,7 @@ export async function requestMixReview(target = -14): Promise<{ reply: string; a
     body: JSON.stringify({ mode: 'mix', target, context }),
   });
   const j = (await r.json().catch(() => null)) as { act?: { reply?: string; actions?: Action[] }; error?: string } | null;
-  if (!r.ok || !j) throw new Error((j && j.error) || 'no se pudo revisar la mezcla');
+  if (!r.ok || !j) throw new Error((j && j.error) || aiFailMsg(r));
   const act = j.act || {};
   return { reply: String(act.reply || ''), actions: Array.isArray(act.actions) ? act.actions : [] };
 }

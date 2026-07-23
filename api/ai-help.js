@@ -13,11 +13,18 @@ const MODEL = 'claude-sonnet-5';
 const anthropic = new Anthropic(); // lee ANTHROPIC_API_KEY del entorno
 
 // Llama a Claude y devuelve el TEXTO (concatena los bloques de texto; ignora thinking).
-async function claudeText(system, userText, maxTokens) {
+//
+// PRESUPUESTO DE TIEMPO: la función muere a los 60 s (maxDuration, tope del plan) y una
+// petición real de `act` llegaba a ~40 s → con un proyecto cargado se pasaba y Vercel la
+// mataba, dejando una respuesta no-JSON que el cliente mostraba como el genérico "no se
+// pudo consultar a Nod-IA". `effort` acota cuánto razona el modelo (medium mantiene
+// criterio musical y recorta el reloj); súbelo solo si el plan permite más duración.
+async function claudeText(system, userText, maxTokens, effort = 'medium') {
   const stream = anthropic.messages.stream({
     model: MODEL,
     max_tokens: maxTokens,
     thinking: { type: 'adaptive' },
+    output_config: { effort },
     system,
     messages: [{ role: 'user', content: userText }],
   });

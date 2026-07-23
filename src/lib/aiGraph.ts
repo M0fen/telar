@@ -6,6 +6,7 @@
 //   3) descartamos fuentes inválidas, aseguramos un único Out, reconectamos lo suelto
 //      y auto-posicionamos en columnas.
 import type { Node, Edge } from '@xyflow/react';
+import { aiFailMsg } from './aiError';
 import type { ProjectSnapshot } from './projectStore';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
@@ -122,7 +123,7 @@ export async function requestAiGraph(prompt: string, current?: unknown, opts?: {
     body: JSON.stringify({ prompt, current, withLyrics: opts?.withLyrics }),
   });
   const j = (await r.json().catch(() => null)) as { graph?: unknown; error?: string } | null;
-  if (!r.ok || !j) throw new Error((j && j.error) || 'el copiloto no respondió');
+  if (!r.ok || !j) throw new Error((j && j.error) || aiFailMsg(r, 'el copiloto'));
   if (j.error) throw new Error(j.error);
   return (j.graph ?? {}) as Record<string, unknown>;
 }
