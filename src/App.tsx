@@ -479,7 +479,10 @@ export default function App() {
           <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
         </>
       ) : (
-        <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><DjMixer /></ErrorBoundary>
+        <>
+          <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><DjMixer /></ErrorBoundary>
+          <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
+        </>
       )}
       <header className="topbar">
         <div className="brand">
