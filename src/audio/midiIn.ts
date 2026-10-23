@@ -15,6 +15,11 @@ export type MidiSlot =
 // para no acumular handlers viejos.
 const ctl: Record<string, MidiSlot> = {};
 const hist: Record<string, number[]> = {};
+// SOFT-TAKEOVER (pickup) para perillas absolutas: la perilla de pantalla no se mueve
+// hasta que la física "cruza" el valor actual, para que no SALTE al tomarla.
+const caught: Record<string, boolean> = {}; // slotId → ya agarró
+const lastApplied: Record<string, number> = {}; // slotId → último valor que la perilla aplicó
+const lastPhys: Record<string, number> = {}; // firma → último valor físico (0..1)
 
 export function registerSlots(slots: Record<string, MidiSlot>): void {
   for (const k of Object.keys(ctl)) delete ctl[k];
@@ -72,14 +77,30 @@ export function handleMidi(data: Uint8Array | number[]): void {
     }
   }
 
-  const slot = ctl[st.map[key]];
+  const slotId = st.map[key];
+  const slot = ctl[slotId];
   if (!slot) return;
   if (slot.kind === 'knob' && ty === 0xb0 && st.rel[key]) {
-    // encoder relativo: suma/resta el delta a la cantidad actual
+    // encoder relativo (sin fin): suma/resta el delta — nunca salta, no necesita pickup
     const dlt = st.rel[key] === '64' ? v - 64 : v < 64 ? v : v - 128;
     slot.set(clamp(slot.get() + dlt / 80, 0, 1));
   } else if (slot.kind === 'knob' && val != null) {
-    slot.set(val); // perilla absoluta: 0..127 → 0..1
+    // perilla ABSOLUTA (0..127 → 0..1) con SOFT-TAKEOVER: no mueve el valor de
+    // pantalla hasta que la física lo "alcanza" (cruza), así no salta al tomarla.
+    const cur = slot.get();
+    // si el valor cambió por otra vía (mouse, otra perilla) desde lo último que
+    // aplicamos, hay que volver a "agarrar" para no saltar.
+    if (caught[slotId] && lastApplied[slotId] != null && Math.abs(cur - lastApplied[slotId]) > 0.06) caught[slotId] = false;
+    if (!caught[slotId]) {
+      const prev = lastPhys[key];
+      const crossed = prev != null && (prev - cur) * (val - cur) <= 0; // la física cruzó el valor actual
+      if (Math.abs(val - cur) <= 0.03 || crossed) caught[slotId] = true;
+    }
+    if (caught[slotId]) {
+      slot.set(val);
+      lastApplied[slotId] = val;
+    }
+    lastPhys[key] = val;
   } else if (slot.kind === 'pad') {
     if (down) slot.down();
     else slot.up();
