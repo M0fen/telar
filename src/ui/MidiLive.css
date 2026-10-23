@@ -1,14 +1,26 @@
 /* Modo EN VIVO (MIDI): panel compacto tipo mixer, oscuro. Usa los tokens de la
    paleta de Telar con fallbacks para no depender de ellos. */
 .ml-panel {
+  /* anclado arriba-izquierda, bajo el topbar: la paleta va a la derecha y el
+     máster (perf) abajo-izquierda, así que esta esquina está libre. Sin esto el
+     panel cae en el flujo normal, detrás del lienzo (z-index 0) → invisible. */
+  position: absolute;
+  top: 64px;
+  left: 14px;
+  z-index: 3;
+  width: min(540px, 62vw);
+  max-height: calc(100vh - 90px - var(--viz-h, 236px));
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   background: var(--panel, #12151a);
+  backdrop-filter: blur(10px);
   border: 1px solid var(--line, #2a3038);
-  border-radius: 10px;
-  color: var(--ink, #e7ecf0);
+  border-radius: 3px;
+  box-shadow: var(--hud-shadow, 0 8px 30px rgba(0, 0, 0, 0.5));
+  color: var(--text, #e7ecf0);
   font-size: 12px;
 }
 .ml-head {
