@@ -157,6 +157,9 @@ interface GraphState {
   addNode: (kind: NodeKind, opId?: string, position?: { x: number; y: number }) => void;
   // crea un canal (source) conectado directo al Out — usado por el modo DJ.
   addSourceToOut: () => void;
+  // inserta VARIOS sources (con nombre y código) al grafo actual, conectados al
+  // Out, SIN borrar lo existente — usado para soltar presets (p. ej. base de aves).
+  addSources: (list: { name: string; code: string }[]) => void;
   updateNodeData: (id: string, patch: Partial<NodeData>) => void;
   removeNode: (id: string) => void;
   // Reemplaza la operación de un nodo fx/transform (params a sus valores por defecto).
@@ -419,6 +422,31 @@ export const useGraphStore = create<GraphState>((set, get) => {
         nodes.push(out);
       }
       edges.push({ id: `e_${id}`, source: id, target: out.id });
+      set({ nodes, edges });
+      get().recompile();
+    },
+
+    addSources: (list) => {
+      if (!list || !list.length) return;
+      pushPast(true);
+      const nodes = [...get().nodes];
+      const edges = [...get().edges];
+      let out = nodes.find((n) => n.data.kind === 'out');
+      if (!out) {
+        const oid = nextId('out');
+        out = { id: oid, type: 'out', position: { x: 760, y: 200 }, data: { kind: 'out' } };
+        nodes.push(out);
+      }
+      list.forEach((s, i) => {
+        const id = nextId('source');
+        nodes.push({
+          id,
+          type: 'source',
+          position: { x: 120, y: 120 + i * 120 },
+          data: { kind: 'source', name: s.name, code: s.code },
+        });
+        edges.push({ id: `e_${id}`, source: id, target: (out as GNode).id });
+      });
       set({ nodes, edges });
       get().recompile();
     },
