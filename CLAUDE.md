@@ -46,7 +46,9 @@ Este archivo es el contrato. Léelo antes de tocar audio o el grafo.
 
 Todo lo "funcional" se juzga contra: **Dancehall, Techno, EBM, Post-punk, Trap, Drift-phonk, Rap.** Lo que exigen y hoy falla: **808 con slide + pitch por paso** (trap/drift-phonk/EBM/dancehall), **rolls/ratchets/tresillos de hats** (trap/phonk), **autotune real de corrección** (todos los vocales), **groove/humanize** (dancehall/rap/post-punk), **acordes** (EBM/post-punk/trap), **arreglo por clips** (todos).
 
-**Fuera de foco:** el modo/mezclador DJ. No romperlo, no ampliarlo.
+**Fuera de foco:** el modo/mezclador DJ (`DjMixer.tsx`). No romperlo, no ampliarlo.
+
+**En foco (nuevo):** el **control EN VIVO por MIDI** — pads/perillas de un controlador físico (p. ej. M-Wave) para tocar la mezcla. Vive APARTE del mezclador DJ, como capa de control transversal: `src/audio/midiIn.ts` (parseo Note/CC + ruteo + "aprender", portado del En vivo de la Sala de Dirección), `src/store/useMidiStore.ts` (mapa pad/perilla→slot, persistido), `src/ui/MidiLive.tsx` (panel: cada efecto con su PAD que engancha y su PERILLA que gradúa la cantidad; + 8 pads de escena). Los efectos aplican al MÁSTER vía `setMaster` (recompila con throttle, regla 3). NO toca `DjMixer.tsx`.
 
 ---
 

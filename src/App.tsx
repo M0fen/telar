@@ -25,6 +25,7 @@ import { Visualizer } from './viz/Visualizer';
 import { Transport } from './ui/Transport';
 import { Palette, type PaletteDrag } from './ui/Palette';
 import { Performance } from './ui/Performance';
+import { MidiLive } from './ui/MidiLive';
 import { DjMixer } from './ui/DjMixer';
 import { ProjectMenu } from './ui/ProjectMenu';
 import { VoiceStudio } from './ui/VoiceStudio';
@@ -475,6 +476,7 @@ export default function App() {
           </div>
           <ErrorBoundary variant="panel" label="paleta"><Palette /></ErrorBoundary>
           <ErrorBoundary variant="panel" label="máster"><Performance /></ErrorBoundary>
+          <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
         </>
       ) : (
         <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><DjMixer /></ErrorBoundary>

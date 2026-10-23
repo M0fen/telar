@@ -1,0 +1,141 @@
+/* Modo EN VIVO (MIDI): panel compacto tipo mixer, oscuro. Usa los tokens de la
+   paleta de Telar con fallbacks para no depender de ellos. */
+.ml-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel, #12151a);
+  border: 1px solid var(--line, #2a3038);
+  border-radius: 10px;
+  color: var(--ink, #e7ecf0);
+  font-size: 12px;
+}
+.ml-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ml-midibtn,
+.ml-aves {
+  border: 1px solid var(--line, #2a3038);
+  background: var(--chip, #1b2029);
+  color: var(--ink, #e7ecf0);
+  border-radius: 7px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.ml-midibtn.on {
+  border-color: var(--accent, #3df0d0);
+  color: var(--accent, #3df0d0);
+}
+.ml-midibtn.learn {
+  background: var(--accent, #3df0d0);
+  color: #06120f;
+  border-color: var(--accent, #3df0d0);
+}
+.ml-aves:hover {
+  border-color: var(--gold, #e3b23c);
+}
+.ml-status {
+  opacity: 0.8;
+  flex: 1;
+  min-width: 140px;
+}
+
+.ml-fxrow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+@media (max-width: 560px) {
+  .ml-fxrow {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.ml-fx {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 1px solid var(--line, #2a3038);
+  border-radius: 8px;
+  background: var(--chip, #161b22);
+}
+.ml-fx.pick {
+  border-color: var(--gold, #e3b23c);
+  box-shadow: 0 0 0 1px var(--gold, #e3b23c) inset;
+}
+.ml-pad {
+  position: relative;
+  border: 1px solid var(--line, #2a3038);
+  background: var(--chip2, #222a34);
+  color: var(--ink, #e7ecf0);
+  border-radius: 7px;
+  padding: 14px 4px;
+  font-weight: 700;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+.ml-pad:active {
+  background: var(--accent, #3df0d0);
+  color: #06120f;
+}
+.ml-knob {
+  width: 100%;
+  accent-color: var(--accent, #3df0d0);
+}
+.ml-sub {
+  text-align: center;
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.ml-scenes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ml-scl {
+  opacity: 0.6;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-right: 2px;
+}
+.ml-scpad {
+  position: relative;
+  min-width: 34px;
+  border: 1px solid var(--line, #2a3038);
+  background: var(--chip2, #222a34);
+  color: var(--ink, #e7ecf0);
+  border-radius: 7px;
+  padding: 8px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.ml-scpad:active,
+.ml-scpad.pick {
+  background: var(--accent, #3df0d0);
+  color: #06120f;
+}
+.ml-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(61, 240, 208, 0.16);
+  color: var(--accent, #3df0d0);
+  font-size: 9px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.ml-badge.sm {
+  font-size: 8px;
+  margin-left: 4px;
+}

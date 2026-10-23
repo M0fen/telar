@@ -42,7 +42,11 @@ function installSliderRuntime(): void {
 // inlinea OTRA, así que `.midi()` se registraría en un Pattern distinto al que
 // evalúa el repl. En su lugar parcheamos `.midi()` sobre el Pattern REAL de web
 // vía `onTrigger` y enviamos con la WebMIDI API nativa. (Tier 2)
-let midiAccess: { outputs: Map<string, { name?: string; send: (d: number[], t?: number) => void }> } | null = null;
+type MidiOutPort = { name?: string; send: (d: number[], t?: number) => void };
+type MidiInPort = { name?: string; onmidimessage: ((e: { data: Uint8Array }) => void) | null };
+let midiAccess:
+  | { outputs: Map<string, MidiOutPort>; inputs?: Map<string, MidiInPort>; onstatechange?: (() => void) | null }
+  | null = null;
 
 export async function enableMidi(): Promise<string[]> {
   try {
@@ -67,6 +71,43 @@ function getMidiOutput(name?: string) {
   const outs = Array.from(midiAccess.outputs.values());
   if (!name) return outs[0];
   return outs.find((o) => o.name === name) ?? outs[0];
+}
+
+// --- MIDI IN (WebMIDI nativo) ----------------------------------------------
+// Entrada de controlador para el modo EN VIVO (pads/perillas → control, no audio).
+// Reusa el MISMO `midiAccess` que la salida; enlaza `onmidimessage` en cada input
+// y lo re-enlaza en `onstatechange` (conectar/desconectar en caliente, p. ej. el
+// M-Wave por USB). El parseo y el ruteo viven en `src/audio/midiIn.ts`.
+let midiInHandler: ((data: Uint8Array) => void) | null = null;
+function bindMidiInputs(): void {
+  if (!midiAccess || !midiAccess.inputs) return;
+  midiAccess.inputs.forEach((i) => {
+    i.onmidimessage = (e) => {
+      try {
+        if (midiInHandler) midiInHandler(e.data);
+      } catch {
+        /* un handler que lance no debe tumbar el MIDI */
+      }
+    };
+  });
+}
+export function getMidiInputs(): string[] {
+  if (!midiAccess || !midiAccess.inputs) return [];
+  return Array.from(midiAccess.inputs.values()).map((i) => i.name ?? 'midi');
+}
+export async function startMidiInput(onMsg: (data: Uint8Array) => void): Promise<string[]> {
+  midiInHandler = onMsg;
+  try {
+    const nav = navigator as unknown as { requestMIDIAccess?: (o?: object) => Promise<typeof midiAccess> };
+    if (!nav.requestMIDIAccess) throw new Error('WebMIDI no soportado en este navegador');
+    if (!midiAccess) midiAccess = await nav.requestMIDIAccess({ sysex: false });
+    bindMidiInputs();
+    if (midiAccess) midiAccess.onstatechange = () => bindMidiInputs();
+    return getMidiInputs();
+  } catch (e) {
+    reportError(e);
+    return [];
+  }
 }
 
 const MIDI_NOTE: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
