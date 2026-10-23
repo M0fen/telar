@@ -84,8 +84,9 @@ const momOff = (m: MomFx): Partial<MasterFx> => ({ [m.param]: m.param === 'rev' 
 const RESET: Partial<MasterFx> = { filter: 0, delay: 0, room: 0, drive: 0, crush: 0, roll: 0, gate: 0, rev: false };
 
 export function MidiLive() {
-  const { on, learn, pick, inputs, err, map } = useMidiStore();
+  const { on, learn, pick, inputs, err, map, last, lastAt } = useMidiStore();
   const setStatus = useMidiStore((s) => s.setStatus);
+  const liveMs = Date.now() - lastAt < 400; // parpadeo de actividad reciente
   const master = useGraphStore((s) => s.master);
   const nodes = useGraphStore((s) => s.nodes);
   const sources = nodes.filter((n) => n.data.kind === 'source');
@@ -215,6 +216,17 @@ export function MidiLive() {
               : 'Gira las perillas para los efectos. Conecta el M-Wave para tocar con el controlador.'}
         </span>
       </div>
+
+      {on && (
+        <div className="ml-monitor">
+          <span className={`ml-dot${liveMs ? ' live' : ''}`} />
+          {last ? (
+            <>Controlador: <b>{last}</b></>
+          ) : (
+            <>Mueve una perilla o pad del M-Wave para probar que llega… (si no aparece nada, conéctalo por <b>USB</b> y revisa que sea <b>Chrome/Edge</b>)</>
+          )}
+        </div>
+      )}
 
       {learn && (
         <div className="ml-learnbar">

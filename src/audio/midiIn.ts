@@ -46,6 +46,8 @@ export function handleMidi(data: Uint8Array | number[]): void {
   } else return;
 
   const st = useMidiStore.getState();
+  // monitor: registra SIEMPRE la señal recibida (así se ve que el controlador llega)
+  st.note(ty === 0xb0 ? `CC ${d1} · ${v}` : down ? `nota ${d1}` : `nota ${d1} ✕`);
 
   // Modo APRENDER: el próximo mensaje queda ligado al slot elegido. En notas,
   // solo al PULSAR (no al soltar), para no asignar con el release.
