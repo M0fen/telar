@@ -203,3 +203,18 @@
 }
 .ml-padcell.pick { box-shadow: 0 0 0 1px var(--gold, #e3b23c) inset; }
 .ml-padcell .ml-sub { text-align: center; }
+
+/* botón reiniciar (pánico) */
+.ml-reset {
+  border: 1px solid var(--gold, #e3b23c); background: transparent; color: var(--gold, #e3b23c);
+  border-radius: 7px; padding: 6px 10px; cursor: pointer; font-weight: 700; white-space: nowrap;
+}
+.ml-reset:hover { background: rgba(227, 178, 60, 0.12); }
+.ml-reset.pick { box-shadow: 0 0 0 1px var(--gold, #e3b23c) inset; }
+
+/* pads momentáneos agrupados (Roll / Gate / Reverse) */
+.ml-moms { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; }
+.ml-momgrp { display: flex; flex-direction: column; gap: 4px; }
+.ml-momlbl { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint, #7a8591); font-weight: 600; }
+.ml-momrow { display: flex; gap: 5px; }
+.ml-pad.sm { padding: 10px 12px; min-width: 40px; font-size: 12px; }
