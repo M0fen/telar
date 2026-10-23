@@ -7,32 +7,47 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useScenesStore } from '../store/useScenesStore';
 import type { MasterFx } from '../graph/compile';
 
-// Modo EN VIVO con controlador MIDI (pads + perillas), aparte del mezclador DJ.
-// Tres bloques, todos asignables por "aprender":
-//   • EFECTOS (máster): un PAD engancha el efecto y su PERILLA gradúa la cantidad.
-//   • PISTAS (cada source): PAD = mute, PERILLA = volumen, PERILLA = filtro.
-//   • ESCENAS: 8 pads que disparan las escenas guardadas.
-// Los efectos aplican al máster (setMaster, recompila con throttle); las pistas
-// usan updateNodeData. NO toca DjMixer.tsx (se MONTA en ambos modos desde App).
+// Modo EN VIVO con controlador MIDI (perillas + pads), aparte del mezclador DJ.
+// Modelo DJ:
+//   • PERILLAS (continuas): filtro/eco/reverb/drive/crush — la perilla las ajusta
+//     EN VIVO directamente (gira = más/menos efecto). Doble clic = al centro.
+//   • PADS (momentáneos): roll y gate — mantienes el pad y suena; su perilla gradúa
+//     la intensidad. Sueltas y para.
+//   • PISTAS: por source, pad de mute + perillas de volumen y filtro.
+//   • ESCENAS: 8 pads.
+// Todo asignable por "aprender". Los efectos aplican al MÁSTER (setMaster, recompila
+// con throttle). Las perillas en pantalla ya ajustan con el mouse sin configurar MIDI.
 
-interface FxDef {
+// Perillas continuas: parámetro del máster + rango. bipolar = -1..1 (filtro DJ).
+interface KnobFx {
   id: string;
   label: string;
-  sub: string;
   param: keyof MasterFx;
-  toParam: (amt01: number) => number;
+  bipolar?: boolean;
+  max?: number; // para no-bipolares: cantidad 0..1 → 0..max
 }
-const EFFECTS: FxDef[] = [
-  { id: 'filtro', label: 'Filtro', sub: 'lpf', param: 'filter', toParam: (a) => -a },
-  { id: 'eco', label: 'Eco', sub: 'delay', param: 'delay', toParam: (a) => a },
-  { id: 'reverb', label: 'Reverb', sub: 'room', param: 'room', toParam: (a) => a * 0.8 },
-  { id: 'crush', label: 'Crush', sub: 'bits', param: 'crush', toParam: (a) => a },
-  { id: 'drive', label: 'Drive', sub: 'sat', param: 'drive', toParam: (a) => a },
-  { id: 'gate', label: 'Gate', sub: 'corte', param: 'gate', toParam: (a) => Math.round(a * 16) },
+const KNOBS: KnobFx[] = [
+  { id: 'filtro', label: 'Filtro', param: 'filter', bipolar: true }, // izq=grave (lpf) · der=agudo (hpf)
+  { id: 'eco', label: 'Eco', param: 'delay', max: 1 },
+  { id: 'reverb', label: 'Reverb', param: 'room', max: 0.8 },
+  { id: 'drive', label: 'Drive', param: 'drive', max: 1 },
+  { id: 'crush', label: 'Crush', param: 'crush', max: 1 },
+];
+// Pads momentáneos: mantener aplica roll/gate; la perilla gradúa la intensidad (n).
+interface PadFx {
+  id: string;
+  label: string;
+  param: keyof MasterFx;
+  min: number;
+  max: number;
+}
+const PADS: PadFx[] = [
+  { id: 'roll', label: 'Roll', param: 'roll', min: 2, max: 16 }, // .ply(n) — beat-repeat
+  { id: 'gate', label: 'Gate', param: 'gate', min: 2, max: 16 }, // corte rítmico
 ];
 
-// Base de SILBIDOS DE AVES, hipnótica, en La menor pentatónica — lista para soltar
-// y mezclar con otra pista. Se insertan como sources nuevos SIN borrar el lienzo.
+// Base de SILBIDOS DE AVES, hipnótica, en La menor pentatónica — se insertan como
+// sources nuevos SIN borrar el lienzo, para mezclarlos con otra pista.
 const AVES: { name: string; code: string }[] = [
   {
     name: 'drone_aves',
@@ -49,56 +64,47 @@ const AVES: { name: string; code: string }[] = [
 ];
 
 const gs = () => useGraphStore.getState();
+const setM = (patch: Partial<MasterFx>) => gs().setMaster(patch);
 const srcGain = (id: string) => (gs().nodes.find((n) => n.id === id)?.data.gain ?? 1) as number;
 const srcFilter = (id: string) => (gs().nodes.find((n) => n.id === id)?.data.chFilter ?? 0) as number;
 const srcMuted = (id: string) => !!gs().nodes.find((n) => n.id === id)?.data.mute;
 
+// cantidad 0..1 ↔ valor del parámetro para una perilla continua
+const knobTo = (k: KnobFx, v01: number) => (k.bipolar ? v01 * 2 - 1 : v01 * (k.max ?? 1));
+const knobFrom = (k: KnobFx, val: number) => (k.bipolar ? (val + 1) / 2 : val / (k.max ?? 1));
+
 export function MidiLive() {
   const { on, learn, pick, inputs, err, map } = useMidiStore();
   const setStatus = useMidiStore((s) => s.setStatus);
-  // sources del grafo (reactivo): la sección Pistas se arma con ellos.
+  const master = useGraphStore((s) => s.master); // reactivo: las perillas reflejan el máster
   const nodes = useGraphStore((s) => s.nodes);
   const sources = nodes.filter((n) => n.data.kind === 'source');
   const srcSig = sources.map((s) => s.id).join('|');
 
-  // cantidad (0..1) por efecto del máster, en ref para que las perillas MIDI lean
-  // el valor vivo sin re-registrar en cada cambio.
-  const amtRef = useRef<Record<string, number>>({ filtro: 0.5, eco: 0.4, reverb: 0.4, crush: 0.5, drive: 0.5, gate: 0.5 });
-  const [amts, setAmts] = useState<Record<string, number>>({ ...amtRef.current });
-  const heldRef = useRef<Record<string, number | undefined>>({});
-
-  const applyParam = (id: string) => {
-    const e = EFFECTS.find((x) => x.id === id);
-    if (!e) return;
-    gs().setMaster({ [e.param]: e.toParam(amtRef.current[id] ?? 0) } as Partial<MasterFx>);
-  };
-  const setAmt = (id: string, v: number) => {
-    amtRef.current = { ...amtRef.current, [id]: v };
-    setAmts(amtRef.current);
-    if (heldRef.current[id] !== undefined) applyParam(id);
-  };
-  const engage = (id: string) => {
-    const e = EFFECTS.find((x) => x.id === id);
-    if (!e) return;
-    heldRef.current[id] = (gs().master[e.param] as number) ?? 0;
-    applyParam(id);
-  };
-  const release = (id: string) => {
-    const e = EFFECTS.find((x) => x.id === id);
-    if (!e) return;
-    const saved = heldRef.current[id];
-    heldRef.current[id] = undefined;
-    gs().setMaster({ [e.param]: saved ?? 0 } as Partial<MasterFx>);
+  // intensidad (0..1) de cada pad momentáneo (roll/gate), en ref para la lectura viva
+  const padAmtRef = useRef<Record<string, number>>({ roll: 0.33, gate: 0.5 });
+  const [padAmts, setPadAmts] = useState<Record<string, number>>({ ...padAmtRef.current });
+  const padN = (p: PadFx) => Math.round(p.min + (padAmtRef.current[p.id] ?? 0.5) * (p.max - p.min));
+  const engagePad = (p: PadFx) => setM({ [p.param]: padN(p) } as Partial<MasterFx>);
+  const releasePad = (p: PadFx) => setM({ [p.param]: 0 } as Partial<MasterFx>);
+  const setPadAmt = (id: string, v: number) => {
+    padAmtRef.current = { ...padAmtRef.current, [id]: v };
+    setPadAmts(padAmtRef.current);
   };
 
-  // Registra TODOS los slots (efectos + pistas + escenas). Se re-registra cuando
-  // cambia la lista de sources (para incluir/quitar pistas). Los handlers leen
-  // refs / getState, así que no hay estado rancio.
+  // Registra TODOS los slots. Re-registra cuando cambian los sources.
   useEffect(() => {
     const slots: Record<string, MidiSlot> = {};
-    for (const e of EFFECTS) {
-      slots[`fx.${e.id}.knob`] = { kind: 'knob', get: () => amtRef.current[e.id] ?? 0, set: (v) => setAmt(e.id, v) };
-      slots[`fx.${e.id}.pad`] = { kind: 'pad', down: () => engage(e.id), up: () => release(e.id) };
+    for (const k of KNOBS) {
+      slots[`fx.${k.id}`] = {
+        kind: 'knob',
+        get: () => knobFrom(k, (gs().master[k.param] as number) ?? 0),
+        set: (v) => setM({ [k.param]: knobTo(k, v) } as Partial<MasterFx>),
+      };
+    }
+    for (const p of PADS) {
+      slots[`pad.${p.id}`] = { kind: 'pad', down: () => engagePad(p), up: () => releasePad(p) };
+      slots[`pad.${p.id}.amt`] = { kind: 'knob', get: () => padAmtRef.current[p.id] ?? 0.5, set: (v) => setPadAmt(p.id, v) };
     }
     for (const s of sources) {
       const id = s.id;
@@ -117,14 +123,13 @@ export function MidiLive() {
       return;
     }
     if (!('requestMIDIAccess' in navigator)) {
-      setStatus({ err: 'Este navegador no tiene MIDI. Usa Chrome o Edge en el computador (y conecta el controlador por cable USB).' });
+      setStatus({ err: 'Este navegador no tiene MIDI. Usa Chrome o Edge y conecta el controlador por cable USB.' });
       return;
     }
     const list = await startMidiInput(handleMidi);
     setStatus({ on: true, inputs: list, err: '', learn: Object.keys(map).length === 0 });
   };
 
-  // Clic en un control de la pantalla: en modo aprender, lo ELIGE para asignarlo.
   const pickIf = (slot: string): boolean => {
     if (!learn) return false;
     setStatus({ pick: slot });
@@ -133,7 +138,8 @@ export function MidiLive() {
   const pickName = (slot: string | null): string => {
     if (!slot) return '';
     const [kind, a, b] = slot.split('.');
-    if (kind === 'fx') return `${EFFECTS.find((e) => e.id === a)?.label ?? a} · ${b === 'pad' ? 'pad' : 'perilla'}`;
+    if (kind === 'fx') return `${KNOBS.find((k) => k.id === a)?.label ?? a} · perilla`;
+    if (kind === 'pad') return `${PADS.find((p) => p.id === a)?.label ?? a}${b === 'amt' ? ' · intensidad' : ' · pad'}`;
     if (kind === 'scene') return `escena ${a}`;
     if (kind === 'src') {
       const nm = sources.find((s) => s.id === a)?.data.name ?? 'pista';
@@ -144,9 +150,8 @@ export function MidiLive() {
 
   const addAves = () => gs().addSources(AVES);
 
-  // Función (NO componente) para no remontar el slider en cada render — si fuera
-  // un <Componente/> interno, React lo recrearía y cortaría el arrastre.
-  const knobCtl = (slot: string, value: number, onCh: (v: number) => void, aria: string) => {
+  // Perilla (función, NO componente, para no cortar el arrastre). pct: valor 0..1 a mostrar.
+  const knob = (slot: string, value: number, onCh: (v: number) => void, onReset: (() => void) | null, aria: string) => {
     const k = midiKeyFor(slot);
     return (
       <span className={`ml-kc${pick === slot ? ' pick' : ''}`} key={slot}>
@@ -160,6 +165,7 @@ export function MidiLive() {
           aria-label={aria}
           onPointerDown={() => pickIf(slot)}
           onChange={(ev) => onCh(parseFloat(ev.target.value))}
+          onDoubleClick={() => onReset && onReset()}
         />
         {k && <span className="ml-badge sm">{midiKeyLabel(k)}</span>}
       </span>
@@ -178,7 +184,7 @@ export function MidiLive() {
             ? err
             : on
               ? `MIDI: ${inputs.join(' · ') || 'conéctalo por USB (Chrome/Edge)'}${Object.keys(map).length ? ` · ${Object.keys(map).length} asignados` : ''}`
-              : 'Conecta tu M-Wave para tocar en vivo.'}
+              : 'Gira las perillas para los efectos. Conecta el M-Wave para tocar con el controlador.'}
         </span>
       </div>
 
@@ -187,39 +193,63 @@ export function MidiLive() {
           {pick ? (
             <>Asignando <b>{pickName(pick)}</b>: ahora <b>mueve la perilla o pulsa el pad</b> en tu M-Wave.</>
           ) : (
-            <>Modo aprender: <b>toca abajo</b> un pad o perilla (efecto, pista o escena) y luego <b>muévelo en tu controlador</b>. «✓ Terminar» cuando acabes.</>
+            <>Modo aprender: <b>toca abajo</b> una perilla o pad y luego <b>muévelo en el controlador</b>. «✓ Terminar» al acabar.</>
           )}
         </div>
       )}
 
       <div className="ml-sec">
-        <h4>Efectos (máster) — pad engancha · perilla gradúa</h4>
-        <div className="ml-fxrow">
-          {EFFECTS.map((e) => {
-            const padSlot = `fx.${e.id}.pad`;
-            const knobSlot = `fx.${e.id}.knob`;
+        <h4>Perillas (gira = ajusta el efecto en vivo · doble clic al centro)</h4>
+        <div className="ml-knobs">
+          {KNOBS.map((k) => {
+            const slot = `fx.${k.id}`;
+            const val = knobFrom(k, (master[k.param] as number) ?? 0);
+            const pctTxt = k.bipolar
+              ? val < 0.47
+                ? `lpf ${Math.round((0.5 - val) * 200)}%`
+                : val > 0.53
+                  ? `hpf ${Math.round((val - 0.5) * 200)}%`
+                  : 'off'
+              : `${Math.round(val * 100)}%`;
+            return (
+              <div className={`ml-knobrow${pick === slot ? ' pick' : ''}`} key={k.id}>
+                <span className="ml-krl">{k.label}</span>
+                {knob(slot, val, (v) => setM({ [k.param]: knobTo(k, v) } as Partial<MasterFx>), () => setM({ [k.param]: k.bipolar ? 0 : 0 } as Partial<MasterFx>), `${k.label}`)}
+                <span className="ml-krv">{pctTxt}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="ml-sec">
+        <h4>Pads momentáneos (mantén para aplicar · perilla = intensidad)</h4>
+        <div className="ml-padrow">
+          {PADS.map((p) => {
+            const padSlot = `pad.${p.id}`;
+            const amtSlot = `pad.${p.id}.amt`;
             const padKey = midiKeyFor(padSlot);
             return (
-              <div className={`ml-fx${pick === padSlot || pick === knobSlot ? ' pick' : ''}`} key={e.id}>
+              <div className={`ml-padcell${pick === padSlot ? ' pick' : ''}`} key={p.id}>
                 <button
                   className="ml-pad"
                   onPointerDown={(ev) => {
                     if (pickIf(padSlot)) return;
                     ev.preventDefault();
-                    engage(e.id);
+                    engagePad(p);
                     const up = () => {
-                      release(e.id);
+                      releasePad(p);
                       window.removeEventListener('pointerup', up);
                     };
                     window.addEventListener('pointerup', up);
                   }}
-                  title={`${e.label}: mantén para aplicar`}
+                  title={`${p.label}: mantén para aplicar`}
                 >
-                  {e.label}
+                  {p.label}
                   {padKey && <span className="ml-badge">{midiKeyLabel(padKey)}</span>}
                 </button>
-                {knobCtl(knobSlot, amts[e.id] ?? 0, (v) => setAmt(e.id, v), `${e.label} cantidad`)}
-                <span className="ml-sub">{e.sub}</span>
+                {knob(amtSlot, padAmts[p.id] ?? 0.5, (v) => setPadAmt(p.id, v), null, `${p.label} intensidad`)}
+                <span className="ml-sub">×{padN(p)}</span>
               </div>
             );
           })}
@@ -251,8 +281,8 @@ export function MidiLive() {
                     {muted ? 'muted' : 'mute'}
                     {muteKey && <span className="ml-badge sm">{midiKeyLabel(muteKey)}</span>}
                   </button>
-                  {knobCtl(`src.${id}.gain`, (s.data.gain ?? 1) / 1.5, (v) => gs().updateNodeData(id, { gain: v * 1.5 }), `volumen ${s.data.name || 'pista'}`)}
-                  {knobCtl(`src.${id}.filter`, ((s.data.chFilter ?? 0) + 1) / 2, (v) => gs().updateNodeData(id, { chFilter: v * 2 - 1 }), `filtro ${s.data.name || 'pista'}`)}
+                  {knob(`src.${id}.gain`, (s.data.gain ?? 1) / 1.5, (v) => gs().updateNodeData(id, { gain: v * 1.5 }), () => gs().updateNodeData(id, { gain: 1 }), `volumen ${s.data.name || 'pista'}`)}
+                  {knob(`src.${id}.filter`, ((s.data.chFilter ?? 0) + 1) / 2, (v) => gs().updateNodeData(id, { chFilter: v * 2 - 1 }), () => gs().updateNodeData(id, { chFilter: 0 }), `filtro ${s.data.name || 'pista'}`)}
                 </div>
               );
             })
