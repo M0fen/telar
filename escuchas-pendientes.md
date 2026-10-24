@@ -74,6 +74,21 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] Agudos MUY altos de una onda dibujada: ¿aliasing tolerable? (sin band-limiting aún).
 - [ ] Todo **persiste** al cerrar/reabrir el estudio y al guardar/cargar el proyecto.
 
+## 11 · En vivo con el M-Wave (panel MIDI) — NUEVO, medido sin oír
+*Conectar el M-Wave por USB en Chrome/Edge → «Conectar MIDI» → «⌨ Aprender».*
+- [ ] **Filtro de cada pista** (perilla «filtro» del panel, del deck DJ o del nodo): baja = se cierra, sube = se afina. Sobre las aves: bajar el filtro NO abre el drone (sigue oscuro) y subirlo NO le mete graves al silbido.
+- [ ] **Reverb y eco del máster suman**: con la base de aves sonando, subir la perilla de reverb a ~30 % → las aves quedan MÁS húmedas, no más secas. Igual el eco.
+- [ ] **Grabar el set**: grabar WAV moviendo el filtro del máster con el M-Wave → el archivo trae los barridos, el limitador y los pads (antes salía sin ellos).
+- [ ] **Barrido de filtro**: girar rápido la perilla de filtro → suave, sin escalones ni chasquidos, y sin cortes en el audio.
+- [ ] **Kill graves / medios / agudos**: mantener cada pad → desaparece esa banda (bombo+bajo / voces y sintes / hats y aire); soltar → vuelve sin chasquido.
+- [ ] **Eco** (pad): mantener sobre una caja o un silbido y soltar → la cola sigue unos 3 s, a tempo (3/16), con repeticiones cada vez más oscuras.
+- [ ] **Wash** (pad): mantener y soltar → se lava en reverb y la cola se apaga sola. ¿Muy fuerte o muy suave? (hoy: el húmedo ≈ al nivel del seco por encima de 400 Hz).
+- [ ] **½ tiempo** (pad): entra justo en el siguiente pulso, a media velocidad, sin salto; con Roll ×4 apretado encima, el roll va a tempo real; al soltar, la canción sigue en su sitio.
+- [ ] **Pads solapados**: mantener Roll ×4, tocar ×8 y soltar ×8 → vuelve a ×4 (no se apaga).
+- [ ] Los pads **se iluminan** mientras actúan (con el M-Wave o con el mouse). **Reiniciar** apaga todo, incluidos kills, eco, wash y el filtro de cada pista.
+- [ ] **Escenas**: capturar una escena mientras mantienes un pad y dispararla después → el pad NO queda pegado.
+- [ ] **Minimizar** (▾): en modo DJ el panel queda en un botón pequeño y no tapa la consola; recuerda el estado al recargar.
+
 ---
 
 ## Interfaz / calidad visual (mirar, sin audio)

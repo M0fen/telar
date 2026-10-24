@@ -51,7 +51,13 @@ Todo lo "funcional" se juzga contra: **Dancehall, Techno, EBM, Post-punk, Trap, 
 
 **Fuera de foco:** el modo/mezclador DJ (`DjMixer.tsx`). No romperlo, no ampliarlo.
 
-**En foco (nuevo):** el **control EN VIVO por MIDI** — pads/perillas de un controlador físico (p. ej. M-Wave) para tocar la mezcla. Vive APARTE del mezclador DJ, como capa de control transversal: `src/audio/midiIn.ts` (parseo Note/CC + ruteo + "aprender", portado del En vivo de la Sala de Dirección), `src/store/useMidiStore.ts` (mapa pad/perilla→slot, persistido), `src/ui/MidiLive.tsx` (panel: cada efecto con su PAD que engancha y su PERILLA que gradúa la cantidad; + 8 pads de escena). Los efectos aplican al MÁSTER vía `setMaster`: filtro y drive en el bus (al instante, sin recompilar); eco/reverb/crush y los pads roll/gate/rev en el código (recompila con throttle, regla 3). NO toca `DjMixer.tsx`.
+**En foco (nuevo):** el **control EN VIVO por MIDI** — pads/perillas de un controlador físico (p. ej. M-Wave) para tocar la mezcla. Vive APARTE del mezclador DJ, como capa de control transversal: `src/audio/midiIn.ts` (parseo Note/CC + ruteo + "aprender", portado del En vivo de la Sala de Dirección), `src/store/useMidiStore.ts` (mapa pad/perilla→slot, persistido), `src/ui/MidiLive.tsx` (panel: cada efecto con su PAD que engancha y su PERILLA que gradúa la cantidad; + 8 pads de escena). Dónde actúa cada cosa: perillas filtro/drive (`setMaster` → bus) y pads Eco/Wash/Kill (`setLiveFx`, etapa fija de FX en vivo antes del limitador TP) van al BUS Web Audio — al instante, sin recompilar; perillas eco/reverb/crush y pads Roll/Gate/Reverse/½ tiempo van al código (recompila con throttle, regla 3). Los pads momentáneos jamás se persisten ni entran en escenas (`releaseMomentary` / `withoutMomentary`). NO toca `DjMixer.tsx`.
+
+---
+
+## Próximo trabajo
+
+**Modo DAW, Fase 0** — plan verificado y listo en `telar-daw-fase0.md` (0.1 canción+escenas en el proyecto · 0.2 un solo reloj · 0.3 un solo parser de `arrange` · 0.4 apagar sección sin borrar). Escuchas pendientes de lo último (panel MIDI, pads, filtros): sección 11 de `escuchas-pendientes.md`.
 
 ---
 
