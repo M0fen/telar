@@ -82,7 +82,9 @@ const MOMENTARY: MomFx[] = [
 const GROUPS = ['Roll', 'Gate', 'Tiempo', 'Envíos', 'Kill'];
 
 // Base de SILBIDOS DE AVES (La menor pentatónica) — se insertan como sources nuevos
-// SIN borrar el lienzo, para mezclarlos con otra pista.
+// SIN borrar el lienzo, para mezclarlos con otra pista. Sin funciones flecha (`x=>…`): el
+// `>` de `=>` descuadra el parser de `arrange` y «⇋ instrumentos» anidaba el arreglo
+// (`ply(3)` curried suena idéntico, verificado en Strudel). El parser se arregla en DAW 0.3.
 const AVES: { name: string; code: string }[] = [
   {
     name: 'drone_aves',
@@ -90,7 +92,7 @@ const AVES: { name: string; code: string }[] = [
   },
   {
     name: 'aves_silbido',
-    code: 'note("<a5 e6 c6 d6 e6 a5 g5 e6>").s("sine").penv("<12 -7 9 -5 7 -9>").pattack(0.004).pdecay(0.08).attack(0.004).decay(0.11).sustain(0).release(0.09).hpf(1400).gain(0.3).room(0.6).roomsize(0.85).delay(0.4).delaytime(0.33).delayfeedback(0.52).sometimesBy(0.35, x=>x.ply(3)).degradeBy(0.12).pan(sine.range(0.3,0.7).slow(8))',
+    code: 'note("<a5 e6 c6 d6 e6 a5 g5 e6>").s("sine").penv("<12 -7 9 -5 7 -9>").pattack(0.004).pdecay(0.08).attack(0.004).decay(0.11).sustain(0).release(0.09).hpf(1400).gain(0.3).room(0.6).roomsize(0.85).delay(0.4).delaytime(0.33).delayfeedback(0.52).sometimesBy(0.35, ply(3)).degradeBy(0.12).pan(sine.range(0.3,0.7).slow(8))',
   },
   {
     name: 'aves_chirp',
