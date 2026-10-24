@@ -508,8 +508,11 @@ export function applyMasterBus(): void {
     // (barre a agudo), 0 = abierto (transparente). Exponencial para que sea musical.
     // CLAMP defensivo a [-1,1]: un filter fuera de rango daría un lpf sub-audible (mudo).
     const f = Math.max(-1, Math.min(1, s.filter));
-    mc.djLP.frequency.value = f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000;
-    mc.djHP.frequency.value = f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20;
+    // rampa corta (~35 ms al 95 %): un barrido con la perilla MIDI llega en escalones de 1/127;
+    // fijar .value de golpe hace «zipper» (chasquidos) en la frecuencia del filtro.
+    const tNow = ctx.currentTime;
+    mc.djLP.frequency.setTargetAtTime(f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000, tNow, 0.012);
+    mc.djHP.frequency.setTargetAtTime(f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20, tNow, 0.012);
     const dr = Math.max(0, Math.min(1, s.drive));
     if (Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; } // DRIVE del máster
     mc.sideW.gain.value = s.width; // 1 = normal · 0 = mono · >1 = más ancho

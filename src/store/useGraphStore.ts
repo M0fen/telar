@@ -183,6 +183,10 @@ interface GraphState {
   loadNonce: number;
 }
 
+// Campos del máster que viven SOLO en el bus Web Audio del motor (applyMasterBus): no
+// tocan el código del patrón → cambiarlos no necesita recompilar.
+const MASTER_BUS_KEYS = new Set(['limit', 'glue', 'sat', 'width', 'punch', 'eqLow', 'eqMid', 'eqHigh', 'filter', 'drive']);
+
 export const useGraphStore = create<GraphState>((set, get) => {
   // Los errores de evaluación de Strudel llegan por callback (no por throw).
   onEngineError((msg) => set({ runtimeError: msg }));
@@ -593,10 +597,13 @@ export const useGraphStore = create<GraphState>((set, get) => {
     setMaster: (patch) => {
       const master = { ...get().master, ...patch };
       set({ master });
-      // EQ/limiter/glue/sat/width del máster van al BUS del motor (no al código); los demás recompilan.
-      if ('limit' in patch || 'glue' in patch || 'sat' in patch || 'width' in patch || 'punch' in patch || 'eqLow' in patch || 'eqMid' in patch || 'eqHigh' in patch || 'filter' in patch || 'drive' in patch)
+      // EQ/limiter/glue/sat/width/punch y FILTRO/DRIVE del máster van al BUS del motor (no al
+      // código): se aplican al instante y NO recompilan — antes cada tic de una perilla MIDI
+      // re-evaluaba el patrón entero (~14×/s) sin cambiar nada. Lo demás recompila (throttle).
+      const keys = Object.keys(patch);
+      if (keys.some((k) => MASTER_BUS_KEYS.has(k)))
         setMasterBus({ limit: master.limit ?? 0, glue: master.glue ?? 0, sat: master.sat ?? 0, width: master.width ?? 1, punch: master.punch ?? 0, low: master.eqLow ?? 0, mid: master.eqMid ?? 0, high: master.eqHigh ?? 0, filter: master.filter ?? 0, drive: master.drive ?? 0 });
-      scheduleRecompile(); // hot-swap en vivo, coalescido por frame
+      if (keys.some((k) => !MASTER_BUS_KEYS.has(k))) scheduleRecompile(); // hot-swap en vivo, coalescido
     },
 
     autoMaster: async (target = -14) => {
