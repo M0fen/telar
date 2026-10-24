@@ -476,12 +476,12 @@ function composeFx(parts: string[]): string {
 // MÁSTER GLOBAL (sobre el stack entero). El FILTRO y el DRIVE del máster viven en el BUS
 // Web Audio (engine.applyMasterBus: djHP/djLP/djDrive) → afectan toda la mezcla al
 // instante, sin recompilar; por eso aquí van en 0. Lo demás (groove, roll/gate/rev,
-// crush/eco/reverb, gain) se emite en código.
+// gain) se emite en código, y crush/eco/reverb COMPUESTOS con los de cada voz.
 export function applyGlobalMaster(code: string, m: MasterFx): string {
-  return applyMaster(code, { ...m, filter: 0 });
+  return applyMaster(code, { ...m, filter: 0 }, { composeSends: true });
 }
 
-export function applyMaster(code: string, m: MasterFx): string {
+export function applyMaster(code: string, m: MasterFx, opts: { composeSends?: boolean } = {}): string {
   let out = code;
   // GROOVE primero (afecta el TIEMPO de los eventos): swing (.swingBy) + humanize
   // (micro-retraso y micro-dinámica aleatorios por evento con la señal `rand`).
@@ -529,11 +529,22 @@ export function applyMaster(code: string, m: MasterFx): string {
   const comp: string[] = [];
   if (mFilter < -0.02) comp.push(`cutoff:Math.min(+v.cutoff||20000,${Math.round(18000 * Math.pow(100 / 18000, -mFilter))})`);
   else if (mFilter > 0.02) comp.push(`hcutoff:Math.max(+v.hcutoff||0,${Math.round(20 * Math.pow(5000 / 20, mFilter))})`);
+  // ECO / REVERB / CRUSH. En el máster GLOBAL se COMPONEN con lo que cada voz ya trae:
+  // como sufijo pisaban → la perilla de reverb a 0.3 SECABA unas aves con room 0.6 (y el
+  // eco igual); ahora solo suman. En el CANAL (chRoom/wash de cada Source) siguen como
+  // envío único que fija el valor (diseño V3: el throw de wash manda).
+  if (opts.composeSends) {
+    if (mCrush > 0.02) comp.push(`crush:Math.min(+v.crush||16,${(16 - mCrush * 12).toFixed(1)})`);
+    if (mDelay > 0.02) comp.push(`delay:1-(1-(+v.delay||0))*${(1 - mDelay).toFixed(2)}`);
+    if (mRoom > 0.02) comp.push(`room:1-(1-(+v.room||0))*${(1 - mRoom).toFixed(2)}`);
+  }
   out += composeFx(comp);
-  if (mCrush > 0.02) out = `${out}.crush(${(16 - mCrush * 12).toFixed(1)})`;
-  if (mDelay > 0.02) out = `${out}.delay(${mDelay.toFixed(2)})`;
+  if (!opts.composeSends) {
+    if (mCrush > 0.02) out = `${out}.crush(${(16 - mCrush * 12).toFixed(1)})`;
+    if (mDelay > 0.02) out = `${out}.delay(${mDelay.toFixed(2)})`;
+    if (mRoom > 0.02) out = `${out}.room(${mRoom.toFixed(2)})`;
+  }
   if (mRoom > 0.02) {
-    out = `${out}.room(${mRoom.toFixed(2)})`;
     // espacio por IR (convolución real): usa la muestra como respuesta al impulso.
     // roomsize DEBE ser la duración exacta del IR: superdough reconstruye el buffer
     // con adjustLength(roomsize, ir) — si roomsize>dur BUCLEA el IR (eco fantasma) y

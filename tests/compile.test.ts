@@ -273,6 +273,25 @@ test('máster GLOBAL: su filtro y su drive NO van en código (viven en el bus We
   assert.doesNotMatch(g2, /hcutoff|\.hpf\(/);
 });
 
+test('máster GLOBAL: reverb/eco/crush COMPONEN — subir la reverb nunca seca una voz que ya tenía', () => {
+  const g = applyGlobalMaster('s("x")', { gain: 1, filter: 0, room: 0.3, delay: 0.4, crush: 0.25 });
+  assert.doesNotMatch(g, /\.room\(|\.delay\(|\.crush\(/); // ningún sufijo que pise
+  const wet = runFmap(g, { s: 'sine', room: 0.6, delay: 0.5, crush: 8 });
+  assert.ok((wet.room as number) > 0.6, `room ${wet.room}`);   // 1-(0.4)(0.7) = 0.72 (antes: 0.3)
+  assert.ok((wet.delay as number) > 0.5, `delay ${wet.delay}`); // 1-(0.5)(0.6) = 0.70 (antes: 0.4)
+  assert.equal(wet.crush, 8);                                    // ya más crujiente que 13 bits: se queda
+  const dry = runFmap(g, { s: 'bd' });
+  assert.equal(Number((dry.room as number).toFixed(2)), 0.3);    // voz seca: recibe el envío exacto
+  assert.equal(Number((dry.delay as number).toFixed(2)), 0.4);
+  assert.equal(dry.crush, 13);
+});
+
+test('máster GLOBAL con espacio IR: la reverb compuesta conserva .ir(...).roomsize(...)', () => {
+  const g = applyGlobalMaster('s("bd")', { gain: 1, filter: 0, room: 0.4, space: 'ir_hall' });
+  assert.match(g, /room:1-\(1-\(\+v\.room\|\|0\)\)\*0\.60/);
+  assert.match(g, /\.ir\("ir_hall"\)\.roomsize\(2\.2\)/);
+});
+
 test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) sino crush(4.0)', () => {
   const bad = applyMaster('s("bd*4")', { gain: 1, filter: 0, room: 0, crush: 2 });
   assert.doesNotMatch(bad, /\.crush\(-/);       // crush negativo = basura
