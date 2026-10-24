@@ -186,6 +186,8 @@
 .ml-momlbl { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint, #7a8591); font-weight: 600; }
 .ml-momrow { display: flex; gap: 5px; }
 .ml-pad.sm { padding: 10px 12px; min-width: 40px; font-size: 12px; }
+/* pad ENGANCHADO (MIDI o mouse): encendido mientras el efecto actúa */
+.ml-pad.on { background: var(--accent, #3df0d0); color: #06120f; border-color: var(--accent, #3df0d0); box-shadow: 0 0 10px rgba(61, 240, 208, 0.45); }
 
 /* monitor de actividad del controlador */
 .ml-monitor {

@@ -160,6 +160,7 @@ export interface MasterFx {
   roll?: number; // 0=off · 2/4/8/16 → loop roll / stutter (.ply)
   gate?: number; // 0=off · tasa de corte rítmico (gate)
   rev?: boolean; // reverse throw del ciclo
+  half?: number; // ½ TIEMPO: ciclo ANCLA (en la rejilla de pulsos) desde el que todo va a media velocidad · 0 = off
   // GROOVE global: swing (retrasa los off-beats) + humanize (micro-random de tiempo
   // y ganancia) → que todo "pegue" al grid con vida, no robótico.
   swing?: number; // 0..0.6 cantidad de swing (0 = recto), sobre semicorcheas
@@ -481,8 +482,25 @@ export function applyGlobalMaster(code: string, m: MasterFx): string {
   return applyMaster(code, { ...m, filter: 0 }, { composeSends: true });
 }
 
+// Los FX MOMENTÁNEOS del máster (se sostienen mientras pulsas) nunca sobreviven a una carga:
+// un roll «pegado» al recargar, o un ancla vieja de ½ tiempo que se dispararía sola minutos
+// después, serían fallos en vivo.
+export function releaseMomentary(m: MasterFx): MasterFx {
+  return { ...m, roll: 0, gate: 0, rev: false, half: 0 };
+}
+
 export function applyMaster(code: string, m: MasterFx, opts: { composeSends?: boolean } = {}): string {
   let out = code;
+  // ½ TIEMPO (momentáneo): desde el ciclo ANCLA A (un pulso, fijado al pulsar) todo suena a
+  // media velocidad SIN saltar: p(A + (t−A)/2) = p.early(A/2).slow(2). Antes de A, el patrón
+  // normal (lo ya agendado no cambia). Al soltar vuelve a p(t): la canción sigue en su sitio,
+  // como el «slip» de un DJ. Va PRIMERO para que roll/gate/rev actúen encima a tempo real.
+  // Guarda `!h.whole`: un hap sin whole jamás debe romper la consulta (= silencio).
+  const half = Number(m.half) || 0;
+  if (half > 0) {
+    const a = Math.round(half * 4) / 4; // siempre en la rejilla de pulsos (1/4 de ciclo)
+    out = `((p)=>stack(p.filterHaps((h)=>!h.whole||h.whole.begin<${a}),p.early(${a / 2}).slow(2).filterHaps((h)=>!h.whole||h.whole.begin>=${a})))(${out})`;
+  }
   // GROOVE primero (afecta el TIEMPO de los eventos): swing (.swingBy) + humanize
   // (micro-retraso y micro-dinámica aleatorios por evento con la señal `rand`).
   // Recto y robótico si ambos son 0.

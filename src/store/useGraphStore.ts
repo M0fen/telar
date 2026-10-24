@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyGlobalMaster, sanitizeMasterFx, type MasterFx } from '../graph/compile';
+import { compileGraph, applyGlobalMaster, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
@@ -275,7 +275,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     future: [],
     dragItem: null,
     hoverEdgeId: null,
-    master: { ...DEFAULT_MASTER, ...(saved?.master ?? {}) },
+    master: releaseMomentary({ ...DEFAULT_MASTER, ...(saved?.master ?? {}) }), // roll/gate/rev/½ tiempo nunca «pegados» al recargar
     mastering: false,
     mode: saved?.mode ?? 'standard',
     djOrientation: saved?.djOrientation ?? 'vertical',
@@ -874,7 +874,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       let masterNotes: string[] = [];
       if (snap.master) {
         const sane = sanitizeMasterFx({ ...DEFAULT_MASTER, ...snap.master });
-        master = sane.master; masterNotes = sane.notes;
+        master = releaseMomentary(sane.master); masterNotes = sane.notes;
       }
       set({
         nodes,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import './MidiLive.css';
-import { startMidiInput } from '../audio/engine';
+import { startMidiInput, setLiveFx, releaseAllLiveFx, getScheduler, type LiveFxKey } from '../audio/engine';
 import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
 import { useMidiStore, midiKeyFor, midiKeyLabel } from '../store/useMidiStore';
 import { useGraphStore } from '../store/useGraphStore';
@@ -13,14 +13,16 @@ import type { NodeData } from '../graph/types';
 // Modo EN VIVO con controlador MIDI (perillas + pads), aparte del mezclador DJ.
 //   • PERILLAS (continuas): filtro/eco/reverb/drive/crush — la perilla las ajusta
 //     EN VIVO directamente (gira = más/menos). Doble clic = al centro.
-//   • PADS momentáneos: Roll ×2/×4/×8/×16 y Gate ×4/×8/×16 (divisiones clásicas) y
-//     Reverse — mantienes el pad y suena; sueltas y para. Cada división es su pad,
-//     así cada uno se asigna fácil a un pad del controlador.
-//   • REINICIAR: efectos del máster a neutro + filtro de cada pista al centro (pánico).
+//   • PADS momentáneos (mantienes = actúa, sueltas = para; se iluminan mientras actúan):
+//     Roll ×2/×4/×8/×16 · Gate ×4/×8/×16 · Tiempo: Reverse y ½ tiempo · Envíos: Eco y Wash
+//     (al soltar, la cola sigue) · Kill: graves / medios / agudos. Un pad por división →
+//     cada uno se asigna fácil a un pad del controlador.
+//   • REINICIAR: efectos del máster a neutro, suelta los FX en vivo y centra el filtro de
+//     cada pista (pánico).
 //   • PISTAS: por source, pad de mute + perillas de volumen y filtro. ESCENAS: 8 pads.
-// Todo asignable por "aprender" (y «✕ quitar» para soltar una asignación). Los efectos
-// aplican al MÁSTER vía setMaster: filtro y drive en el BUS Web Audio (al instante, sin
-// recompilar); eco/reverb/crush y los pads, en el código (recompila con throttle).
+// Todo asignable por "aprender" (y «✕ quitar» para soltar una asignación). Dónde actúa:
+//   BUS Web Audio (al instante, sin recompilar): perillas filtro/drive, Eco, Wash y Kills.
+//   CÓDIGO (recompila con throttle): perillas eco/reverb/crush, Roll, Gate, Reverse, ½ tiempo.
 // Las perillas ya ajustan con el mouse sin configurar MIDI.
 
 interface KnobFx {
@@ -38,25 +40,46 @@ const KNOBS: KnobFx[] = [
   { id: 'crush', label: 'Crush', param: 'crush', max: 1 },
 ];
 
-// Pads momentáneos: cada uno aplica un valor FIJO mientras se mantiene.
+// Pads momentáneos: actúan MIENTRAS se mantienen. Dos clases:
+//   • de PATRÓN (máster, recompila): roll/gate/reverse/½ tiempo → un valor del máster.
+//   • de BUS (Web Audio, instantáneos): eco y wash con cola, kills de graves/medios/agudos.
+type MomParam = 'roll' | 'gate' | 'rev' | 'half';
 interface MomFx {
   id: string;
   label: string;
   group: string;
-  param: 'roll' | 'gate' | 'rev';
-  on: number | boolean;
+  title: string;
+  param?: MomParam; // pad de patrón
+  on?: number | boolean | (() => number); // valor mientras se mantiene (función = se calcula al pulsar)
+  bus?: LiveFxKey; // pad de bus
 }
+
+// Ancla del ½ tiempo: el PRÓXIMO pulso (1/4 de ciclo), con margen para que el hot-swap
+// (~120 ms) llegue antes → el cambio cae justo en el pulso, sin saltos.
+const halfAnchor = (): number => {
+  const sch = getScheduler() as { now?: () => number; cps?: number } | undefined;
+  const now = Number(sch?.now?.() ?? 0);
+  const cps = Number(sch?.cps) || gs().cps || 0.5;
+  return Math.ceil((now + 0.12 * cps) * 4) / 4;
+};
+
 const MOMENTARY: MomFx[] = [
-  { id: 'roll2', label: '×2', group: 'Roll', param: 'roll', on: 2 },
-  { id: 'roll4', label: '×4', group: 'Roll', param: 'roll', on: 4 },
-  { id: 'roll8', label: '×8', group: 'Roll', param: 'roll', on: 8 },
-  { id: 'roll16', label: '×16', group: 'Roll', param: 'roll', on: 16 },
-  { id: 'gate4', label: '×4', group: 'Gate', param: 'gate', on: 4 },
-  { id: 'gate8', label: '×8', group: 'Gate', param: 'gate', on: 8 },
-  { id: 'gate16', label: '×16', group: 'Gate', param: 'gate', on: 16 },
-  { id: 'rev', label: 'Reverse', group: 'Reverse', param: 'rev', on: true },
+  { id: 'roll2', label: '×2', group: 'Roll', title: 'loop roll ×2', param: 'roll', on: 2 },
+  { id: 'roll4', label: '×4', group: 'Roll', title: 'loop roll ×4', param: 'roll', on: 4 },
+  { id: 'roll8', label: '×8', group: 'Roll', title: 'loop roll ×8', param: 'roll', on: 8 },
+  { id: 'roll16', label: '×16', group: 'Roll', title: 'loop roll ×16', param: 'roll', on: 16 },
+  { id: 'gate4', label: '×4', group: 'Gate', title: 'gate ×4', param: 'gate', on: 4 },
+  { id: 'gate8', label: '×8', group: 'Gate', title: 'gate ×8', param: 'gate', on: 8 },
+  { id: 'gate16', label: '×16', group: 'Gate', title: 'gate ×16', param: 'gate', on: 16 },
+  { id: 'rev', label: 'Reverse', group: 'Tiempo', title: 'reverse', param: 'rev', on: true },
+  { id: 'half', label: '½ tiempo', group: 'Tiempo', title: 'todo a media velocidad desde el próximo pulso; al soltar, la canción sigue en su sitio', param: 'half', on: halfAnchor },
+  { id: 'echo', label: 'Eco', group: 'Envíos', title: 'eco a tempo (3/16): al soltar la cola sigue sonando', bus: 'echo' },
+  { id: 'wash', label: 'Wash', group: 'Envíos', title: 'lavado de reverb: al soltar la cola sigue sonando', bus: 'wash' },
+  { id: 'killLow', label: 'Graves', group: 'Kill', title: 'quita los graves (bombo y bajo) mientras mantienes', bus: 'killLow' },
+  { id: 'killMid', label: 'Medios', group: 'Kill', title: 'quita los medios mientras mantienes', bus: 'killMid' },
+  { id: 'killHigh', label: 'Agudos', group: 'Kill', title: 'quita los agudos (hats, aire) mientras mantienes', bus: 'killHigh' },
 ];
-const GROUPS = ['Roll', 'Gate', 'Reverse'];
+const GROUPS = ['Roll', 'Gate', 'Tiempo', 'Envíos', 'Kill'];
 
 // Base de SILBIDOS DE AVES (La menor pentatónica) — se insertan como sources nuevos
 // SIN borrar el lienzo, para mezclarlos con otra pista.
@@ -83,28 +106,37 @@ const srcMuted = (id: string) => !!gs().nodes.find((n) => n.id === id)?.data.mut
 
 const knobTo = (k: KnobFx, v01: number) => (k.bipolar ? v01 * 2 - 1 : v01 * (k.max ?? 1));
 const knobFrom = (k: KnobFx, val: number) => (k.bipolar ? (val + 1) / 2 : val / (k.max ?? 1));
-const momOff = (m: MomFx): Partial<MasterFx> => ({ [m.param]: m.param === 'rev' ? false : 0 } as Partial<MasterFx>);
+const momOff = (p: MomParam): Partial<MasterFx> => ({ [p]: p === 'rev' ? false : 0 } as Partial<MasterFx>);
 
-// Pads momentáneos del MISMO efecto que se solapan (mantienes Roll ×4 y tocas ×8): al soltar
-// uno vuelve el que sigue apretado. Antes, soltar cualquiera apagaba el efecto aunque otro
-// pad siguiera abajo. Pila por parámetro (roll / gate / rev).
-const held: Record<string, MomFx[]> = {};
+// Pads de PATRÓN del MISMO efecto que se solapan (mantienes Roll ×4 y tocas ×8): al soltar
+// uno vuelve el que sigue apretado. Pila por parámetro con el valor fijado AL PULSAR (el
+// ancla del ½ tiempo no se recalcula al volver → no salta).
+const held: Record<string, { id: string; v: number | boolean }[]> = {};
 const engageMom = (m: MomFx) => {
+  useMidiStore.getState().setLit(m.id, true);
+  if (m.bus) { setLiveFx(m.bus, true, gs().cps); return; }
+  if (!m.param) return;
+  const v = typeof m.on === 'function' ? m.on() : (m.on ?? true);
   const st = (held[m.param] = (held[m.param] ?? []).filter((x) => x.id !== m.id));
-  st.push(m);
-  setM({ [m.param]: m.on } as Partial<MasterFx>);
+  st.push({ id: m.id, v });
+  setM({ [m.param]: v } as Partial<MasterFx>);
 };
 const releaseMom = (m: MomFx) => {
+  useMidiStore.getState().setLit(m.id, false);
+  if (m.bus) { setLiveFx(m.bus, false); return; }
+  if (!m.param) return;
   const st = (held[m.param] = (held[m.param] ?? []).filter((x) => x.id !== m.id));
   const top = st[st.length - 1];
-  setM(top ? ({ [m.param]: top.on } as Partial<MasterFx>) : momOff(m));
+  setM(top ? ({ [m.param]: top.v } as Partial<MasterFx>) : momOff(m.param));
 };
 
-// REINICIAR (pánico): efectos del máster a neutro + filtro de TODAS las pistas al centro.
-// No toca volúmenes ni mutes (eso es la mezcla, no un efecto).
-const RESET: Partial<MasterFx> = { filter: 0, delay: 0, room: 0, drive: 0, crush: 0, roll: 0, gate: 0, rev: false };
+// REINICIAR (pánico): efectos del máster a neutro, suelta los FX en vivo del bus (las colas
+// terminan solas) y centra el filtro de TODAS las pistas. No toca volúmenes ni mutes.
+const RESET: Partial<MasterFx> = { filter: 0, delay: 0, room: 0, drive: 0, crush: 0, roll: 0, gate: 0, rev: false, half: 0 };
 const resetAll = () => {
   for (const k of Object.keys(held)) delete held[k];
+  releaseAllLiveFx();
+  useMidiStore.getState().clearLit();
   setM(RESET);
   const g = gs();
   const upd: Record<string, Partial<NodeData>> = {};
@@ -131,8 +163,8 @@ function MidiMonitor() {
 }
 
 export function MidiLive() {
-  const { on, learn, pick, inputs, err, map } = useMidiStore(
-    useShallow((s) => ({ on: s.on, learn: s.learn, pick: s.pick, inputs: s.inputs, err: s.err, map: s.map })),
+  const { on, learn, pick, inputs, err, map, lit } = useMidiStore(
+    useShallow((s) => ({ on: s.on, learn: s.learn, pick: s.pick, inputs: s.inputs, err: s.err, map: s.map, lit: s.lit })),
   );
   const setStatus = useMidiStore((s) => s.setStatus);
   const master = useGraphStore((s) => s.master);
@@ -242,7 +274,7 @@ export function MidiLive() {
     const key = midiKeyFor(slot);
     return (
       <button
-        className={`ml-pad sm${pick === slot ? ' pick' : ''}`}
+        className={`ml-pad sm${pick === slot ? ' pick' : ''}${lit[m.id] ? ' on' : ''}`}
         key={m.id}
         onPointerDown={(ev) => {
           if (pickIf(slot)) return;
@@ -254,7 +286,7 @@ export function MidiLive() {
           };
           window.addEventListener('pointerup', up);
         }}
-        title={`${m.group} ${m.label}: mantén para aplicar`}
+        title={`${m.title} — mantén para aplicar`}
       >
         {m.label}
         {key && <span className="ml-badge sm">{midiKeyLabel(key)}</span>}
@@ -338,7 +370,7 @@ export function MidiLive() {
       </div>
 
       <div className="ml-sec">
-        <h4>Pads momentáneos (mantén para aplicar)</h4>
+        <h4>Pads momentáneos (mantén para aplicar · se iluminan mientras actúan)</h4>
         <div className="ml-moms">
           {GROUPS.map((grp) => (
             <div className="ml-momgrp" key={grp}>

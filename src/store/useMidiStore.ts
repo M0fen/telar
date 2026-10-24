@@ -34,7 +34,10 @@ interface MidiStore {
   lastAt: number; // timestamp de la última señal (para el parpadeo)
   map: Record<string, string>; // firma del control físico → id del slot
   rel: Record<string, string>; // firma → tipo de encoder relativo ('2c' | '64')
+  lit: Record<string, boolean>; // pads momentáneos ENGANCHADOS ahora (se iluminan, con MIDI o mouse)
   setStatus: (p: Partial<Pick<MidiStore, 'on' | 'learn' | 'pick' | 'inputs' | 'err'>>) => void;
+  setLit: (id: string, on: boolean) => void;
+  clearLit: () => void;
   note: (s: string) => void; // registra actividad del controlador (monitor)
   assign: (sig: string, slot: string) => void; // aprende: liga una firma a un slot
   setRel: (sig: string, enc: string) => void;
@@ -51,7 +54,16 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
   lastAt: 0,
   map: load(KEY_MAP),
   rel: load(KEY_REL),
+  lit: {},
   setStatus: (p) => set(p),
+  setLit: (id, on) => {
+    if (!!get().lit[id] === on) return;
+    const lit = { ...get().lit };
+    if (on) lit[id] = true;
+    else delete lit[id];
+    set({ lit });
+  },
+  clearLit: () => set({ lit: {} }),
   note: (s) => set({ last: s, lastAt: Date.now() }),
   assign: (sig, slot) => {
     const map = { ...get().map };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileGraph, isSampleSource, applyMaster, applyGlobalMaster, sanitizeMasterFx } from '../src/graph/compile.ts';
+import { compileGraph, isSampleSource, applyMaster, applyGlobalMaster, sanitizeMasterFx, releaseMomentary } from '../src/graph/compile.ts';
 import { registerUserIr } from '../src/audio/irRegistry.ts';
 
 // helpers de construcción de grafo (casts laxos: son fixtures de test)
@@ -284,6 +284,27 @@ test('máster GLOBAL: reverb/eco/crush COMPONEN — subir la reverb nunca seca u
   assert.equal(Number((dry.room as number).toFixed(2)), 0.3);    // voz seca: recibe el envío exacto
   assert.equal(Number((dry.delay as number).toFixed(2)), 0.4);
   assert.equal(dry.crush, 13);
+});
+
+test('½ TIEMPO: desde el ancla todo a media velocidad sin salto (p.early(A/2).slow(2)), antes normal', () => {
+  const g = applyGlobalMaster('s("bd sd")', { gain: 1, filter: 0, room: 0, half: 42.75 });
+  assert.match(g, /^\(\(p\)=>stack\(/);                                   // envuelve el stack entero
+  assert.match(g, /p\.filterHaps\(\(h\)=>!h\.whole\|\|h\.whole\.begin<42\.75\)/);   // antes del ancla: normal
+  assert.match(g, /p\.early\(21\.375\)\.slow\(2\)\.filterHaps\(\(h\)=>!h\.whole\|\|h\.whole\.begin>=42\.75\)/);
+  assert.doesNotMatch(applyGlobalMaster('s("bd")', { gain: 1, filter: 0, room: 0, half: 0 }), /slow\(2\)/);
+  // el ancla se fuerza a la rejilla de pulsos (1/4 de ciclo)
+  assert.match(applyGlobalMaster('s("bd")', { gain: 1, filter: 0, room: 0, half: 10.1 }), /begin<10\)/);
+});
+
+test('½ TIEMPO va PRIMERO: roll/gate actúan encima a tempo real', () => {
+  const g = applyGlobalMaster('s("bd")', { gain: 1, filter: 0, room: 0, half: 4, roll: 2 });
+  assert.ok(g.indexOf('slow(2)') < g.indexOf('.ply(2)'), g);
+});
+
+test('releaseMomentary: roll/gate/rev/½ tiempo nunca sobreviven a una carga; lo demás intacto', () => {
+  const m = releaseMomentary({ gain: 0.8, filter: -0.3, room: 0.2, roll: 4, gate: 8, rev: true, half: 33 });
+  assert.deepEqual([m.roll, m.gate, m.rev, m.half], [0, 0, false, 0]);
+  assert.deepEqual([m.gain, m.filter, m.room], [0.8, -0.3, 0.2]);
 });
 
 test('máster GLOBAL con espacio IR: la reverb compuesta conserva .ir(...).roomsize(...)', () => {

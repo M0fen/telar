@@ -375,7 +375,7 @@ interface MasterChain {
   ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
   low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; glue: DynamicsCompressorNode; lim: DynamicsCompressorNode; makeup: GainNode; wired: boolean; dg: AudioNode | null;
   djHP: BiquadFilterNode; djLP: BiquadFilterNode; djDrive: WaveShaperNode; lastDrive: number; // filtro DJ + drive del máster (bus, no código)
-  outSink: AudioNode | null;   // a qué salida está conectado makeup (activo): tp o destino
+  outSink: AudioNode | null;   // a qué está conectado makeup (bus activo): la etapa de FX en vivo (fxIn)
   bypassSink: AudioNode | null; bypassDg: AudioNode | null; // ídem para el bypass (dg → salida)
 }
 let masterChain: MasterChain | null = null;
@@ -404,6 +404,135 @@ export function getMasterPostNode(): AudioNode | undefined {
   } catch {
     return undefined;
   }
+}
+
+// --- FX EN VIVO (pads momentáneos del panel MIDI) -------------------------------------
+// Etapa FIJA al final de la mezcla, SIEMPRE en el camino (con el bus activo o en bypass):
+//   (bus | dg) → fxIn → kill graves → kill medios → kill agudos → fxOut → salida (tp | post)
+//                                                   ├→ envío ECO  (delay a tempo, realimentado) → salida
+//                                                   └→ envío WASH (reverb por convolución)    → salida
+// En reposo es transparente (shelves/peaking a 0 dB = respuesta plana; envíos a 0). Los envíos
+// van en PARALELO: al soltar el pad se cierra la ENTRADA y la cola sigue sonando (throw de DJ).
+// Antes de los retornos está el limitador TP → un throw fuerte no clipea. Todo con rampas
+// cortas de AudioParam: instantáneo, sin recompilar el patrón. Eco y wash se crean al primer
+// uso (el convolver no gasta CPU si nunca se toca).
+export type LiveFxKey = 'echo' | 'wash' | 'killLow' | 'killMid' | 'killHigh';
+interface LiveFxStage {
+  ctx: BaseAudioContext;
+  fxIn: GainNode; kLow: BiquadFilterNode; kMid: BiquadFilterNode; kHigh: BiquadFilterNode; fxOut: GainNode;
+  sink: AudioNode | null; // salida actual de fxOut y de los retornos (tp o post)
+  echo: { send: GainNode; delay: DelayNode; ret: GainNode } | null;
+  wash: { send: GainNode; ret: GainNode } | null;
+}
+let liveFx: LiveFxStage | null = null;
+
+function ensureLiveFx(ctx: BaseAudioContext): LiveFxStage {
+  if (liveFx && liveFx.ctx === ctx) return liveFx;
+  const fxIn = new GainNode(ctx, { gain: 1 });
+  const kLow = new BiquadFilterNode(ctx, { type: 'lowshelf', frequency: 250, gain: 0 });
+  const kMid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1200, Q: 0.35, gain: 0 });
+  const kHigh = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: 3500, gain: 0 });
+  const fxOut = new GainNode(ctx, { gain: 1 });
+  fxIn.connect(kLow); kLow.connect(kMid); kMid.connect(kHigh); kHigh.connect(fxOut);
+  liveFx = { ctx, fxIn, kLow, kMid, kHigh, fxOut, sink: null, echo: null, wash: null };
+  return liveFx;
+}
+
+// (re)conecta fxOut y los retornos a la salida (cambia cuando el worklet TP llega tarde).
+function liveFxSink(st: LiveFxStage, sink: AudioNode): void {
+  if (st.sink === sink) return;
+  const outs: AudioNode[] = [st.fxOut];
+  if (st.echo) outs.push(st.echo.ret);
+  if (st.wash) outs.push(st.wash.ret);
+  for (const n of outs) {
+    try { n.disconnect(); } catch { /* */ }
+    try { n.connect(sink); } catch { /* */ }
+  }
+  st.sink = sink;
+}
+
+function buildEcho(st: LiveFxStage): NonNullable<LiveFxStage['echo']> {
+  const { ctx } = st;
+  const send = new GainNode(ctx, { gain: 0 });
+  const delay = new DelayNode(ctx, { maxDelayTime: 2, delayTime: 0.33 });
+  // tono DUB en el lazo: cada repetición más oscura y sin graves (no embarra el bombo)
+  const hp = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 260, Q: 0.5 });
+  const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3600, Q: 0.5 });
+  const fb = new GainNode(ctx, { gain: 0.55 }); // −5 dB por repetición → cola de ~3 s
+  const ret = new GainNode(ctx, { gain: 0.8 });
+  st.kHigh.connect(send); send.connect(delay); delay.connect(hp); hp.connect(lp);
+  lp.connect(fb); fb.connect(delay); lp.connect(ret);
+  if (st.sink) ret.connect(st.sink);
+  st.echo = { send, delay, ret };
+  return st.echo;
+}
+
+// Respuesta al impulso sintética: ruido estéreo decorrelado con caída exponencial (−60 dB
+// al final) y un paso-bajo que se va cerrando → la cola se oscurece como en una sala real.
+function washIr(ctx: BaseAudioContext, secs = 3.4): AudioBuffer {
+  const rate = ctx.sampleRate;
+  const n = Math.max(1, Math.floor(secs * rate));
+  const pre = Math.floor(0.012 * rate); // pre-delay 12 ms: el golpe seco queda delante
+  const buf = ctx.createBuffer(2, n, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    let y = 0;
+    for (let i = pre; i < n; i++) {
+      const t = (i - pre) / rate;
+      const k = 0.9 - 0.75 * Math.min(1, t / secs);
+      y += k * (Math.random() * 2 - 1 - y);
+      d[i] = y * Math.exp((-6.9 * t) / secs);
+    }
+  }
+  return buf;
+}
+
+function buildWash(st: LiveFxStage): NonNullable<LiveFxStage['wash']> {
+  const { ctx } = st;
+  const send = new GainNode(ctx, { gain: 0 });
+  const hp = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 200, Q: 0.5 }); // sin barro
+  const conv = new ConvolverNode(ctx, { buffer: washIr(ctx) }); // normaliza la IR por defecto
+  const ret = new GainNode(ctx, { gain: 1.6 }); // medido: el wet queda ≈ al nivel del seco (lavado evidente)
+  st.kHigh.connect(send); send.connect(hp); hp.connect(conv); conv.connect(ret);
+  if (st.sink) ret.connect(st.sink);
+  st.wash = { send, ret };
+  return st.wash;
+}
+
+const liveFxOn: Record<LiveFxKey, boolean> = { echo: false, wash: false, killLow: false, killMid: false, killHigh: false };
+
+// Engancha / suelta un FX en vivo. cps = tempo del proyecto (el eco va a 3/16 de compás, el
+// «dotted eighth» clásico). Sin audio iniciado no hace nada (no hay etapa todavía).
+export function setLiveFx(key: LiveFxKey, on: boolean, cps?: number): void {
+  try {
+    const st = liveFx;
+    if (!st) return;
+    liveFxOn[key] = on;
+    const t = st.ctx.currentTime;
+    if (key === 'killLow') st.kLow.gain.setTargetAtTime(on ? -40 : 0, t, 0.008);
+    else if (key === 'killMid') st.kMid.gain.setTargetAtTime(on ? -26 : 0, t, 0.008);
+    else if (key === 'killHigh') st.kHigh.gain.setTargetAtTime(on ? -40 : 0, t, 0.008);
+    else if (key === 'echo') {
+      const e = st.echo ?? buildEcho(st);
+      if (on) {
+        const c = cps && cps > 0 ? cps : Number(repl?.scheduler?.cps) || 0.5;
+        const dt = Math.min(1.9, 3 / 16 / c);
+        // solo si cambió el tempo: mover delayTime con la cola sonando la desafina
+        if (Math.abs(e.delay.delayTime.value - dt) > 0.002) e.delay.delayTime.setValueAtTime(dt, t);
+      }
+      e.send.gain.setTargetAtTime(on ? 1 : 0, t, on ? 0.005 : 0.02);
+    } else if (key === 'wash') {
+      const w = st.wash ?? buildWash(st);
+      w.send.gain.setTargetAtTime(on ? 0.9 : 0, t, on ? 0.02 : 0.04);
+    }
+  } catch {
+    /* nunca romper el audio */
+  }
+}
+
+// Pánico: suelta todos los FX en vivo (las colas de eco/wash terminan solas).
+export function releaseAllLiveFx(): void {
+  for (const k of Object.keys(liveFxOn) as LiveFxKey[]) if (liveFxOn[k]) setLiveFx(k, false);
 }
 
 function busActive(s: MasterBusSettings): boolean {
@@ -538,6 +667,11 @@ export function applyMasterBus(): void {
     const post = ensurePostTap(ctx);
     const sink: AudioNode = tp ?? post;
     if (tp && tpToDest !== tp) { try { tp.connect(post); } catch { /* ya */ } tpToDest = tp; }
+    // FX EN VIVO: etapa fija antes de la salida. El bus (activo) o dg (bypass) entran en fxIn;
+    // fxOut y los retornos de eco/wash van al sink (reconciliado si el worklet TP llega tarde).
+    const fx = ensureLiveFx(ctx);
+    liveFxSink(fx, sink);
+    const target: AudioNode = fx.fxIn;
 
     const active = busActive(s);
     if (active) {
@@ -547,28 +681,29 @@ export function applyMasterBus(): void {
         try { dg.disconnect(ctx.destination); } catch { /* */ }
         if (tp) { try { dg.disconnect(tp); } catch { /* */ } }
         try { dg.disconnect(post); } catch { /* */ }
+        try { dg.disconnect(target); } catch { /* */ }
         try { dg.connect(mc.entry); } catch { /* */ }
         mc.wired = true; mc.dg = dg; mc.bypassSink = null; mc.bypassDg = null;
       }
-      // salida: makeup → sink (reconcilia si el sink cambió, p.ej. el worklet llegó tarde)
-      if (mc.outSink !== sink) {
+      // salida: makeup → etapa de FX en vivo (fija por contexto)
+      if (mc.outSink !== target) {
         try { mc.makeup.disconnect(); } catch { /* */ }
-        try { mc.makeup.connect(sink); } catch { /* */ }
-        mc.outSink = sink;
+        try { mc.makeup.connect(target); } catch { /* */ }
+        mc.outSink = target;
       }
     } else {
-      // bypass del EQ/glue pero MANTIENE el limitador: dg → sink
+      // bypass del EQ/glue pero MANTIENE FX en vivo y limitador: dg → fxIn → … → sink
       if (mc.wired) {
         try { mc.makeup.disconnect(); } catch { /* */ }
         try { (mc.dg ?? dg).disconnect(mc.entry); } catch { /* */ }
         mc.wired = false; mc.dg = null; mc.outSink = null;
       }
-      if (mc.bypassSink !== sink || mc.bypassDg !== dg) {
+      if (mc.bypassSink !== target || mc.bypassDg !== dg) {
         try { dg.disconnect(ctx.destination); } catch { /* */ }
         if (tp) { try { dg.disconnect(tp); } catch { /* */ } }
         try { dg.disconnect(post); } catch { /* */ }
-        try { dg.connect(sink); } catch { /* */ }
-        mc.bypassSink = sink; mc.bypassDg = dg;
+        try { dg.connect(target); } catch { /* */ }
+        mc.bypassSink = target; mc.bypassDg = dg;
       }
     }
   } catch {
