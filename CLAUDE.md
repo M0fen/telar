@@ -39,6 +39,9 @@ Este archivo es el contrato. Léelo antes de tocar audio o el grafo.
 - **Las escenas (`useScenesStore`) capturan solo MEZCLA** (mute/solo/gain/chFilter/params), no notas. "Clips por pista" requiere override del `code`/preset del Source, no solo estado de mezcla.
 - **El grabador usa `ScriptProcessorNode`** (deprecado). Migrar a AudioWorklet antes de exportar varios stems en paralelo.
 - **Samples locales no viajan en compartir-por-URL** → colaboración/entrega necesita subida a almacenamiento.
+- **Un sufijo de control PISA el de la voz** (`.lpf(300).lpf(6372)` → 6372; `.room(0.6).room(0.1)` → 0.1). Para FX de mezcla sobre código ajeno usa `composeFx` de `compile.ts` (`.fmap`: lpf→min, hpf→max, room/delay→1−(1−a)(1−b), crush→min). Ya lo usan el filtro de canal (`chFilter`) y eco/reverb/crush del máster global.
+- **Máster global = `applyGlobalMaster`**, no `applyMaster`: el filtro y el drive del máster viven en el BUS (`djHP/djLP/djDrive` en `applyMasterBus`) y NO recompilan (`MASTER_BUS_KEYS` en `useGraphStore`). `applyMaster` con `filter` es el filtro DE CANAL de cada Source.
+- **Taps de audio:** grabar / medir (LUFS) / visualizar = `getMasterPostNode()` (post-bus, lo que suena). `getMasterOutputNode()` (destinationGain) es PRE-bus: solo para el freeze (stem limpio, si no el bus se aplicaría dos veces).
 
 ---
 
@@ -48,7 +51,7 @@ Todo lo "funcional" se juzga contra: **Dancehall, Techno, EBM, Post-punk, Trap, 
 
 **Fuera de foco:** el modo/mezclador DJ (`DjMixer.tsx`). No romperlo, no ampliarlo.
 
-**En foco (nuevo):** el **control EN VIVO por MIDI** — pads/perillas de un controlador físico (p. ej. M-Wave) para tocar la mezcla. Vive APARTE del mezclador DJ, como capa de control transversal: `src/audio/midiIn.ts` (parseo Note/CC + ruteo + "aprender", portado del En vivo de la Sala de Dirección), `src/store/useMidiStore.ts` (mapa pad/perilla→slot, persistido), `src/ui/MidiLive.tsx` (panel: cada efecto con su PAD que engancha y su PERILLA que gradúa la cantidad; + 8 pads de escena). Los efectos aplican al MÁSTER vía `setMaster` (recompila con throttle, regla 3). NO toca `DjMixer.tsx`.
+**En foco (nuevo):** el **control EN VIVO por MIDI** — pads/perillas de un controlador físico (p. ej. M-Wave) para tocar la mezcla. Vive APARTE del mezclador DJ, como capa de control transversal: `src/audio/midiIn.ts` (parseo Note/CC + ruteo + "aprender", portado del En vivo de la Sala de Dirección), `src/store/useMidiStore.ts` (mapa pad/perilla→slot, persistido), `src/ui/MidiLive.tsx` (panel: cada efecto con su PAD que engancha y su PERILLA que gradúa la cantidad; + 8 pads de escena). Los efectos aplican al MÁSTER vía `setMaster`: filtro y drive en el bus (al instante, sin recompilar); eco/reverb/crush y los pads roll/gate/rev en el código (recompila con throttle, regla 3). NO toca `DjMixer.tsx`.
 
 ---
 
