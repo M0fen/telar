@@ -498,16 +498,16 @@ export function applyMaster(code: string, m: MasterFx): string {
   // filter:-2 → lpf(1 Hz) = MUDO, crush:2 → crush(-8) inválido. La UI ya acota; esto
   // protege las demás vías (CLAUDE.md §4: nunca dejar que un cambio silencie la salida).
   // Es no-op para valores en rango → los proyectos normales suenan idéntico.
-  const mDrive = Math.max(0, Math.min(1, m.drive ?? 0));
   const mCrush = Math.max(0, Math.min(1, m.crush ?? 0));
   const mDelay = Math.max(0, Math.min(1, m.delay ?? 0));
-  const mFilter = Math.max(-1, Math.min(1, m.filter ?? 0));
   const mRoom = Math.max(0, Math.min(0.95, m.room ?? 0));
-  if (mDrive > 0.02) out = `${out}.shape(${(mDrive * 0.9).toFixed(2)})`;
+  // FILTRO (filter) y DRIVE del máster YA NO se emiten como sufijo de código: iban
+  // DESPUÉS del FX propio de cada voz y superdough los pisaba (un FX por voz, de un
+  // solo uso). Ahora van al BUS del máster en Web Audio (engine.applyMasterBus, nodos
+  // djHP/djLP/djDrive), así afectan TODA la mezcla sin pisarse. (crush/delay/room
+  // siguen aquí por ahora.)
   if (mCrush > 0.02) out = `${out}.crush(${(16 - mCrush * 12).toFixed(1)})`;
   if (mDelay > 0.02) out = `${out}.delay(${mDelay.toFixed(2)})`;
-  if (mFilter > 0.02) out = `${out}.hpf(${Math.round(20 * Math.pow(5000 / 20, mFilter))})`;
-  else if (mFilter < -0.02) out = `${out}.lpf(${Math.round(18000 * Math.pow(100 / 18000, -mFilter))})`;
   if (mRoom > 0.02) {
     out = `${out}.room(${mRoom.toFixed(2)})`;
     // espacio por IR (convolución real): usa la muestra como respuesta al impulso.

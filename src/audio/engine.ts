@@ -362,11 +362,12 @@ export function getMasterAnalyser(): AnalyserNode | undefined {
 // puede clippear al apilar sonidos). Insertamos un bus real en el motor:
 //   destinationGain → EQ(low-shelf, mid-peak, high-shelf) → limiter → makeup → dest
 // Todo con try/catch para no silenciar nunca la salida (peor caso: bypass directo).
-interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number }
-let busSettings: MasterBusSettings = { limit: 0, glue: 0, sat: 0, width: 1, punch: 0, low: 0, mid: 0, high: 0 };
+interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number; filter: number; drive: number }
+let busSettings: MasterBusSettings = { limit: 0, glue: 0, sat: 0, width: 1, punch: 0, low: 0, mid: 0, high: 0, filter: 0, drive: 0 };
 interface MasterChain {
   ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
   low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; glue: DynamicsCompressorNode; lim: DynamicsCompressorNode; makeup: GainNode; wired: boolean; dg: AudioNode | null;
+  djHP: BiquadFilterNode; djLP: BiquadFilterNode; djDrive: WaveShaperNode; lastDrive: number; // filtro DJ + drive del máster (bus, no código)
   outSink: AudioNode | null;   // a qué salida está conectado makeup (activo): tp o destino
   bypassSink: AudioNode | null; bypassDg: AudioNode | null; // ídem para el bypass (dg → salida)
 }
@@ -378,7 +379,7 @@ let tpToDest: AudioWorkletNode | null = null;
 let tpKickCtx: BaseAudioContext | null = null;
 
 function busActive(s: MasterBusSettings): boolean {
-  return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1;
+  return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1 || Math.abs(s.filter) > 0.01 || s.drive > 0.01;
 }
 
 // Curva |x| para el detector de envolvente (rectificado de onda completa).
@@ -460,16 +461,32 @@ export function applyMasterBus(): void {
       // LIMITER (brickwall): rápido + ratio alto, atrapa picos y sube loudness. Va al final.
       const lim = new DynamicsCompressorNode(ctx, { threshold: -3, knee: 0, ratio: 20, attack: 0.003, release: 0.12 });
       const makeup = new GainNode(ctx, { gain: 1 });
-      // cadena: entry(M/S) → merger → punch → EQ → sat → glue → lim → makeup
+      // FILTRO DJ (lpf+hpf) y DRIVE del máster en el BUS (no como sufijo de código):
+      // así afectan TODA la mezcla sin que los pise el FX propio de cada voz (CLAUDE.md
+      // regla 2 — el FX por voz es de un solo uso). En reposo son transparentes.
+      const djHP = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 20, Q: 0.7 });
+      const djLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: 0.7 });
+      const djDrive = new WaveShaperNode(ctx, { oversample: '4x' });
+      djDrive.curve = satCurve(0);
+      // cadena: entry(M/S) → merger → punch → djHP → djLP → djDrive → EQ → sat → glue → lim → makeup
       merger.connect(punchGain); merger.connect(absShaper); // main + sidechain del transient
-      punchGain.connect(low); low.connect(mid); mid.connect(high); high.connect(sat); sat.connect(glue); glue.connect(lim); lim.connect(makeup);
-      masterChain = { ctx, entry, sideW, sat, lastSat: 0, fastK, slowK, low, mid, high, glue, lim, makeup, wired: false, dg: null, outSink: null, bypassSink: null, bypassDg: null };
+      punchGain.connect(djHP); djHP.connect(djLP); djLP.connect(djDrive); djDrive.connect(low);
+      low.connect(mid); mid.connect(high); high.connect(sat); sat.connect(glue); glue.connect(lim); lim.connect(makeup);
+      masterChain = { ctx, entry, sideW, sat, lastSat: 0, fastK, slowK, low, mid, high, glue, lim, makeup, wired: false, dg: null, outSink: null, bypassSink: null, bypassDg: null, djHP, djLP, djDrive, lastDrive: 0 };
     }
     const mc = masterChain;
     const s = busSettings;
     mc.low.gain.value = s.low;   // dB
     mc.mid.gain.value = s.mid;
     mc.high.gain.value = s.high;
+    // FILTRO DJ del máster: filter<0 cierra el lpf (barre a grave), >0 sube el hpf
+    // (barre a agudo), 0 = abierto (transparente). Exponencial para que sea musical.
+    // CLAMP defensivo a [-1,1]: un filter fuera de rango daría un lpf sub-audible (mudo).
+    const f = Math.max(-1, Math.min(1, s.filter));
+    mc.djLP.frequency.value = f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000;
+    mc.djHP.frequency.value = f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20;
+    const dr = Math.max(0, Math.min(1, s.drive));
+    if (Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; } // DRIVE del máster
     mc.sideW.gain.value = s.width; // 1 = normal · 0 = mono · >1 = más ancho
     const kp = s.punch * 2; // profundidad del transient shaper (−2..2); 0 = transparente
     mc.fastK.gain.value = kp;

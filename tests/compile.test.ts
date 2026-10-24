@@ -225,10 +225,10 @@ test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
 
 // --- CLAMP DEFENSIVO del máster (proyectos importados de otra IA / JSON a mano) -----
 // Un valor fuera de rango que la UI jamás produce no debe silenciar/romper la salida.
-test('máster fuera de rango se CLAMPEA: filter:-2 no emite lpf(1) (mudo) sino lpf(100)', () => {
+test('máster: el FILTRO ya no se emite en el código — va al BUS (engine), para no pisarse con el FX de cada voz', () => {
   const bad = applyMaster('s("bd*4")', { gain: 1, filter: -2, room: 0 });
-  assert.doesNotMatch(bad, /\.lpf\(1\)/);       // el caso real de test111.json: 1 Hz = mudo
-  assert.match(bad, /\.lpf\(100\)/);            // clampeado a filter -1 → lpf 100
+  assert.doesNotMatch(bad, /\.lpf\(/);          // el filtro del máster vive en el bus Web Audio, no aquí
+  assert.doesNotMatch(bad, /\.hpf\(/);
 });
 
 test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) sino crush(4.0)', () => {
@@ -237,19 +237,19 @@ test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) 
   assert.match(bad, /\.crush\(4\.0\)/);         // clampeado a crush 1 → 4 bits
 });
 
-test('máster fuera de rango: hpf/room/gain también acotados (no rompen)', () => {
+test('máster fuera de rango: room/gain acotados en código (no rompen); el filtro va al bus', () => {
   const bad = applyMaster('s("bd*4")', { gain: 99, filter: 5, room: 9 });
   assert.doesNotMatch(bad, /\.mul\(gain\(99/);  // gain clampeado a 4
   assert.match(bad, /\.mul\(gain\(4\.00\)\)/);
   assert.match(bad, /\.room\(0\.95\)/);          // room clampeado a 0.95
-  assert.match(bad, /\.hpf\(5000\)/);            // filter +1 → hpf 5000 (no un valor absurdo)
+  assert.doesNotMatch(bad, /\.hpf\(/);           // el filtro del máster ya no se emite en código
 });
 
-test('máster EN rango: el clamp es no-op (los proyectos normales suenan idéntico)', () => {
+test('máster EN rango: crush/room se emiten en código; el filtro va al bus (no en código)', () => {
   const ok = applyMaster('s("bd*4")', { gain: 1, filter: -0.5, room: 0.2, crush: 0.5 });
   assert.match(ok, /\.crush\(10\.0\)/);         // 16 - 0.5*12 = 10
   assert.match(ok, /\.room\(0\.20\)/);
-  assert.match(ok, /\.lpf\(1342\)/);            // filter -0.5 → lpf ~1342
+  assert.doesNotMatch(ok, /\.lpf\(/);           // filtro del máster → bus Web Audio, no código
 });
 
 // --- sanitizeMasterFx: normaliza el máster al importar + describe qué cambió ----------

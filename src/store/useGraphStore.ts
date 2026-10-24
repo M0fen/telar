@@ -594,8 +594,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const master = { ...get().master, ...patch };
       set({ master });
       // EQ/limiter/glue/sat/width del máster van al BUS del motor (no al código); los demás recompilan.
-      if ('limit' in patch || 'glue' in patch || 'sat' in patch || 'width' in patch || 'punch' in patch || 'eqLow' in patch || 'eqMid' in patch || 'eqHigh' in patch)
-        setMasterBus({ limit: master.limit ?? 0, glue: master.glue ?? 0, sat: master.sat ?? 0, width: master.width ?? 1, punch: master.punch ?? 0, low: master.eqLow ?? 0, mid: master.eqMid ?? 0, high: master.eqHigh ?? 0 });
+      if ('limit' in patch || 'glue' in patch || 'sat' in patch || 'width' in patch || 'punch' in patch || 'eqLow' in patch || 'eqMid' in patch || 'eqHigh' in patch || 'filter' in patch || 'drive' in patch)
+        setMasterBus({ limit: master.limit ?? 0, glue: master.glue ?? 0, sat: master.sat ?? 0, width: master.width ?? 1, punch: master.punch ?? 0, low: master.eqLow ?? 0, mid: master.eqMid ?? 0, high: master.eqHigh ?? 0, filter: master.filter ?? 0, drive: master.drive ?? 0 });
       scheduleRecompile(); // hot-swap en vivo, coalescido por frame
     },
 
@@ -818,7 +818,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       await get().autoFitLongSamples(); // repara samples largos pelados (evita el solape)
       startHighlightLoop(); // resaltado de eventos activos en el código
       const m = get().master; // aplica el bus de máster (EQ+limiter+glue+sat+width+punch) guardado
-      setMasterBus({ limit: m.limit ?? 0, glue: m.glue ?? 0, sat: m.sat ?? 0, width: m.width ?? 1, punch: m.punch ?? 0, low: m.eqLow ?? 0, mid: m.eqMid ?? 0, high: m.eqHigh ?? 0 });
+      setMasterBus({ limit: m.limit ?? 0, glue: m.glue ?? 0, sat: m.sat ?? 0, width: m.width ?? 1, punch: m.punch ?? 0, low: m.eqLow ?? 0, mid: m.eqMid ?? 0, high: m.eqHigh ?? 0, filter: m.filter ?? 0, drive: m.drive ?? 0 });
       set({ playing: true, initializing: false });
       get().recompile(); // compila + hot-swap (aplica los macros maestros)
     },
