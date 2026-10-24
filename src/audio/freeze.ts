@@ -56,7 +56,7 @@ export async function freezeSource(sourceId: string, cycles: number): Promise<Fr
       await wait((1 - frac) * secPerCycle * 1000 + 6);
     }
     // 3) grabar exactamente N ciclos (+ cola corta para colas de reverb/decay).
-    if (!(await startAudioRecording())) { restore(); return null; }
+    if (!(await startAudioRecording({ pre: true }))) { restore(); return null; }
     await wait(cyc * secPerCycle * 1000 + 40);
     const blob = await stopAudioRecording();
     restore();

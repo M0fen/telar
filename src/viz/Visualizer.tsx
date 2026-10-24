@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getMasterAnalyser, getAudioCtx, getMasterOutputNode } from '../audio/engine';
+import { getMasterAnalyser, getAudioCtx, getMasterOutputNode, getMasterPostNode } from '../audio/engine';
 import { useGraphStore } from '../store/useGraphStore';
 import { renderNodeField, resetNodeField } from './nodeField';
 import { tokens } from '../theme/tokens';
@@ -253,8 +253,8 @@ export function Visualizer() {
       if (!srcCanvas) return;
       const vstream = srcCanvas.captureStream(30);
       const tracks = [...vstream.getVideoTracks()];
-      // audio del master (best-effort; si no hay salida aún, graba solo video)
-      const out = getMasterOutputNode();
+      // audio del master POST-bus = lo que suena (best-effort; si no hay salida aún, solo video)
+      const out = getMasterPostNode() ?? getMasterOutputNode();
       if (out) {
         const dest = getAudioCtx().createMediaStreamDestination();
         out.connect(dest);

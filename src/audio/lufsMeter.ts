@@ -9,7 +9,7 @@
 // El tap es PASIVO (filtros → analyser, que es un sink): no altera el audio que
 // va a los altavoces. Objetivos típicos: −14 LUFS (streaming) · −8/−9 (club/EDM).
 import { getAudioContext } from '@strudel/web';
-import { getMasterOutputNode } from './engine';
+import { getMasterOutputNode, getMasterPostNode } from './engine';
 
 export interface LufsReading {
   momentary: number; // LUFS (−Infinity si silencio)
@@ -21,6 +21,7 @@ export interface LufsReading {
 let ctxRef: BaseAudioContext | null = null;
 let tapped: AudioNode | null = null;
 let analyser: AnalyserNode | null = null;
+let tapIn: AudioNode | null = null; // 1er nodo de la cadena K (para soltar el tap al re-tapear)
 let buf: Float32Array<ArrayBuffer> = new Float32Array(2048);
 
 // ventanas de bloques {t (s), ms (mean square), peak}
@@ -40,9 +41,12 @@ const MS_TO_LUFS = (ms: number): number => (ms > 1e-10 ? -0.691 + 10 * Math.log1
 function ensureTap(): boolean {
   try {
     const ctx = getAudioContext();
-    const out = getMasterOutputNode();
+    // mide lo que SUENA (post-máster: limitador, makeup y filtro DJ incluidos) — así el
+    // «auto −14» converge a la sonoridad REAL de salida. Pre-bus solo hasta que exista el bus.
+    const out = getMasterPostNode() ?? getMasterOutputNode();
     if (!out) return false;
     if (analyser && ctxRef === ctx && tapped === out) return true;
+    if (tapped && tapIn) { try { tapped.disconnect(tapIn); } catch { /* otro contexto */ } }
     const a = ctx.createAnalyser();
     a.fftSize = 2048;
     a.smoothingTimeConstant = 0;
@@ -55,6 +59,7 @@ function ensureTap(): boolean {
     analyser = a;
     ctxRef = ctx;
     tapped = out;
+    tapIn = shelf;
     buf = new Float32Array(a.fftSize);
     return true;
   } catch {

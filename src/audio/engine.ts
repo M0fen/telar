@@ -318,9 +318,9 @@ export function getScheduler(): Scheduler | undefined {
 // tomamos la señal del nodo suma de la salida (`destinationGain`, que va a
 // ctx.destination). El analyser es un sink pasivo: no altera el audio. Re-tapeamos
 // si el contexto o el nodo de salida cambian (p.ej. tras un reset de superdough).
-// Nodo suma de la salida (destinationGain → ctx.destination). Punto de tap para el
-// master analyser y para grabar (MediaStreamDestination). Es un sink-friendly node:
-// conectarle un analyser/grabador no altera el audio que va a los altavoces.
+// Nodo suma de la salida de superdough (destinationGain) = PRE bus de máster. Lo usa el
+// FREEZE (stem limpio). Para grabar / medir / visualizar lo que SUENA: getMasterPostNode.
+// Conectarle un analyser/grabador no altera el audio que va a los altavoces.
 export function getMasterOutputNode(): AudioNode | undefined {
   try {
     return getSuperdoughAudioController()?.output?.destinationGain as AudioNode | undefined;
@@ -342,9 +342,13 @@ export function getMasterAnalyser(): AnalyserNode | undefined {
       tappedOut = null;
     }
     const an = masterAnalyser!; // garantizado no-nulo tras el bloque anterior
-    const out = getMasterOutputNode();
+    // POST-máster (lo que suena: el visual y el VU reaccionan al filtro/drive DJ); hasta que
+    // exista el bus, el pre. Al cambiar de nodo se suelta el tap anterior (si no, sumaría
+    // las dos señales y el medidor marcaría de más).
+    const out = getMasterPostNode() ?? getMasterOutputNode();
     if (out && out !== tappedOut) {
       try {
+        if (tappedOut) { try { tappedOut.disconnect(an); } catch { /* otro contexto */ } }
         out.connect(an);
         tappedOut = out;
       } catch {
@@ -377,6 +381,27 @@ let masterChain: MasterChain | null = null;
 // conexión tp→destino; tpKickCtx dispara la carga una vez por contexto.
 let tpToDest: AudioWorkletNode | null = null;
 let tpKickCtx: BaseAudioContext | null = null;
+
+// TAP POST-MÁSTER: nodo FIJO al final de la cadena (… → tp → post → destino; sin el worklet
+// TP: … → post → destino). Grabar, medir y visualizar desde aquí = EXACTAMENTE lo que suena
+// (filtro/drive DJ, EQ, glue y limitadores incluidos). El pre-bus (destinationGain) queda
+// para el FREEZE, que necesita el stem limpio (si no, el bus se aplicaría dos veces).
+let postTap: GainNode | null = null;
+function ensurePostTap(ctx: BaseAudioContext): GainNode {
+  if (!postTap || postTap.context !== ctx) {
+    postTap = new GainNode(ctx, { gain: 1 });
+    postTap.connect(ctx.destination);
+  }
+  return postTap;
+}
+export function getMasterPostNode(): AudioNode | undefined {
+  try {
+    const ctx = getAudioContext();
+    return postTap && postTap.context === ctx ? postTap : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function busActive(s: MasterBusSettings): boolean {
   return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1 || Math.abs(s.filter) > 0.01 || s.drive > 0.01;
@@ -504,8 +529,9 @@ export function applyMasterBus(): void {
     // el worklet no cargó, sink = ctx.destination → salida directa (nunca muda).
     if (tpKickCtx !== ctx) { tpKickCtx = ctx; void ensureMasterLimiter(ctx, () => applyMasterBus()); }
     const tp = getMasterLimiterNode(ctx);
-    const sink: AudioNode = tp ?? ctx.destination;
-    if (tp && tpToDest !== tp) { try { tp.connect(ctx.destination); } catch { /* ya */ } tpToDest = tp; }
+    const post = ensurePostTap(ctx);
+    const sink: AudioNode = tp ?? post;
+    if (tp && tpToDest !== tp) { try { tp.connect(post); } catch { /* ya */ } tpToDest = tp; }
 
     const active = busActive(s);
     if (active) {
@@ -514,6 +540,7 @@ export function applyMasterBus(): void {
         if (mc.wired && mc.dg && mc.dg !== dg) { try { mc.dg.disconnect(mc.entry); } catch { /* */ } }
         try { dg.disconnect(ctx.destination); } catch { /* */ }
         if (tp) { try { dg.disconnect(tp); } catch { /* */ } }
+        try { dg.disconnect(post); } catch { /* */ }
         try { dg.connect(mc.entry); } catch { /* */ }
         mc.wired = true; mc.dg = dg; mc.bypassSink = null; mc.bypassDg = null;
       }
@@ -533,6 +560,7 @@ export function applyMasterBus(): void {
       if (mc.bypassSink !== sink || mc.bypassDg !== dg) {
         try { dg.disconnect(ctx.destination); } catch { /* */ }
         if (tp) { try { dg.disconnect(tp); } catch { /* */ } }
+        try { dg.disconnect(post); } catch { /* */ }
         try { dg.connect(sink); } catch { /* */ }
         mc.bypassSink = sink; mc.bypassDg = dg;
       }

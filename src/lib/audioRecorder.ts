@@ -1,7 +1,8 @@
-import { getAudioCtx, getMasterOutputNode } from '../audio/engine';
+import { getAudioCtx, getMasterOutputNode, getMasterPostNode } from '../audio/engine';
 
-// Grabador de SOLO audio en máxima calidad: captura el bus master (destinationGain)
-// como PCM y lo exporta a WAV 32-bit float (IEEE) SIN compresión, al sample-rate del
+// Grabador de SOLO audio en máxima calidad: captura la salida POST-máster (lo que suena:
+// filtro/drive DJ, EQ, glue, limitadores) — o el pre-bus (destinationGain) si lo pide el
+// FREEZE — como PCM y lo exporta a WAV 32-bit float (IEEE) SIN compresión, al sample-rate del
 // AudioContext (normalmente 48 kHz). Es lossless del audio que produce el motor.
 //
 // P1.6 (auditoría dancehall): la captura corre en un AUDIOWORKLET (hilo de audio),
@@ -88,9 +89,12 @@ export function isAudioRecording(): boolean {
   return recording;
 }
 
-export async function startAudioRecording(): Promise<boolean> {
+export async function startAudioRecording(opts: { pre?: boolean } = {}): Promise<boolean> {
   if (recording) return false;
-  const out = getMasterOutputNode();
+  // Por defecto graba LO QUE SUENA (post-máster). Antes tapeaba destinationGain (pre-bus):
+  // el WAV salía sin el filtro/drive DJ que movías en vivo, sin EQ y sin limitador.
+  // El FREEZE pide `pre`: stem limpio, para no aplicar el bus dos veces al reproducirlo.
+  const out = opts.pre ? getMasterOutputNode() : (getMasterPostNode() ?? getMasterOutputNode());
   if (!out) return false; // aún no hay salida (no se ha iniciado el audio)
   const ctx = getAudioCtx();
   rate = ctx.sampleRate;
