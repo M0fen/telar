@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import './MidiLive.css';
 import { startMidiInput } from '../audio/engine';
 import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
@@ -95,6 +95,16 @@ export function MidiLive() {
   const engageMom = (m: MomFx) => setM({ [m.param]: m.on } as Partial<MasterFx>);
   const releaseMom = (m: MomFx) => setM(momOff(m));
   const resetAll = () => setM(RESET);
+
+  // minimizar: persiste en localStorage para que el panel recuerde su estado.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return localStorage.getItem('telar.midilive.collapsed') === '1'; } catch { return false; }
+  });
+  const toggleCollapsed = () => setCollapsed((c) => {
+    const v = !c;
+    try { localStorage.setItem('telar.midilive.collapsed', v ? '1' : '0'); } catch { /* */ }
+    return v;
+  });
 
   useEffect(() => {
     const slots: Record<string, MidiSlot> = {};
@@ -198,9 +208,18 @@ export function MidiLive() {
     );
   };
 
+  if (collapsed) {
+    return (
+      <div className="ml-panel collapsed">
+        <button className="ml-toggle" onClick={toggleCollapsed} title="Expandir el panel MIDI en vivo">🎛 MIDI en vivo ▸</button>
+      </div>
+    );
+  }
+
   return (
     <div className="ml-panel">
       <div className="ml-head">
+        <button className="ml-min" onClick={toggleCollapsed} title="Minimizar el panel">▾</button>
         <button className={`ml-midibtn${on ? ' on' : ''}${learn ? ' learn' : ''}`} onClick={() => void onMidiBtn()}>
           {on ? (learn ? '✓ Terminar' : '⌨ Aprender') : 'Conectar MIDI'}
         </button>

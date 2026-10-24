@@ -227,3 +227,17 @@
 .ml-monitor b { color: var(--accent, #3df0d0); font-variant-numeric: tabular-nums; }
 .ml-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--line, #2a3038); flex: none; transition: background 0.12s, box-shadow 0.12s; }
 .ml-dot.live { background: var(--accent, #3df0d0); box-shadow: 0 0 8px var(--accent, #3df0d0); }
+
+/* minimizar / expandir el panel */
+.ml-panel.collapsed {
+  width: auto; padding: 7px 10px; flex-direction: row; align-items: center;
+}
+.ml-toggle {
+  background: transparent; border: none; color: var(--accent, #3df0d0);
+  font-weight: 700; cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.ml-min {
+  background: transparent; border: 1px solid var(--line, #2a3038); color: var(--text, #e7ecf0);
+  border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px; line-height: 1; flex: none;
+}
+.ml-min:hover { border-color: var(--accent, #3df0d0); color: var(--accent, #3df0d0); }
