@@ -95,18 +95,21 @@ export function getMidiInputs(): string[] {
   if (!midiAccess || !midiAccess.inputs) return [];
   return Array.from(midiAccess.inputs.values()).map((i) => i.name ?? 'midi');
 }
-export async function startMidiInput(onMsg: (data: Uint8Array) => void): Promise<string[]> {
+// Devuelve los nombres de las entradas, o null si NO se pudo abrir el MIDI (permiso negado,
+// navegador sin WebMIDI) — antes devolvía [] y el panel se mostraba «conectado» sin estarlo.
+// onChange avisa al enchufar/desenchufar un controlador después de conectar.
+export async function startMidiInput(onMsg: (data: Uint8Array) => void, onChange?: (inputs: string[]) => void): Promise<string[] | null> {
   midiInHandler = onMsg;
   try {
     const nav = navigator as unknown as { requestMIDIAccess?: (o?: object) => Promise<typeof midiAccess> };
     if (!nav.requestMIDIAccess) throw new Error('WebMIDI no soportado en este navegador');
     if (!midiAccess) midiAccess = await nav.requestMIDIAccess({ sysex: false });
     bindMidiInputs();
-    if (midiAccess) midiAccess.onstatechange = () => bindMidiInputs();
+    if (midiAccess) midiAccess.onstatechange = () => { bindMidiInputs(); try { onChange?.(getMidiInputs()); } catch { /* UI */ } };
     return getMidiInputs();
   } catch (e) {
     reportError(e);
-    return [];
+    return null;
   }
 }
 

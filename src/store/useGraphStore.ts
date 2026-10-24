@@ -441,12 +441,14 @@ export const useGraphStore = create<GraphState>((set, get) => {
         out = { id: oid, type: 'out', position: { x: 760, y: 200 }, data: { kind: 'out' } };
         nodes.push(out);
       }
+      // debajo de lo que ya hay en el lienzo (antes caían ENCIMA de los nodos existentes)
+      const baseY = nodes.reduce((m, n) => (n.data.kind === 'out' ? m : Math.max(m, n.position.y + 140)), 120);
       list.forEach((s, i) => {
         const id = nextId('source');
         nodes.push({
           id,
           type: 'source',
-          position: { x: 120, y: 120 + i * 120 },
+          position: { x: 120, y: baseY + i * 120 },
           data: { kind: 'source', name: s.name, code: s.code },
         });
         edges.push({ id: `e_${id}`, source: id, target: (out as GNode).id });

@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import './MidiLive.css';
 import { startMidiInput } from '../audio/engine';
 import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
 import { useMidiStore, midiKeyFor, midiKeyLabel } from '../store/useMidiStore';
 import { useGraphStore } from '../store/useGraphStore';
 import { useScenesStore } from '../store/useScenesStore';
+import { toast } from '../store/useNotifyStore';
 import type { MasterFx } from '../graph/compile';
+import type { NodeData } from '../graph/types';
 
 // Modo EN VIVO con controlador MIDI (perillas + pads), aparte del mezclador DJ.
 //   • PERILLAS (continuas): filtro/eco/reverb/drive/crush — la perilla las ajusta
@@ -13,10 +16,12 @@ import type { MasterFx } from '../graph/compile';
 //   • PADS momentáneos: Roll ×2/×4/×8/×16 y Gate ×4/×8/×16 (divisiones clásicas) y
 //     Reverse — mantienes el pad y suena; sueltas y para. Cada división es su pad,
 //     así cada uno se asigna fácil a un pad del controlador.
-//   • REINICIAR: devuelve todos los efectos del máster a neutro (botón de pánico).
+//   • REINICIAR: efectos del máster a neutro + filtro de cada pista al centro (pánico).
 //   • PISTAS: por source, pad de mute + perillas de volumen y filtro. ESCENAS: 8 pads.
-// Todo asignable por "aprender". Los efectos aplican al MÁSTER (setMaster, recompila
-// con throttle). Las perillas ya ajustan con el mouse sin configurar MIDI.
+// Todo asignable por "aprender" (y «✕ quitar» para soltar una asignación). Los efectos
+// aplican al MÁSTER vía setMaster: filtro y drive en el BUS Web Audio (al instante, sin
+// recompilar); eco/reverb/crush y los pads, en el código (recompila con throttle).
+// Las perillas ya ajustan con el mouse sin configurar MIDI.
 
 interface KnobFx {
   id: string;
@@ -80,21 +85,60 @@ const knobTo = (k: KnobFx, v01: number) => (k.bipolar ? v01 * 2 - 1 : v01 * (k.m
 const knobFrom = (k: KnobFx, val: number) => (k.bipolar ? (val + 1) / 2 : val / (k.max ?? 1));
 const momOff = (m: MomFx): Partial<MasterFx> => ({ [m.param]: m.param === 'rev' ? false : 0 } as Partial<MasterFx>);
 
-// Reinicia TODOS los efectos del máster a neutro (botón de pánico).
+// Pads momentáneos del MISMO efecto que se solapan (mantienes Roll ×4 y tocas ×8): al soltar
+// uno vuelve el que sigue apretado. Antes, soltar cualquiera apagaba el efecto aunque otro
+// pad siguiera abajo. Pila por parámetro (roll / gate / rev).
+const held: Record<string, MomFx[]> = {};
+const engageMom = (m: MomFx) => {
+  const st = (held[m.param] = (held[m.param] ?? []).filter((x) => x.id !== m.id));
+  st.push(m);
+  setM({ [m.param]: m.on } as Partial<MasterFx>);
+};
+const releaseMom = (m: MomFx) => {
+  const st = (held[m.param] = (held[m.param] ?? []).filter((x) => x.id !== m.id));
+  const top = st[st.length - 1];
+  setM(top ? ({ [m.param]: top.on } as Partial<MasterFx>) : momOff(m));
+};
+
+// REINICIAR (pánico): efectos del máster a neutro + filtro de TODAS las pistas al centro.
+// No toca volúmenes ni mutes (eso es la mezcla, no un efecto).
 const RESET: Partial<MasterFx> = { filter: 0, delay: 0, room: 0, drive: 0, crush: 0, roll: 0, gate: 0, rev: false };
+const resetAll = () => {
+  for (const k of Object.keys(held)) delete held[k];
+  setM(RESET);
+  const g = gs();
+  const upd: Record<string, Partial<NodeData>> = {};
+  for (const n of g.nodes) if (n.data.kind === 'source' && Math.abs(Number(n.data.chFilter) || 0) > 0.001) upd[n.id] = { chFilter: 0 };
+  if (Object.keys(upd).length) g.applyNodeStates(upd);
+};
+
+// Monitor aparte: es lo ÚNICO que se repinta con cada mensaje del controlador (un barrido de
+// perilla manda decenas por segundo; antes se repintaba el panel entero). El punto parpadea
+// con una animación CSS que reinicia `key` → se apaga solo (antes quedaba encendido).
+function MidiMonitor() {
+  const last = useMidiStore((s) => s.last);
+  const lastAt = useMidiStore((s) => s.lastAt);
+  return (
+    <div className="ml-monitor">
+      <span key={lastAt} className={`ml-dot${lastAt ? ' flash' : ''}`} />
+      {last ? (
+        <>Controlador: <b>{last}</b></>
+      ) : (
+        <>Mueve una perilla o pad del M-Wave para probar que llega… (si no aparece nada, conéctalo por <b>USB</b> y revisa que sea <b>Chrome/Edge</b>)</>
+      )}
+    </div>
+  );
+}
 
 export function MidiLive() {
-  const { on, learn, pick, inputs, err, map, last, lastAt } = useMidiStore();
+  const { on, learn, pick, inputs, err, map } = useMidiStore(
+    useShallow((s) => ({ on: s.on, learn: s.learn, pick: s.pick, inputs: s.inputs, err: s.err, map: s.map })),
+  );
   const setStatus = useMidiStore((s) => s.setStatus);
-  const liveMs = Date.now() - lastAt < 400; // parpadeo de actividad reciente
   const master = useGraphStore((s) => s.master);
   const nodes = useGraphStore((s) => s.nodes);
   const sources = nodes.filter((n) => n.data.kind === 'source');
   const srcSig = sources.map((s) => s.id).join('|');
-
-  const engageMom = (m: MomFx) => setM({ [m.param]: m.on } as Partial<MasterFx>);
-  const releaseMom = (m: MomFx) => setM(momOff(m));
-  const resetAll = () => setM(RESET);
 
   // minimizar: persiste en localStorage para que el panel recuerde su estado.
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -137,7 +181,11 @@ export function MidiLive() {
       setStatus({ err: 'Este navegador no tiene MIDI. Usa Chrome o Edge y conecta el controlador por cable USB.' });
       return;
     }
-    const list = await startMidiInput(handleMidi);
+    const list = await startMidiInput(handleMidi, (l) => setStatus({ inputs: l }));
+    if (!list) {
+      setStatus({ err: 'No pude abrir el MIDI: acepta el permiso del navegador (Chrome/Edge) y vuelve a pulsar «Conectar MIDI».' });
+      return;
+    }
     setStatus({ on: true, inputs: list, err: '', learn: Object.keys(map).length === 0 });
   };
 
@@ -160,7 +208,13 @@ export function MidiLive() {
     return slot;
   };
 
-  const addAves = () => gs().addSources(AVES);
+  // inserta solo las que falten (antes cada clic duplicaba las 3 fuentes)
+  const addAves = () => {
+    const have = new Set(gs().nodes.filter((n) => n.data.kind === 'source').map((n) => String(n.data.name ?? '')));
+    const faltan = AVES.filter((a) => !have.has(a.name));
+    if (!faltan.length) { toast.info('la base de aves ya está en el lienzo'); return; }
+    gs().addSources(faltan);
+  };
 
   const knob = (slot: string, value: number, onCh: (v: number) => void, onReset: (() => void) | null, aria: string) => {
     const k = midiKeyFor(slot);
@@ -236,21 +290,23 @@ export function MidiLive() {
         </span>
       </div>
 
-      {on && (
-        <div className="ml-monitor">
-          <span className={`ml-dot${liveMs ? ' live' : ''}`} />
-          {last ? (
-            <>Controlador: <b>{last}</b></>
-          ) : (
-            <>Mueve una perilla o pad del M-Wave para probar que llega… (si no aparece nada, conéctalo por <b>USB</b> y revisa que sea <b>Chrome/Edge</b>)</>
-          )}
-        </div>
-      )}
+      {on && <MidiMonitor />}
 
       {learn && (
         <div className="ml-learnbar">
           {pick ? (
-            <>Asignando <b>{pickName(pick)}</b>: ahora <b>mueve la perilla o pulsa el pad</b> en tu M-Wave.</>
+            <>
+              Asignando <b>{pickName(pick)}</b>: ahora <b>mueve la perilla o pulsa el pad</b> en tu M-Wave.
+              {midiKeyFor(pick) && (
+                <button
+                  className="ml-unmap"
+                  onClick={() => { useMidiStore.getState().clearSlot(pick); setStatus({ pick: null }); }}
+                  title="quita la asignación de este control"
+                >
+                  ✕ quitar {midiKeyLabel(midiKeyFor(pick))}
+                </button>
+              )}
+            </>
           ) : (
             <>Modo aprender: <b>toca abajo</b> una perilla o pad y luego <b>muévelo en el controlador</b>. «✓ Terminar» al acabar.</>
           )}
