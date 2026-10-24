@@ -489,6 +489,18 @@ export function releaseMomentary(m: MasterFx): MasterFx {
   return { ...m, roll: 0, gate: 0, rev: false, half: 0 };
 }
 
+// El máster SIN los momentáneos: lo que guarda/aplica una ESCENA. Capturar mientras sostienes
+// un pad no debe dejarlo «grabado» (al dispararla se pegaría un roll, o un ½ tiempo con un
+// ancla vieja), y disparar una escena no debe cortar el pad que tienes apretado.
+export function withoutMomentary(m: Partial<MasterFx>): Partial<MasterFx> {
+  const out: Partial<MasterFx> = { ...m };
+  delete out.roll;
+  delete out.gate;
+  delete out.rev;
+  delete out.half;
+  return out;
+}
+
 export function applyMaster(code: string, m: MasterFx, opts: { composeSends?: boolean } = {}): string {
   let out = code;
   // ½ TIEMPO (momentáneo): desde el ciclo ANCLA A (un pulso, fijado al pulsar) todo suena a

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileGraph, isSampleSource, applyMaster, applyGlobalMaster, sanitizeMasterFx, releaseMomentary } from '../src/graph/compile.ts';
+import { compileGraph, isSampleSource, applyMaster, applyGlobalMaster, sanitizeMasterFx, releaseMomentary, withoutMomentary } from '../src/graph/compile.ts';
 import { registerUserIr } from '../src/audio/irRegistry.ts';
 
 // helpers de construcción de grafo (casts laxos: son fixtures de test)
@@ -305,6 +305,11 @@ test('releaseMomentary: roll/gate/rev/½ tiempo nunca sobreviven a una carga; lo
   const m = releaseMomentary({ gain: 0.8, filter: -0.3, room: 0.2, roll: 4, gate: 8, rev: true, half: 33 });
   assert.deepEqual([m.roll, m.gate, m.rev, m.half], [0, 0, false, 0]);
   assert.deepEqual([m.gain, m.filter, m.room], [0.8, -0.3, 0.2]);
+});
+
+test('withoutMomentary: una ESCENA no guarda ni aplica pads sostenidos (roll/gate/rev/½ tiempo)', () => {
+  const m = withoutMomentary({ gain: 1.1, filter: 0.2, room: 0.3, roll: 8, gate: 4, rev: true, half: 12 });
+  assert.deepEqual(Object.keys(m).sort(), ['filter', 'gain', 'room']);
 });
 
 test('máster GLOBAL con espacio IR: la reverb compuesta conserva .ir(...).roomsize(...)', () => {

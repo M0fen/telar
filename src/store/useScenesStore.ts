@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { ChannelEq, NodeData } from '../graph/types';
-import type { MasterFx } from '../graph/compile';
+import { withoutMomentary, type MasterFx } from '../graph/compile';
 import { useGraphStore } from './useGraphStore';
 
 // Escenas / bancos de patrones disparables (Fase A — performance en vivo). Una
@@ -25,7 +25,7 @@ export interface Scene {
   slot: number; // 1..9
   name: string;
   state: Record<string, SceneState>; // por nodeId
-  master?: MasterFx; // estado del máster al capturar (escenas viejas no lo traen → no se toca)
+  master?: Partial<MasterFx>; // máster al capturar, SIN pads momentáneos (escenas viejas no lo traen → no se toca)
   savedAt: number;
 }
 
@@ -83,7 +83,7 @@ export const useScenesStore = create<ScenesStore>((set, get) => ({
       slot,
       name: name ?? prev?.name ?? `escena ${slot}`,
       state: snapshotState(),
-      master: { ...useGraphStore.getState().master }, // el máster forma parte de la escena
+      master: withoutMomentary(useGraphStore.getState().master), // el máster forma parte de la escena (sin pads sostenidos)
       savedAt: Date.now(),
     };
     const scenes = { ...get().scenes, [slot]: scene };
@@ -98,7 +98,8 @@ export const useScenesStore = create<ScenesStore>((set, get) => ({
     // chPan/eq/params); el cast salva la firma de índice de NodeData.
     useGraphStore.getState().applyNodeStates(scene.state as Record<string, Partial<NodeData>>);
     // máster de la escena (si lo capturó): filtro/groove/bus del "drop" saltan también.
-    if (scene.master) useGraphStore.getState().setMaster(scene.master);
+    // (sin roll/gate/rev/½ tiempo: escenas viejas pueden traerlos y no deben pegarse ni cortar un pad apretado)
+    if (scene.master) useGraphStore.getState().setMaster(withoutMomentary(scene.master));
     set({ active: slot });
   },
 
