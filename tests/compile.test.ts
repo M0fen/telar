@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileGraph, isSampleSource, applyMaster, sanitizeMasterFx } from '../src/graph/compile.ts';
+import { compileGraph, isSampleSource, applyMaster, applyGlobalMaster, sanitizeMasterFx } from '../src/graph/compile.ts';
 import { registerUserIr } from '../src/audio/irRegistry.ts';
 
 // helpers de construcción de grafo (casts laxos: son fixtures de test)
@@ -225,10 +225,52 @@ test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
 
 // --- CLAMP DEFENSIVO del máster (proyectos importados de otra IA / JSON a mano) -----
 // Un valor fuera de rango que la UI jamás produce no debe silenciar/romper la salida.
-test('máster: el FILTRO ya no se emite en el código — va al BUS (engine), para no pisarse con el FX de cada voz', () => {
+test('filtro de canal fuera de rango (filter:-2) se clampea a −1 → paso-bajo 100 Hz, COMPUESTO', () => {
   const bad = applyMaster('s("bd*4")', { gain: 1, filter: -2, room: 0 });
-  assert.doesNotMatch(bad, /\.lpf\(/);          // el filtro del máster vive en el bus Web Audio, no aquí
-  assert.doesNotMatch(bad, /\.hpf\(/);
+  assert.match(bad, /cutoff:Math\.min\(\+v\.cutoff\|\|20000,100\)/); // −1 → 100 Hz (no 1 Hz = mudo)
+  assert.doesNotMatch(bad, /\.lpf\(/);          // nunca `.lpf(x)` suelto: pisaría el filtro propio de la voz
+});
+
+// ejecuta en JS el `.fmap(...)` emitido sobre el valor de UN evento → semántica real
+const runFmap = (emitted: string, value: Record<string, unknown>): Record<string, unknown> => {
+  const i = emitted.indexOf('.fmap(');
+  assert.ok(i >= 0, `esperaba un .fmap( compuesto en: ${emitted}`);
+  let d = 0;
+  let j = i + 5;
+  for (; j < emitted.length; j++) {
+    if (emitted[j] === '(') d++;
+    else if (emitted[j] === ')') { d--; if (!d) break; }
+  }
+  // eslint-disable-next-line no-new-func
+  const fn = new Function(`return (${emitted.slice(i + 6, j)})`)() as (v: Record<string, unknown>) => Record<string, unknown>;
+  return fn(value);
+};
+
+test('filtro de canal COMPONE: nunca abre una voz ya oscura ni baja unos hats ya finos (antes los pisaba)', () => {
+  const lp = applyMaster('s("x")', { gain: 1, filter: -0.2, room: 0 }); // paso-bajo ≈ 6371 Hz
+  assert.equal(runFmap(lp, { s: 'sawtooth', cutoff: 300 }).cutoff, 300); // bajo oscuro: sigue en 300
+  assert.equal(runFmap(lp, { s: 'bd' }).cutoff, 6371);                   // voz sin filtro: lo recibe
+  const hp = applyMaster('s("x")', { gain: 1, filter: 0.2, room: 0 }); // paso-alto ≈ 60 Hz
+  assert.equal(runFmap(hp, { s: 'sine', hcutoff: 1400 }).hcutoff, 1400); // silbido fino: no baja a 60
+  assert.equal(runFmap(hp, { s: 'bd' }).hcutoff, 60);
+});
+
+test('REGRESIÓN c08aaf5: el filtro de cada pista (chFilter) vuelve a emitirse — deck DJ, nodo, escenas, MIDI', () => {
+  const r = C(
+    [src('a', 's("bd*4")', { chFilter: -0.5 }), src('b', 's("hh*8")', { chFilter: 0.5 }), src('c', 's("sd")'), out()],
+    [E('a', 'o'), E('b', 'o'), E('c', 'o')],
+  );
+  const c = code(r);
+  assert.match(c, /cutoff:Math\.min\(\+v\.cutoff\|\|20000,1342\)/);
+  assert.match(c, /hcutoff:Math\.max\(\+v\.hcutoff\|\|0,316\)/);
+  assert.equal((c.match(/\.fmap\(/g) ?? []).length, 2, 'solo las pistas con filtro');
+});
+
+test('máster GLOBAL: su filtro y su drive NO van en código (viven en el bus Web Audio)', () => {
+  const g = applyGlobalMaster('s("bd")', { gain: 1, filter: -1, drive: 1, room: 0 });
+  assert.doesNotMatch(g, /cutoff|\.lpf\(|\.hpf\(|\.shape\(/);
+  const g2 = applyGlobalMaster('s("bd")', { gain: 1, filter: 1, room: 0 });
+  assert.doesNotMatch(g2, /hcutoff|\.hpf\(/);
 });
 
 test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) sino crush(4.0)', () => {
@@ -237,19 +279,19 @@ test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) 
   assert.match(bad, /\.crush\(4\.0\)/);         // clampeado a crush 1 → 4 bits
 });
 
-test('máster fuera de rango: room/gain acotados en código (no rompen); el filtro va al bus', () => {
+test('fuera de rango: room/gain/filtro acotados (no rompen ni silencian)', () => {
   const bad = applyMaster('s("bd*4")', { gain: 99, filter: 5, room: 9 });
   assert.doesNotMatch(bad, /\.mul\(gain\(99/);  // gain clampeado a 4
   assert.match(bad, /\.mul\(gain\(4\.00\)\)/);
   assert.match(bad, /\.room\(0\.95\)/);          // room clampeado a 0.95
-  assert.doesNotMatch(bad, /\.hpf\(/);           // el filtro del máster ya no se emite en código
+  assert.match(bad, /hcutoff:Math\.max\(\+v\.hcutoff\|\|0,5000\)/); // filter 5 → 1 → paso-alto 5000
 });
 
-test('máster EN rango: crush/room se emiten en código; el filtro va al bus (no en código)', () => {
+test('EN rango: crush/room en código; filtro de canal −0.5 → paso-bajo 1342 compuesto', () => {
   const ok = applyMaster('s("bd*4")', { gain: 1, filter: -0.5, room: 0.2, crush: 0.5 });
   assert.match(ok, /\.crush\(10\.0\)/);         // 16 - 0.5*12 = 10
   assert.match(ok, /\.room\(0\.20\)/);
-  assert.doesNotMatch(ok, /\.lpf\(/);           // filtro del máster → bus Web Audio, no código
+  assert.match(ok, /cutoff:Math\.min\(\+v\.cutoff\|\|20000,1342\)/);
 });
 
 // --- sanitizeMasterFx: normaliza el máster al importar + describe qué cambió ----------

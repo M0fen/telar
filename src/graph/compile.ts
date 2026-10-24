@@ -462,6 +462,25 @@ function applyVoice(code: string, v: VoiceParams): string {
   return out;
 }
 
+// COMPONER, NO PISAR (verificado contra @strudel/core): cada control vale UNA vez por
+// voz y un sufijo posterior PISA el valor propio de la voz — `.lpf(300).lpf(6372)` deja
+// 6372 (un «paso-bajo» que ABRE un bajo oscuro) y `.room(0.6).room(0.1)` deja 0.1 (subir
+// la reverb SECA una voz húmeda). Los FX de mezcla se combinan con el valor de la voz en
+// un solo `.fmap`: lpf → min(propio, X) · hpf → max(propio, X) · room/delay →
+// 1−(1−propio)(1−X) (el envío solo suma) · crush → min(bits propios, X).
+// Object.assign (ES5) a propósito: pasa por el transpiler de Strudel sin sorpresas.
+function composeFx(parts: string[]): string {
+  return parts.length ? `.fmap(v=>Object.assign({},v,{${parts.join(',')}}))` : '';
+}
+
+// MÁSTER GLOBAL (sobre el stack entero). El FILTRO y el DRIVE del máster viven en el BUS
+// Web Audio (engine.applyMasterBus: djHP/djLP/djDrive) → afectan toda la mezcla al
+// instante, sin recompilar; por eso aquí van en 0. Lo demás (groove, roll/gate/rev,
+// crush/eco/reverb, gain) se emite en código.
+export function applyGlobalMaster(code: string, m: MasterFx): string {
+  return applyMaster(code, { ...m, filter: 0 });
+}
+
 export function applyMaster(code: string, m: MasterFx): string {
   let out = code;
   // GROOVE primero (afecta el TIEMPO de los eventos): swing (.swingBy) + humanize
@@ -501,11 +520,16 @@ export function applyMaster(code: string, m: MasterFx): string {
   const mCrush = Math.max(0, Math.min(1, m.crush ?? 0));
   const mDelay = Math.max(0, Math.min(1, m.delay ?? 0));
   const mRoom = Math.max(0, Math.min(0.95, m.room ?? 0));
-  // FILTRO (filter) y DRIVE del máster YA NO se emiten como sufijo de código: iban
-  // DESPUÉS del FX propio de cada voz y superdough los pisaba (un FX por voz, de un
-  // solo uso). Ahora van al BUS del máster en Web Audio (engine.applyMasterBus, nodos
-  // djHP/djLP/djDrive), así afectan TODA la mezcla sin pisarse. (crush/delay/room
-  // siguen aquí por ahora.)
+  // FILTRO DE CANAL (DJ, −1..1: <0 paso-bajo, >0 paso-alto): lo pasa cada Source con su
+  // chFilter (deck DJ, perilla del nodo, escenas, MIDI). El máster GLOBAL llega aquí con
+  // filter 0 — su filtro y su drive viven en el BUS Web Audio (ver applyGlobalMaster).
+  // COMPUESTO con el filtro propio de la voz (composeFx): un paso-bajo nunca ABRE un
+  // bajo que ya era oscuro, un paso-alto nunca BAJA el corte de unos hats ya finos.
+  const mFilter = Math.max(-1, Math.min(1, m.filter ?? 0));
+  const comp: string[] = [];
+  if (mFilter < -0.02) comp.push(`cutoff:Math.min(+v.cutoff||20000,${Math.round(18000 * Math.pow(100 / 18000, -mFilter))})`);
+  else if (mFilter > 0.02) comp.push(`hcutoff:Math.max(+v.hcutoff||0,${Math.round(20 * Math.pow(5000 / 20, mFilter))})`);
+  out += composeFx(comp);
   if (mCrush > 0.02) out = `${out}.crush(${(16 - mCrush * 12).toFixed(1)})`;
   if (mDelay > 0.02) out = `${out}.delay(${mDelay.toFixed(2)})`;
   if (mRoom > 0.02) {
