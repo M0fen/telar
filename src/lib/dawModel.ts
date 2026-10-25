@@ -95,6 +95,15 @@ export function toggleBlockCode(code: string, arm: number): string | null {
 // Estado de mezcla de una escena (mute/solo por nodo) para marcar los tramos que silencia.
 export type SceneMix = Record<string, { mute?: boolean; solo?: boolean }> | undefined;
 
+// Patrón de un bloque para COPIAR (Fase 2.3): el del brazo sin su `.mask(0)` (pegado, suena);
+// una pista plana copia su patrón entero. null = no hay bloque ahí.
+export function blockPattern(code: string, arm: number): string | null {
+  if (arm < 0) return (code ?? '').trim() || null;
+  const arms = splitArrange(code);
+  if (!arms || !Number.isInteger(arm) || arm >= arms.length) return null;
+  return unmuteArm(arms[arm].code).trim();
+}
+
 export function buildDawModel(
   sources: DawSourceLike[],
   steps: DawStepLike[],

@@ -26,6 +26,7 @@ import { Transport } from './ui/Transport';
 import { Palette, type PaletteDrag } from './ui/Palette';
 import { Performance } from './ui/Performance';
 import { MidiLive } from './ui/MidiLive';
+import { useUiFocusStore } from './store/useUiFocusStore';
 import { DjMixer } from './ui/DjMixer';
 import { DawView } from './ui/DawView';
 import { SongEngine } from './ui/SongEngine';
@@ -299,6 +300,31 @@ export default function App() {
       }
     });
   }, [loadSnapshot]);
+
+  // «EDITAR EN LA VISTA ESTÁNDAR» desde un bloque del DAW (Fase 2.3): abre el nodo con su
+  // secuenciador, lo selecciona y lo centra (el lienzo se monta al cambiar de vista: se
+  // reintenta hasta que React Flow y el nodo existen).
+  const focusReq = useUiFocusStore((s) => s.req);
+  useEffect(() => {
+    if (!focusReq || mode !== 'standard') return;
+    const { nodeId } = focusReq;
+    const st = useGraphStore.getState();
+    if (!st.nodes.some((n) => n.id === nodeId)) return;
+    st.updateNodeData(nodeId, { collapsed: false, showSeq: true });
+    useGraphStore.setState({ nodes: useGraphStore.getState().nodes.map((n) => ({ ...n, selected: n.id === nodeId })) });
+    let tries = 0;
+    let t: ReturnType<typeof setTimeout>;
+    const go = () => {
+      const inst = rfRef.current;
+      if (inst && inst.getNode(nodeId)) {
+        void inst.fitView({ nodes: [{ id: nodeId }], padding: 0.35, duration: 450, maxZoom: 1.1 });
+        return;
+      }
+      if (++tries < 20) t = setTimeout(go, 60);
+    };
+    t = setTimeout(go, 60);
+    return () => clearTimeout(t);
+  }, [focusReq, mode]);
 
   // Cable más cercano a un punto (en coords de flujo), dentro del radio imán.
   const nearestEdge = useCallback(

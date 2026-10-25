@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { getScheduler } from '../audio/engine';
 import { useSongStore } from '../store/useSongStore';
+import { useUiFocusStore } from '../store/useUiFocusStore';
 import { playDrumHit } from '../audio/playNote';
 import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
@@ -519,9 +520,17 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   // arranca en la primera sección CON contenido (no en un silencio inicial: abrir el
   // editor debe mostrar el instrumento "de la forma habitual", listo para tocar).
   const [sec, setSec] = useState(() => {
+    const req = useUiFocusStore.getState().req;
+    if (req && req.nodeId === id && arms && req.arm >= 0 && req.arm < arms.length) return req.arm;
     const i = arms ? arms.findIndex((a) => !isSilentArm(a.code)) : 0;
     return i >= 0 ? i : 0;
   });
+  // «editar en la vista estándar» desde el DAW (Fase 2.3): salta a esa sección
+  const focusReq = useUiFocusStore((s) => s.req);
+  useEffect(() => {
+    if (focusReq && focusReq.nodeId === id && arms && focusReq.arm >= 0 && focusReq.arm < arms.length) setSec(focusReq.arm);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusReq?.nonce]);
   // VISTA para melodías: la REJILLA (pasos + afinar arrastrando + «afinar todo») es la
   // por defecto — el flujo preferido del usuario en todas partes; el piano roll queda
   // como disposición alternativa del MISMO código (toggle).

@@ -5,7 +5,9 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { toast } from '../store/useNotifyStore';
+import { useUiFocusStore } from '../store/useUiFocusStore';
 import * as E from './arrangeEdit';
+import { blockPattern } from './dawModel';
 
 export function arrangeState(): E.ArrangeState {
   const codes: Record<string, string> = {};
@@ -70,3 +72,42 @@ export function createFromTemplate(sections: { bars: number; name: string }[]): 
   const slots = freeSceneSlots(sections.length);
   return createStructure(sections.map((x, i) => ({ bars: x.bars, scene: slots[i], name: x.name })));
 }
+
+// --- BLOQUES (Fase 2.3): copiar · pegar · vaciar · duplicar en la siguiente · editar -------
+// Editan UNA pista (updateNodeData → Ctrl+Z). El portapapeles vive aquí (sobrevive a cambiar
+// de vista) y guarda el patrón del bloque sin su `.mask(0)`: pegado, suena.
+let clip: { expr: string; from: string } | null = null;
+export const dawClipboard = { get: () => clip };
+
+const codeOf = (id: string) => useGraphStore.getState().nodes.find((n) => n.id === id)?.data.code ?? '';
+const setCode = (id: string, next: string | null, failMsg: string): boolean => {
+  if (next === null) { toast.warn(failMsg); return false; }
+  if (next !== codeOf(id)) useGraphStore.getState().updateNodeData(id, { code: next });
+  return true;
+};
+
+export const dawBlock = {
+  copy(id: string, arm: number): boolean {
+    const expr = blockPattern(codeOf(id), arm);
+    if (!expr) return false;
+    clip = { expr, from: `${trackName(id)}${arm >= 0 ? ` · sección ${arm + 1}` : ''}` };
+    toast.info(`copiado: ${clip.from}`);
+    return true;
+  },
+  paste(id: string, arm: number): boolean {
+    if (!clip) { toast.info('primero copia un bloque (Ctrl+C o clic derecho › copiar)'); return false; }
+    return setCode(id, E.setArmExpr(codeOf(id), arm, clip.expr), 'esta pista no tiene secciones: usa «⇋ alinear pistas» o «crear estructura»');
+  },
+  clear(id: string, arm: number): boolean {
+    return setCode(id, E.setArmExpr(codeOf(id), arm, 'silence'), 'esta pista no tiene secciones');
+  },
+  toNext(id: string, arm: number): boolean {
+    const code = codeOf(id);
+    const expr = blockPattern(code, arm);
+    return setCode(id, expr ? E.setArmExpr(code, arm + 1, expr) : null, 'no hay una sección siguiente en esta pista');
+  },
+  edit(id: string, arm: number): void {
+    useUiFocusStore.getState().request(id, arm);
+    useGraphStore.getState().setMode('standard');
+  },
+};

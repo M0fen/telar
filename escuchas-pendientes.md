@@ -111,6 +111,7 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **Crear estructura** (oído): con el tema de las aves (sin canción) → DAW → «crear estructura ▾» → techno: salen 6 secciones (intro, subida, drop, respiro, drop 2, salida) y **todo suena igual que antes** (las aves aleatorias repiten su azar en cada sección). Apagar bloques por sección arma el tema.
 - [ ] **Editar secciones**: clic en una sección → su barra: nombre, escena, − / + / ×2 compases, ← → mover, ⧉ duplicar, ✚ vacía, ✕ borrar, ▶ desde aquí. Cada cambio afecta la canción y TODAS las pistas a la vez (nunca quedan desfasadas); **Ctrl+Z** lo deshace **sin cortar** la canción que suena. Atajos con una sección elegida: Ctrl+D, Supr, Alt+← →, ← →, Esc.
 - [ ] Un tramo que la **escena** de la sección silencia se ve rayado en rojo sobre la pista (la escena es la mezcla; los bloques, qué suena).
+- [ ] **Bloques: copiar / pegar / vaciar / editar**: clic derecho (o mantener pulsado en táctil) sobre un bloque → menú. Copiar el hat del drop y pegarlo en la subida suena igual que en el drop. Con un bloque enfocado (Tab o clic): Ctrl+C, Ctrl+V, Supr (vaciar), E (editar). «Editar en la vista estándar» abre el nodo centrado, con su secuenciador en ESA sección.
 
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

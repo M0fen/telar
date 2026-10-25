@@ -7,7 +7,8 @@ import { buildDawModel, playheadAt, toggleBlockCode, type DawBlock, type DawTrac
 import { playSong, playFrom } from '../lib/songTransport';
 import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
-import { dawSection, createStructure, createFromTemplate, sceneSections } from '../lib/dawActions';
+import { DawBlockMenu } from './DawBlockMenu';
+import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections } from '../lib/dawActions';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
@@ -134,6 +135,35 @@ export function DawView() {
     const next = toggleBlockCode(code, b.arm);
     if (next !== null && next !== code) update(t.id, { code: next });
   };
+
+  // MENÚ Y TECLAS DEL BLOQUE (Fase 2.3): clic derecho / mantener pulsado (táctil) = menú;
+  // con el bloque enfocado: Enter/Espacio ○/● · Ctrl+C · Ctrl+V · Supr vaciar · E editar.
+  const [menu, setMenu] = useState<{ trackId: string; arm: number; start: number; x: number; y: number } | null>(null);
+  const openMenu = (t: DawTrack, b: DawBlock, x: number, y: number) => setMenu({ trackId: t.id, arm: b.arm, start: b.start, x, y });
+  const longPressed = useRef(false);
+  const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startLongPress = (e: { pointerType: string; clientX: number; clientY: number }, t: DawTrack, b: DawBlock) => {
+    if (e.pointerType !== 'touch') return;
+    const { clientX, clientY } = e;
+    longPressed.current = false;
+    lpTimer.current = setTimeout(() => { longPressed.current = true; openMenu(t, b, clientX, clientY); }, 520);
+  };
+  const cancelLongPress = () => { if (lpTimer.current) { clearTimeout(lpTimer.current); lpTimer.current = null; } };
+  const onBlockKey = (e: { key: string; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; preventDefault: () => void; stopPropagation: () => void; currentTarget: Element }, t: DawTrack, b: DawBlock) => {
+    const mod = e.ctrlKey || e.metaKey;
+    const k = e.key.toLowerCase();
+    let done = true;
+    if (!mod && (e.key === 'Enter' || e.key === ' ')) toggleBlock(t, b);
+    else if (mod && k === 'c') dawBlock.copy(t.id, b.arm);
+    else if (mod && k === 'v') dawBlock.paste(t.id, b.arm);
+    else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) dawBlock.clear(t.id, b.arm);
+    else if (!mod && k === 'e') dawBlock.edit(t.id, b.arm);
+    else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { const r = e.currentTarget.getBoundingClientRect(); openMenu(t, b, r.left + 8, r.bottom); }
+    else done = false;
+    if (done) { e.preventDefault(); e.stopPropagation(); }
+  };
+  const menuTrack = menu ? tracks.find((x) => x.id === menu.trackId) : undefined;
+  const menuBlock = menu && menuTrack ? menuTrack.blocks.find((x) => x.arm === menu.arm && x.start === menu.start) ?? menuTrack.blocks.find((x) => x.arm === menu.arm) : undefined;
 
   // TOCAR DESDE UN COMPÁS (Fase 1.4): clic en los números = desde ese compás; clic en una
   // sección = desde su primer compás. Reinicia el transporte (como un DAW).
@@ -300,18 +330,16 @@ export function DawView() {
                       key={i}
                       className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}${clickable(t, b) ? ' click' : ''}`}
                       style={{ left: b.start * px, width: Math.max(2, b.bars * px - 2) }}
-                      title={blockTitle(t, b) + sceneMuteNote(t, b)}
-                      {...(clickable(t, b)
-                        ? {
-                            role: 'button',
-                            tabIndex: 0,
-                            'aria-pressed': b.state === 'on',
-                            onClick: () => toggleBlock(t, b),
-                            onKeyDown: (e: { key: string; preventDefault: () => void }) => {
-                              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBlock(t, b); }
-                            },
-                          }
-                        : {})}
+                      title={blockTitle(t, b) + sceneMuteNote(t, b) + '\nclic derecho (o mantener pulsado): copiar · pegar · vaciar · editar'}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={clickable(t, b) ? b.state === 'on' : undefined}
+                      onClick={() => { if (!longPressed.current) toggleBlock(t, b); longPressed.current = false; }}
+                      onContextMenu={(e) => { e.preventDefault(); openMenu(t, b, e.clientX, e.clientY); }}
+                      onPointerDown={(e) => startLongPress(e, t, b)}
+                      onPointerUp={cancelLongPress}
+                      onPointerLeave={cancelLongPress}
+                      onKeyDown={(e) => onBlockKey(e, t, b)}
                     >
                       {b.bars * px >= 30 && (
                         <span className="daw-blk-l">{t.plain ? 'suena siempre' : b.state === 'empty' ? 'vacía' : b.state === 'off' ? 'apagada' : `${b.arm + 1}`}</span>
@@ -326,6 +354,17 @@ export function DawView() {
             ))}
             </div>
           </div>
+          {menu && menuTrack && menuBlock && (
+            <DawBlockMenu
+              x={menu.x}
+              y={menu.y}
+              track={menuTrack}
+              block={menuBlock}
+              canToggle={clickable(menuTrack, menuBlock)}
+              onToggle={() => toggleBlock(menuTrack, menuBlock)}
+              onClose={() => setMenu(null)}
+            />
+          )}
           {sections.length === 0 && (
             <div className="daw-hint">Sin secciones: los instrumentos suenan en bucle. Crea la canción en la vista standard (máster › canción) y usa «⇋ instrumentos».</div>
           )}

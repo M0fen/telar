@@ -172,3 +172,11 @@
   .daw-secbar { padding-left: 14px; }
   .daw-menu { min-width: 240px; }
 }
+
+/* Fase 2.3 · menú del bloque */
+.daw-ctx { z-index: 40; min-width: 250px; }
+.daw-ctx-h { padding: 5px 9px 6px; font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim, #6b7a88); border-bottom: 1px solid var(--line, #202c38); margin-bottom: 3px; }
+.daw-ctx button { display: flex; justify-content: space-between; gap: 14px; }
+.daw-ctx button:disabled { opacity: 0.35; cursor: default; background: transparent; color: var(--text, #d4dee6); }
+.daw-ctx kbd { font-family: inherit; font-size: 9px; color: var(--faint, #44515c); }
+.daw-blk:focus-visible { outline: 2px solid var(--accent, #3df0d0); outline-offset: 1px; }
