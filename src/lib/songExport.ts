@@ -10,6 +10,7 @@ import { useSongStore } from '../store/useSongStore';
 import { getScheduler, getMasterPostNode, getAudioCtx, getMasterPostLatency } from '../audio/engine';
 import { startAudioRecording, stopAudioRecording, isAudioRecording } from './audioRecorder';
 import { makeZip, type ZipEntry } from './zip';
+import { toast } from '../store/useNotifyStore';
 
 export const EXPORT_TAIL_S = 2.5;
 
@@ -57,8 +58,8 @@ export interface ExportOpts {
 // Una pasada: devuelve el WAV (o null si se canceló / no se pudo grabar).
 export async function renderPass(o: ExportOpts): Promise<Blob | null> {
   if (isAudioRecording()) return null;
-  const g = useGraphStore.getState();
-  if (g.playing) await g.stop();
+  // ■ SIEMPRE (no solo si la vista dice «sonando»): el reloj tiene que arrancar desde 0
+  await useGraphStore.getState().stop();
   // la salida del máster existe recién tras el primer play: calentar si nunca sonó
   if (!getMasterPostNode()) {
     await useGraphStore.getState().play();
@@ -81,7 +82,11 @@ export async function renderPass(o: ExportOpts): Promise<Blob | null> {
       t0 = cycleZeroTime(before);
       if (t0 == null) await wait(20);
     }
-    if (t0 == null) t0 = ctx.currentTime + 0.1;
+    if (t0 == null) {
+      // sin el instante exacto del compás 1 la toma saldría corrida: mejor no entregarla
+      toast.warn('No pude sincronizar la grabación con el compás 1: no se exportó nada. Intenta de nuevo.');
+      return null;
+    }
     // post-máster: el limitador (y el bus, si está activo) retrasan la salida unos ms → se
     // recorta igual de tarde, y la mezcla queda alineada a la muestra con los stems (pre-bus)
     if (!o.pre) t0 += await getMasterPostLatency();

@@ -176,7 +176,7 @@ type Repl = {
   scheduler: Scheduler;
   evaluate: (code: string, autostart?: boolean) => Promise<unknown>;
   stop: () => void;
-  start?: () => void;
+  start?: () => void | Promise<void>;
 };
 
 let replPromise: Promise<Repl> | null = null;
@@ -281,8 +281,16 @@ export function getAudioState(): AudioContextState | 'uninitialized' {
 const STRUDEL_DEFAULT_CPS = 0.5;
 const SETS_OWN_TEMPO = /\b(cpm|cps|setcps|setcpm)\s*\(/;
 
+// ÉPOCA DEL TRANSPORTE: cada ■ la avanza. Un swap que estaba evaluando cuando llegó el ■ NO
+// vuelve a arrancar el reloj: con autostart, el evaluate de Strudel lo reanudaba solo al
+// terminar → el tema seguía sonando con el transporte en ■ (pasaba al parar el jam, que arma
+// la canción y para en el mismo instante) y la siguiente exportación salía corrida.
+let stopEpoch = 0;
+
 export async function swapPattern(code: string, cps: number): Promise<void> {
+  const epoch = stopEpoch;
   const r = await ensureEngine();
+  if (epoch !== stopEpoch) return; // ■ mientras arrancaba el motor
   // Si el código ya fija su tempo (p.ej. .cpm(150/4)), respetamos el cps base de
   // strudel.cc para que suene igual; si no, mandamos el cps del transporte.
   r.scheduler.setCps(SETS_OWN_TEMPO.test(code) ? STRUDEL_DEFAULT_CPS : cps);
@@ -291,13 +299,22 @@ export async function swapPattern(code: string, cps: number): Promise<void> {
   // cada Source → los osciloscopios por instrumento se quedaban mudos. En su
   // lugar el master se toma del nodo de salida real (getMasterAnalyser).
   clearError();
-  await r.evaluate(code, true); // los errores llegan vía onEvalError, no por throw
+  const pat = await r.evaluate(code, false); // los errores llegan vía onEvalError, no por throw
+  if (epoch !== stopEpoch) return; // ■ durante la evaluación: el reloj queda parado
+  if (pat && !r.scheduler.started) {
+    try {
+      await r.start?.();
+    } catch {
+      /* sin patrón válido todavía: nada que tocar */
+    }
+  }
   started = true;
   applyMasterBus(); // reaserta el bus de máster (EQ+limiter) por si hubo reset del motor
   applyChannelEqs(); // reaserta el EQ por canal (orbits pueden haberse recreado)
 }
 
 export async function stopAudio(): Promise<void> {
+  stopEpoch++;
   if (repl) repl.stop();
   started = false;
 }

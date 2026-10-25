@@ -140,8 +140,7 @@ function jamHooks(): JamHooks {
 // tú) y sin bucle de región. Todo lo que hagas en vivo (cualquier vista, MIDI) queda anotado.
 export async function startJamRecording(): Promise<void> {
   if (isJamRecording()) return;
-  const g = useGraphStore.getState();
-  if (g.playing) await g.stop();
+  await useGraphStore.getState().stop(); // siempre: la toma arranca con el reloj en el compás 1
   const s = useSongStore.getState();
   s.setRegionOn(false);
   s.setFrom(0);
