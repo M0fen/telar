@@ -493,3 +493,36 @@ test('master reverb: space with no room send emits nothing (room gates the IR)',
   assert.doesNotMatch(out, /\.ir\(/);
   assert.doesNotMatch(out, /\.room\(/);
 });
+
+// --- Modo DAW 3.1/3.4: automatización y stems -------------------------------------------
+test('3.1 automatización: sufijo .withHap DESPUÉS de la mezcla del canal; sin curvas, código idéntico', () => {
+  const base = compileGraph([src('a', 's("bd*4")', { chFilter: -0.3 }), out()], [{ id: 'e', source: 'a', target: 'o' }]).code!;
+  const flat = compileGraph([src('a', 's("bd*4")', { chFilter: -0.3, auto: { vol: [[0, 1]] } }), out()], [{ id: 'e', source: 'a', target: 'o' }]).code!;
+  assert.equal(flat, base); // curva neutra → nada
+  const auto = compileGraph([src('a', 's("bd*4")', { chFilter: -0.3, auto: { vol: [[0, 1], [8, 0]] } }), out()], [{ id: 'e', source: 'a', target: 'o' }], { songBars: 32 }).code!;
+  assert.ok(auto.includes('.withHap(') && auto.indexOf('.fmap(') < auto.indexOf('.withHap(') && auto.indexOf('.withHap(') < auto.indexOf('.analyze('));
+  assert.ok(auto.includes(',32)'));
+});
+
+test('3.4 stem (only): solo suena esa pista; un bombo que dispara sidechain sigue disparando, mudo', () => {
+  const nodes = [
+    src('kick', 's("bd*4")'),
+    src('pad', 'note("c3").s("sawtooth")'),
+    src('hats', 's("hh*8")'),
+    fx('sc', 'sidechain', { mode: 'duck', trigger: 'kick', depth: 0.7, attack: 0.1 }),
+    out(),
+  ];
+  const edges = [
+    { id: 'e1', source: 'kick', target: 'o' },
+    { id: 'e2', source: 'pad', target: 'sc' },
+    { id: 'e3', source: 'sc', target: 'o' },
+    { id: 'e4', source: 'hats', target: 'o' },
+  ];
+  const stemPad = compileGraph(nodes, edges, { only: 'pad' }).code!;
+  assert.ok(stemPad.includes('note("c3")'));
+  assert.ok(!stemPad.includes('s("hh*8")'));
+  assert.ok(/s\("bd\*4"\)[^]*\.duck\([^]*\.mul\(gain\(0\)\)/.test(stemPad)); // dispara el duck, sin sonar
+  const stemHats = compileGraph(nodes, edges, { only: 'hats' }).code!;
+  assert.ok(stemHats.includes('s("hh*8")') && !stemHats.includes('note("c3")'));
+  assert.equal(compileGraph(nodes, edges, {}).code, compileGraph(nodes, edges, { only: null }).code);
+});

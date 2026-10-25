@@ -329,7 +329,7 @@ export function DawView() {
             ⚠ {mism.length} no cuadra{mism.length > 1 ? 'n' : ''}
           </span>
         )}
-        {tracks.length > 0 && <DawExport total={total} fromSong={fromSong} />}
+        {tracks.length > 0 && <DawExport total={total} fromSong={fromSong} tracks={tracks.filter((t) => t.blocks.some((b) => b.code)).map((t) => ({ id: t.id, name: t.name }))} />}
         <span className="daw-zoom">
           <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar">−</button>
           <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>

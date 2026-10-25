@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
-import { useExportStore, exportWav, cancelExport, stamp, EXPORT_TAIL_S } from '../lib/songExport';
+import { useExportStore, exportWav, exportStems, cancelExport, stamp, EXPORT_TAIL_S } from '../lib/songExport';
 
-// EXPORTAR desde el DAW (Fase 3.3): la canción entera o la región marcada a WAV (32-bit
-// float, lo que suena tras el máster). En tiempo real: dura lo que dura la canción.
+// EXPORTAR desde el DAW (Fases 3.3 y 3.4): la canción entera o la región marcada a WAV (32-bit
+// float, lo que suena tras el máster) y los STEMS por pista en un ZIP (cada pista sola, sin el
+// bus del máster, todas del mismo largo desde el compás 1). En tiempo real: cada pasada dura
+// lo que dura la canción.
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
-export function DawExport({ total, fromSong, extra }: { total: number; fromSong: boolean; extra?: (close: () => void) => React.ReactNode }) {
+export function DawExport({ total, fromSong, tracks }: { total: number; fromSong: boolean; tracks: { id: string; name: string }[] }) {
   const [open, setOpen] = useState(false);
+  const [stemsOpen, setStemsOpen] = useState(false);
+  const [off, setOff] = useState<Record<string, boolean>>({}); // pistas desmarcadas
+  const [withMix, setWithMix] = useState(true);
   const busy = useExportStore((s) => s.busy);
   const frac = useExportStore((s) => s.frac);
   const label = useExportStore((s) => s.label);
@@ -38,7 +43,33 @@ export function DawExport({ total, fromSong, extra }: { total: number; fromSong:
               región {region.start + 1}–{region.start + region.bars} · {region.bars} c. · {dur(region.bars)}
             </button>
           )}
-          {extra?.(() => setOpen(false))}
+          <button role="menuitem" aria-expanded={stemsOpen} onClick={() => setStemsOpen((o) => !o)}>stems por pista (ZIP) {stemsOpen ? '▴' : '▾'}</button>
+          {stemsOpen && (() => {
+            const chosen = tracks.filter((t) => !off[t.id]);
+            const passes = chosen.length + (withMix ? 1 : 0);
+            return (
+              <span className="daw-stems">
+                <span className="daw-stems-list">
+                  {tracks.map((t) => (
+                    <label key={t.id}>
+                      <input type="checkbox" checked={!off[t.id]} onChange={(e) => setOff((o) => ({ ...o, [t.id]: !e.target.checked }))} /> {t.name}
+                    </label>
+                  ))}
+                </span>
+                <label className="daw-stems-mix"><input type="checkbox" checked={withMix} onChange={(e) => setWithMix(e.target.checked)} /> incluir la mezcla (con máster)</label>
+                <span className="daw-stems-note">cada pista sola, sin el máster (EQ, glue, limitador) · WAV 32-bit float: juntas no se recortan aunque pasen de 0 dB</span>
+                <span className="daw-stems-est">{passes} pasada{passes === 1 ? '' : 's'} en tiempo real · ≈ {mmss(passes * (total / cps + EXPORT_TAIL_S) + passes * 1.5)}</span>
+                <button
+                  className="daw-btn on"
+                  disabled={!chosen.length}
+                  onClick={() => { setOpen(false); setStemsOpen(false); void exportStems(chosen, total, withMix); }}
+                  title="cada pista sola (con sus FX y secciones), sin el bus del máster, todas del mismo largo"
+                >
+                  exportar {chosen.length} stem{chosen.length === 1 ? '' : 's'}
+                </button>
+              </span>
+            );
+          })()}
         </span>
       )}
     </span>

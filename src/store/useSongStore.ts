@@ -43,6 +43,9 @@ interface SongState {
   // (la cola de reverb/eco sí) — para grabar exactamente N compases sin la vuelta siguiente.
   stopAt: number | null;
   setStopAt: (cycles: number | null) => void;
+  // STEMS (Fase 3.4, de ejecución): pista que se está exportando sola (null = la mezcla)
+  exportOnly: string | null;
+  setExportOnly: (id: string | null) => void;
   addStep: () => void;
   updateStep: (id: string, patch: Partial<SongStep>) => void;
   removeStep: (id: string) => void;
@@ -69,6 +72,8 @@ export const useSongStore = create<SongState>((set, get) => ({
   setRegionOn: (on) => set({ regionOn: on && !!get().region }),
   stopAt: null,
   setStopAt: (c) => set({ stopAt: c != null && Number.isFinite(c) && c > 0 ? c : null }),
+  exportOnly: null,
+  setExportOnly: (id) => set({ exportOnly: id }),
   addStep: () => {
     const last = get().steps[get().steps.length - 1];
     set({ steps: [...get().steps, { id: newId(), scene: last ? last.scene : 1, bars: 8 }] });

@@ -11,7 +11,7 @@
 //     un patrón aplica .analyze(id) y suena por primera vez.
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
-import { ensureMasterLimiter, getMasterLimiterNode } from './masterLimiter';
+import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames } from './masterLimiter';
 
 export const MASTER_ANALYSER_ID = 'telar-master';
 
@@ -714,6 +714,58 @@ export function applyMasterBus(): void {
 export function setMasterBus(patch: Partial<MasterBusSettings>): void {
   busSettings = { ...busSettings, ...patch };
   applyMasterBus();
+}
+
+// LATENCIA POST-MÁSTER (la compensación de retardo de un DAW): lo que sale por el tap post
+// suena más tarde que el pre-bus — el limitador TP lleva 1,5 ms de lookahead y, con el bus
+// activo, el drive y el saturador (oversample 4x = filtros FIR) y los dos compresores
+// (lookahead fijo de 6 ms) suman más. El tramo del bus se MIDE una vez por sample-rate con un
+// impulso en un OfflineAudioContext, porque la cifra depende del navegador (Chromium: 912
+// muestras a 44,1 kHz). Exportar la usa para que la mezcla quede alineada a la muestra con
+// los stems. Nunca lanza: ante duda, 0.
+const busChainFrames = new Map<number, Promise<number>>();
+function measureBusChainFrames(sr: number): Promise<number> {
+  let p = busChainFrames.get(sr);
+  if (!p) {
+    p = (async () => {
+      try {
+        const n = 8192, at = 2048;
+        const oc = new OfflineAudioContext(1, n, sr);
+        const buf = oc.createBuffer(1, n, sr);
+        buf.getChannelData(0)[at] = 0.25;
+        const src = new AudioBufferSourceNode(oc, { buffer: buf });
+        const shaper = () => { const w = new WaveShaperNode(oc, { oversample: '4x' }); w.curve = satCurve(0); return w; };
+        // mismos nodos con latencia que el bus, en serie: djDrive, sat, glue, lim
+        const chain: AudioNode[] = [shaper(), shaper(), new DynamicsCompressorNode(oc, { threshold: 0, knee: 6, ratio: 1 }), new DynamicsCompressorNode(oc, { threshold: -3, knee: 0, ratio: 20, attack: 0.003, release: 0.12 })];
+        let prev: AudioNode = src;
+        for (const node of chain) { prev.connect(node); prev = node; }
+        prev.connect(oc.destination);
+        src.start(0);
+        const out = (await oc.startRendering()).getChannelData(0);
+        let mi = at, mv = 0;
+        for (let i = 0; i < n; i++) { const a = Math.abs(out[i]); if (a > mv) { mv = a; mi = i; } }
+        return Math.max(0, mi - at);
+      } catch {
+        return 0;
+      }
+    })();
+    busChainFrames.set(sr, p);
+  }
+  return p;
+}
+
+export async function getMasterPostLatency(): Promise<number> {
+  try {
+    const ctx = getAudioContext();
+    const sr = ctx.sampleRate;
+    let frames = 0;
+    const tp = getMasterLimiterNode(ctx);
+    if (tp && liveFx && liveFx.ctx === ctx && liveFx.sink === tp) frames += limiterLatencyFrames(sr);
+    if (masterChain && masterChain.ctx === ctx && masterChain.wired) frames += await measureBusChainFrames(sr);
+    return frames / sr;
+  } catch {
+    return 0;
+  }
 }
 
 // --- EQ POR CANAL (M1) ------------------------------------------------------

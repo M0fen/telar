@@ -225,7 +225,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
   let lastDroppedKey = '';
   const recompile = () => {
     const { nodes, edges, cps, playing, master, transpose, xfader } = get();
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars: songTotal(useSongStore.getState().steps) });
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars: songTotal(useSongStore.getState().steps), only: useSongStore.getState().exportOnly });
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
     if (eqKey !== lastEqKey) { lastEqKey = eqKey; setChannelEqs(channelEqs); }

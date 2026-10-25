@@ -99,7 +99,7 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **⇋ instrumentos dos veces** sobre la **base de aves** (o un source con `x=>…`): las secciones quedan planas (nada de arrange dentro de arrange) y **suena igual**.
 - [ ] **○ y luego ●** en una sección (tira de secciones del source): se apaga y al encenderla **suena exactamente igual que antes**. En el secuenciador, la sección apagada muestra su patrón y «● encender».
 
-## 13 · Vista DAW (Fase 1) — NUEVO, medido sin oír
+## 13 · Vista DAW (Fases 1–3) — NUEVO, medido sin oír
 - [ ] Botón **daw** (junto a standard / dj): la canción entera, pistas en filas y compases en columnas; cada fila coincide con las secciones de esa pista (las vacías punteadas, las apagadas rayadas).
 - [ ] Con canción armada: arriba salen sus secciones con el nombre de la escena; sin canción, las del primer instrumento con arrange («sección N»).
 - [ ] Un instrumento que no dura lo que la canción muestra **⚠** y sus bloques repetidos en tenue (es lo que de verdad suena desfasado).
@@ -117,6 +117,7 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **Automatización** (oído): botón **A** de una pista (con canción) → carril de volumen o filtro. Clic = punto, arrastrar = moverlo, doble clic = quitarlo (con un punto enfocado: ← → ↑ ↓ y Supr). Una subida de filtro de 8 compases antes del drop suena **continua** y cae justo en el drop; una bajada de volumen se oye bajar compás a compás. Funciona igual con «tocar desde», el loop de región y en cada vuelta de la canción; Ctrl+Z deshace.
 - [ ] **Grabar las perillas** (oído): durante «● grabar jam», mover el volumen y el filtro de canal de una pista (perillas del M-Wave o del nodo) → al armar, esa pista tiene curvas (botón A) que repiten el movimiento; la perilla de volumen queda en el máximo que tocaste y la de filtro en 0.
 - [ ] **Exportar a WAV** (oído): DAW → **⤓ exportar** → «canción completa» (o la región marcada). Graba en tiempo real con barra de progreso y ■ cancelar; el WAV dura exactamente los compases + 2,5 s de cola, arranca en el compás 1 (o el de la región) y termina con la cola, sin la vuelta siguiente. Suena igual que en vivo (escenas, automatización, máster).
+- [ ] **Stems por pista** (oído, y en otro DAW): **⤓ exportar** → «stems por pista (ZIP)» → elegir pistas (+ «incluir la mezcla») → una pasada en tiempo real por pista (la estimación dice cuánto tarda). El ZIP trae un WAV por pista, todos del mismo largo y desde el compás 1: arrastrados juntos al compás 1 de Ableton / FL / Reaper a 0 dB **suenan como la mezcla sin el máster**; la mezcla del ZIP (con máster) queda alineada a la muestra con ellos. Cada stem lleva sus secciones, sus FX, su automatización y lo que las escenas le hacen; un bajo con sidechain del bombo bombea en su stem igual que en la mezcla.
 
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

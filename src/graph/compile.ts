@@ -669,6 +669,10 @@ export interface CompileOpts {
   transpose?: number; // semitonos globales ("tono"): se suma SOLO a fuentes con note(…)
   xfader?: number; // crossfader DJ 0..1 (0 = todo A, 1 = todo B); afecta el gain de los decks asignados
   songBars?: number; // compases de la canción: las curvas de automatización se repiten con ella (Fase 3.1)
+  // STEM (Fase 3.4): solo suena ESTA pista (con sus FX, sus secciones y lo que las escenas le
+  // hagan, igual que en la mezcla); las demás callan — los bombos que disparan un sidechain
+  // siguen disparándolo en silencio para que el stem bombee como en la mezcla.
+  only?: string | null;
 }
 
 // Ganancia de crossfader por lado (curva de potencia constante: ambos a −3 dB en el
@@ -886,6 +890,10 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           // por canal (siempre) y el osciloscopio inline (cuando está activo).
           text += `.analyze("${SRC_ANALYSER_PREFIX}${id}")`;
           expr = { text, spans };
+          if (opts.only && opts.only !== id) {
+            // stem de OTRA pista: esta calla; si dispara un sidechain, lo sigue disparando muda
+            expr = duckByTrigger.has(id) ? { text: `${text}.mul(gain(0))`, spans: [] } : { text: 'silence', spans: [] };
+          }
         }
         break;
       }

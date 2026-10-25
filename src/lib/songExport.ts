@@ -7,8 +7,9 @@
 import { create } from 'zustand';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
-import { getScheduler, getMasterPostNode, getAudioCtx } from '../audio/engine';
+import { getScheduler, getMasterPostNode, getAudioCtx, getMasterPostLatency } from '../audio/engine';
 import { startAudioRecording, stopAudioRecording, isAudioRecording } from './audioRecorder';
+import { makeZip, type ZipEntry } from './zip';
 
 export const EXPORT_TAIL_S = 2.5;
 
@@ -81,6 +82,9 @@ export async function renderPass(o: ExportOpts): Promise<Blob | null> {
       if (t0 == null) await wait(20);
     }
     if (t0 == null) t0 = ctx.currentTime + 0.1;
+    // post-máster: el limitador (y el bus, si está activo) retrasan la salida unos ms → se
+    // recorta igual de tarde, y la mezcla queda alineada a la muestra con los stems (pre-bus)
+    if (!o.pre) t0 += await getMasterPostLatency();
     const cps = useGraphStore.getState().cps || 0.5;
     const seconds = o.bars / cps + EXPORT_TAIL_S;
     while (ctx.currentTime < t0 + seconds) {
@@ -125,6 +129,52 @@ export async function exportWav(start: number, bars: number, filename: string): 
     downloadBlob(blob, filename);
     return true;
   } finally {
+    useSongStore.getState().setLoop(loop);
+    if (regionOn) useSongStore.getState().setRegionOn(true);
+    useExportStore.setState({ busy: false, frac: 0, label: '' });
+  }
+}
+
+// STEMS POR PISTA (Fase 3.4): una pasada en tiempo real por pista, cada una SOLA (compile
+// `only`: con sus FX, sus secciones y lo que las escenas le hacen, como en la mezcla), por el
+// tap PRE-bus (sin limitador/EQ del máster, para mezclar en otro lado), todas del mismo largo
+// exacto → `telar-stems-….zip` con un WAV por pista (+ la mezcla, opcional).
+const safeName = (s: string, fallback: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 60) || fallback;
+
+export async function exportStems(tracks: { id: string; name: string }[], bars: number, includeMix: boolean): Promise<boolean> {
+  if (useExportStore.getState().busy || !tracks.length) return false;
+  cancelFlag = false;
+  const song = useSongStore.getState();
+  const loop = song.loop;
+  const regionOn = song.regionOn;
+  const passes = tracks.length + (includeMix ? 1 : 0);
+  useExportStore.setState({ busy: true, frac: 0, label: 'stems' });
+  try {
+    useSongStore.getState().setLoop(false);
+    const files: ZipEntry[] = [];
+    let i = 0;
+    for (const t of tracks) {
+      useSongStore.getState().setExportOnly(t.id);
+      useExportStore.setState({ label: `stem ${i + 1}/${passes} · ${t.name}` });
+      const k = i;
+      const blob = await renderPass({ start: 0, bars, pre: true, progress: (f) => useExportStore.setState({ frac: (k + f) / passes }) });
+      if (!blob) return false; // cancelado
+      files.push({ name: `${String(i + 1).padStart(2, '0')}-${safeName(t.name, t.id)}.wav`, data: blob });
+      i++;
+    }
+    if (includeMix) {
+      useSongStore.getState().setExportOnly(null);
+      useExportStore.setState({ label: `mezcla ${passes}/${passes}` });
+      const k = i;
+      const blob = await renderPass({ start: 0, bars, progress: (f) => useExportStore.setState({ frac: (k + f) / passes }) });
+      if (!blob) return false;
+      files.push({ name: '00-mezcla.wav', data: blob });
+    }
+    useExportStore.setState({ label: 'armando el ZIP', frac: 1 });
+    downloadBlob(await makeZip(files), `telar-stems-${stamp()}.zip`);
+    return true;
+  } finally {
+    useSongStore.getState().setExportOnly(null);
     useSongStore.getState().setLoop(loop);
     if (regionOn) useSongStore.getState().setRegionOn(true);
     useExportStore.setState({ busy: false, frac: 0, label: '' });

@@ -1,6 +1,6 @@
 # Telar — Modo DAW · Fase 3 (automatización + exportar)
 
-**Aprobada por Carlos el 2026-10-25** junto con la Fase 2. Mismo protocolo. **Hecho:** 3.1 (`c268ab2`) · 3.2 (`5650189`) · 3.3. Orden fijo: 3.1 → 3.2 → 3.3 → 3.4.
+**Aprobada por Carlos el 2026-10-25** junto con la Fase 2. Mismo protocolo. **Hecho:** 3.1 (`c268ab2`) · 3.2 (`5650189`) · 3.3 (`b1a67f8`) · 3.4. **Fase 3 hecha.** Orden fijo: 3.1 → 3.2 → 3.3 → 3.4.
 
 **Qué entrega:** curvas de volumen y filtro por pista dibujadas sobre los compases (y grabadas desde las perillas mientras tocas), y sacar el tema: la canción o una región a WAV y los stems por pista en un ZIP.
 

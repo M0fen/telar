@@ -9,6 +9,13 @@
 
 const WORKLET_NAME = 'telar-tp-limiter';
 
+// LOOKAHEAD del limitador: la salida va retrasada exactamente estas muestras (exportar las
+// compensa para alinear la mezcla post-máster con los stems pre-bus).
+export const LIMITER_LOOKAHEAD_S = 0.0015;
+export function limiterLatencyFrames(sr: number): number {
+  return Math.max(1, Math.round(sr * LIMITER_LOOKAHEAD_S));
+}
+
 // Processor inline (Blob URL) — no depende de ?url/rutas en prod (igual que el grabador).
 const WORKLET_SRC = `
 class TPLimiter extends AudioWorkletProcessor {
@@ -32,7 +39,7 @@ class TPLimiter extends AudioWorkletProcessor {
       if (Math.abs(s) > 1e-9) for (t = 0; t < taps; t++) b[t] /= s;
       this.banks.push(b);
     }
-    this.LA = Math.max(1, Math.round(sr * 0.0015));
+    this.LA = Math.max(1, Math.round(sr * ${LIMITER_LOOKAHEAD_S}));
     this.relCoef = Math.exp(-1 / (sr * 0.06));
     this.histL = new Float32Array(taps); this.histR = new Float32Array(taps);
     this.delayL = new Float32Array(this.LA); this.delayR = new Float32Array(this.LA);
