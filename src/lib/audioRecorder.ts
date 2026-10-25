@@ -24,6 +24,7 @@ class TelarRecorder extends AudioWorkletProcessor {
     this.bl = new Float32Array(this.cap);
     this.br = new Float32Array(this.cap);
     this.fill = 0;
+    this.t0sent = false;
     this.port.onmessage = (e) => {
       if (e.data === 'stop') {
         this.on = false;
@@ -43,6 +44,9 @@ class TelarRecorder extends AudioWorkletProcessor {
     if (!this.on) return false; // parado: el processor termina
     const inp = inputs[0];
     if (inp && inp.length && inp[0] && inp[0].length) {
+      // tiempo (del AudioContext) del PRIMER bloque grabado: permite recortar la toma con
+      // precisión de muestra (exportar exactamente N compases desde el compás 1)
+      if (!this.t0sent) { this.t0sent = true; this.port.postMessage({ t0: currentTime }); }
       const L = inp[0];
       const R = inp[1] && inp[1].length ? inp[1] : inp[0];
       const n = L.length;
@@ -84,6 +88,7 @@ let left: Float32Array[] = [];
 let right: Float32Array[] = [];
 let recording = false;
 let rate = 48000;
+let firstTime: number | null = null; // tiempo del AudioContext de la primera muestra grabada
 
 export function isAudioRecording(): boolean {
   return recording;
@@ -109,8 +114,10 @@ export async function startAudioRecording(opts: { pre?: boolean } = {}): Promise
         numberOfInputs: 1, numberOfOutputs: 1,
         channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers',
       });
+      firstTime = null;
       worklet.port.onmessage = (e) => {
-        const d = e.data as { l?: Float32Array; r?: Float32Array };
+        const d = e.data as { l?: Float32Array; r?: Float32Array; t0?: number };
+        if (d && typeof d.t0 === 'number') { firstTime = d.t0; return; }
         if (d && d.l && d.r) { left.push(d.l); right.push(d.r); }
       };
       out.connect(worklet);
@@ -118,6 +125,7 @@ export async function startAudioRecording(opts: { pre?: boolean } = {}): Promise
     } else {
       // FALLBACK: ScriptProcessor clásico (main thread) — mejor eso que no grabar.
       proc = ctx.createScriptProcessor(4096, 2, 2);
+      firstTime = ctx.currentTime; // aproximado (el fallback no sabe el instante exacto)
       proc.onaudioprocess = (e) => {
         left.push(new Float32Array(e.inputBuffer.getChannelData(0)));
         right.push(new Float32Array(e.inputBuffer.getChannelData(1)));
@@ -137,7 +145,14 @@ export async function startAudioRecording(opts: { pre?: boolean } = {}): Promise
   return true;
 }
 
-export async function stopAudioRecording(): Promise<Blob | null> {
+// Tiempo (AudioContext) de la primera muestra de la toma en curso (null si aún no llegó).
+export function recordingStartTime(): number | null {
+  return firstTime;
+}
+
+// RECORTE (exportar canción / stems, Fase 3.3): con `range` se devuelve exactamente
+// [from, from + seconds] en tiempo del AudioContext (silencio si la toma empezó después).
+export async function stopAudioRecording(range?: { from: number; seconds: number }): Promise<Blob | null> {
   if (!recording) return null;
   recording = false;
   // WORKLET: pedir el vaciado del lote parcial y esperar el 'done' (los mensajes del
@@ -159,6 +174,21 @@ export async function stopAudioRecording(): Promise<Blob | null> {
   try { proc?.disconnect(); } catch { /* idem */ }
   try { sink?.disconnect(); } catch { /* idem */ }
   if (proc) proc.onaudioprocess = null;
+  if (range && firstTime != null) {
+    const total = left.reduce((a, c) => a + c.length, 0);
+    const L = flatten(left, total);
+    const R = flatten(right, total);
+    const start = Math.round((range.from - firstTime) * rate);
+    const n = Math.max(0, Math.round(range.seconds * rate));
+    const outL = new Float32Array(n);
+    const outR = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const k = start + i;
+      if (k >= 0 && k < total) { outL[i] = L[k]; outR[i] = R[k]; }
+    }
+    left = [outL];
+    right = [outR];
+  }
   const blob = encodeWav(left, right, rate);
   worklet = null;
   proc = null;

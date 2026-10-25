@@ -105,3 +105,12 @@ test('2.4: .ribbon solo con el bucle activo, con .early si se arrancó dentro, y
   const out = applyGlobalMaster(applyTimeline(code, { from: 0, region: { start: 16, bars: 8 }, regionOn: true }), m);
   assert.ok(out.indexOf('.ribbon(16, 8)') < out.indexOf('.swingBy('));
 });
+
+test('3.3: al exportar, pasado stopAt no arranca nada nuevo (la cola suena, la vuelta siguiente no)', () => {
+  const code = 's("bd*4")';
+  assert.equal(applyTimeline(code, { from: 0, region: null, regionOn: false, stopAt: null }), code);
+  assert.equal(
+    applyTimeline(code, { from: 8, region: null, regionOn: false, stopAt: 16 }),
+    `((${code}\n).early(8)).filterHaps((h)=>!h.whole||h.whole.begin<16)`,
+  );
+});

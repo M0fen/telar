@@ -39,6 +39,10 @@ interface SongState {
   regionOn: boolean;
   setRegion: (r: SongRegion | null) => void;
   setRegionOn: (on: boolean) => void;
+  // EXPORTAR (Fase 3.3, de ejecución): ciclos del transporte tras los que no suena nada nuevo
+  // (la cola de reverb/eco sí) — para grabar exactamente N compases sin la vuelta siguiente.
+  stopAt: number | null;
+  setStopAt: (cycles: number | null) => void;
   addStep: () => void;
   updateStep: (id: string, patch: Partial<SongStep>) => void;
   removeStep: (id: string) => void;
@@ -63,6 +67,8 @@ export const useSongStore = create<SongState>((set, get) => ({
   regionOn: false,
   setRegion: (r) => set(r && r.bars >= 1 ? { region: { start: Math.max(0, Math.floor(r.start)), bars: Math.max(1, Math.floor(r.bars)) } } : { region: null, regionOn: false }),
   setRegionOn: (on) => set({ regionOn: on && !!get().region }),
+  stopAt: null,
+  setStopAt: (c) => set({ stopAt: c != null && Number.isFinite(c) && c > 0 ? c : null }),
   addStep: () => {
     const last = get().steps[get().steps.length - 1];
     set({ steps: [...get().steps, { id: newId(), scene: last ? last.scene : 1, bars: 8 }] });

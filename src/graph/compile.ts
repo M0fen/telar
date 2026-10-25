@@ -496,16 +496,23 @@ export function applyStartBar(code: string, from: number): string {
 // LÍNEA DE TIEMPO (Fase 2.4): con el LOOP DE REGIÓN activo el grafo entero repite esos
 // compases (`.ribbon(inicio, compases)`; `.early(off)` si se arrancó dentro de la región);
 // si no, «tocar desde un compás» (applyStartBar). También por DENTRO del máster global.
-export function applyTimeline(code: string, t: { from: number; region: { start: number; bars: number } | null; regionOn: boolean }): string {
+export function applyTimeline(
+  code: string,
+  t: { from: number; region: { start: number; bars: number } | null; regionOn: boolean; stopAt?: number | null },
+): string {
   const r = t.region;
+  let out: string;
   if (t.regionOn && r && r.bars >= 1) {
     const start = Math.max(0, Math.floor(r.start));
     const bars = Math.max(1, Math.floor(r.bars));
     const off = Math.floor(Number(t.from)) - start;
     const tail = off > 0 && off < bars ? `.early(${off})` : '';
-    return `(${code}\n).ribbon(${start}, ${bars})${tail}`;
-  }
-  return applyStartBar(code, t.from);
+    out = `(${code}\n).ribbon(${start}, ${bars})${tail}`;
+  } else out = applyStartBar(code, t.from);
+  // EXPORTAR (Fase 3.3): pasado `stopAt` (ciclos del transporte) no arranca ningún evento
+  // nuevo → la grabación termina con las colas, sin la vuelta siguiente de la canción.
+  if (t.stopAt != null && Number.isFinite(t.stopAt) && t.stopAt > 0) out = `(${out}).filterHaps((h)=>!h.whole||h.whole.begin<${Number(t.stopAt.toFixed(4))})`;
+  return out;
 }
 
 // Los FX MOMENTÁNEOS del máster (se sostienen mientras pulsas) nunca sobreviven a una carga:

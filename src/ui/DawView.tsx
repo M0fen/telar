@@ -10,6 +10,7 @@ import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
+import { DawExport } from './DawExport';
 import { AUTO_RANGE, isActive, type AutoParam, type AutoPoint } from '../lib/automation';
 import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
@@ -328,6 +329,7 @@ export function DawView() {
             ⚠ {mism.length} no cuadra{mism.length > 1 ? 'n' : ''}
           </span>
         )}
+        {tracks.length > 0 && <DawExport total={total} fromSong={fromSong} />}
         <span className="daw-zoom">
           <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar">−</button>
           <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>

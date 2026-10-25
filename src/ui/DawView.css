@@ -217,3 +217,9 @@
 .daw-auto-pt { fill: var(--bg, #040506); stroke: var(--accent, #3df0d0); stroke-width: 1.6; cursor: grab; }
 .daw-auto-pt:hover, .daw-auto-pt.drag, .daw-auto-pt:focus-visible { fill: var(--accent, #3df0d0); outline: none; }
 .daw-auto-pt.drag { cursor: grabbing; }
+
+/* Fase 3.3 · exportar */
+.daw-export.busy { display: inline-flex; align-items: center; gap: 8px; }
+.daw-export-lbl { color: var(--accent, #3df0d0); font-variant-numeric: tabular-nums; }
+.daw-export-bar { width: 120px; height: 4px; background: var(--line, #202c38); border-radius: 2px; overflow: hidden; }
+.daw-export-bar span { display: block; height: 100%; background: var(--accent, #3df0d0); }
