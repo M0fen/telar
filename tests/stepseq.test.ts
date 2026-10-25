@@ -486,3 +486,51 @@ test('#1 «empezar rejilla de 8 pasos» siembra un golpe AUDIBLE (antes silencia
   assert.equal(rp.lanes[0].sound, 'bd');
   assert.ok(rp.lanes[0].steps.some((v) => v > 0), 'debe sonar al menos un golpe');
 });
+
+// --- Fase 0.3: UN parser de arrange — flechas, comparaciones y strings no lo descuadran ---
+test('ARRANGE: una flecha dentro de un brazo no rompe el parser', () => {
+  const code = 'arrange([4, s("bd*4").sometimesBy(0.3, x=>x.ply(2))], [4, s("hh*8")])';
+  const arms = splitArrange(code)!;
+  assert.ok(arms, 'antes devolvía null');
+  assert.deepEqual(arms.map((a) => [a.bars, a.code]), [[4, 's("bd*4").sometimesBy(0.3, x=>x.ply(2))'], [4, 's("hh*8")']]);
+});
+
+test('ARRANGE: comparaciones, mini-notación <…> y comas dentro de strings', () => {
+  const code = 'arrange([2, n(irand(8)).filterValues(v=>v<3)], [4, note("[c3,e3,g3]")], [2, s("bd, hh")], [4, s("<bd sd> hh")], [2, note("<c3 e3>").gain("<1 .8>")])';
+  const arms = splitArrange(code)!;
+  assert.deepEqual(arms.map((a) => a.code), ['n(irand(8)).filterValues(v=>v<3)', 'note("[c3,e3,g3]")', 's("bd, hh")', 's("<bd sd> hh")', 'note("<c3 e3>").gain("<1 .8>")']);
+  assert.deepEqual(arms.map((a) => a.bars), [2, 4, 2, 4, 2]);
+});
+
+test('ARRANGE: corchetes/paréntesis sueltos en strings y comentarios, comillas escapadas', () => {
+  const code = 'arrange([4, s("bd [hh")], [4, s("a\\"b, c)")] /* , ] ) */, [2, s("cp")]) // fin, )';
+  const arms = splitArrange(code)!;
+  assert.deepEqual(arms.map((a) => a.code), ['s("bd [hh")', 's("a\\"b, c)")', 's("cp")']);
+  // el empalme toca SOLO ese brazo; el comentario queda intacto
+  const out = spliceArm(code, arms[1], 's("x")');
+  assert.equal(out, 'arrange([4, s("bd [hh")], [4, s("x")] /* , ] ) */, [2, s("cp")]) // fin, )');
+});
+
+test('ARRANGE: un "arrange(" dentro de un string o comentario no cuenta', () => {
+  assert.equal(splitArrange('s("arrange(") // arrange([4, x])'), null);
+  const arms = splitArrange('// arrange([9, viejo])\narrange([4, s("bd")], [4, s("sd")])')!;
+  assert.deepEqual(arms.map((a) => [a.bars, a.code]), [[4, 's("bd")'], [4, 's("sd")']]);
+});
+
+test('ARRANGE: ⇋ instrumentos dos veces sobre un source con x=>… deja secciones planas (no anida)', () => {
+  const code = 'arrange([8, s("bd*4").sometimesBy(0.3, x=>x.ply(3))], [8, s("bd*4")])';
+  const once = alignArrangeToBars(code, [8, 8, 4])!;
+  const twice = alignArrangeToBars(once, [8, 8, 4]) ?? once;
+  for (const out of [once, twice]) {
+    assert.equal((out.match(/arrange\s*\(/g) || []).length, 1, out); // un solo arrange: no anidado
+    assert.deepEqual(splitArrange(out)!.map((a) => [a.bars, a.code]), [[8, 's("bd*4").sometimesBy(0.3, x=>x.ply(3))'], [8, 's("bd*4")'], [4, 'silence']]);
+  }
+  // con la misma estructura, re-alinear no cambia nada
+  assert.equal(alignArrangeToBars(twice, [8, 8, 4]), twice);
+});
+
+test('ARRANGE: coma final tolerada; brazos no estándar siguen siendo null', () => {
+  assert.deepEqual(splitArrange('arrange([4, s("bd")], [4, s("sd")],)')!.map((a) => a.code), ['s("bd")', 's("sd")']);
+  assert.equal(splitArrange('arrange(foo, [4, s("bd")])'), null);
+  assert.equal(splitArrange('arrange([4, s("bd")]'), null); // paréntesis sin cerrar
+});

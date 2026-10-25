@@ -395,37 +395,70 @@ export interface ArrangeArm {
   wholeEnd: number;
 }
 
+// Recorre `code` desde `from` saltándose strings ("…" '…' `…`, con escapes) y comentarios
+// (// … y /* … */): `visit` recibe solo los caracteres de CÓDIGO. Así una flecha `x=>…`,
+// una comparación `x<3`, la mini-notación `"<a b>"` o una coma dentro de `"[c3,e3]"` no
+// descuadran la cuenta. Devuelve el índice donde `visit` pidió parar (true) o -1.
+function scanCode(code: string, from: number, to: number, visit: (c: string, i: number) => boolean | void): number {
+  for (let i = from; i < to; i++) {
+    const c = code[i];
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < to && code[i] !== c; i++) if (code[i] === '\\') i++;
+      continue;
+    }
+    if (c === '/' && code[i + 1] === '/') { while (i < to && code[i] !== '\n') i++; continue; }
+    if (c === '/' && code[i + 1] === '*') { const e = code.indexOf('*/', i + 2); i = e < 0 ? to : e + 1; continue; }
+    if (visit(c, i)) return i;
+  }
+  return -1;
+}
+
 // Parte un arrange(...) en sus brazos con spans. Devuelve null si el código no es un
 // arrange editable (sin arrange, brazos no estándar `[n, expr]`, paréntesis rotos…).
+// ÚNICO parser de arrange de la app (secuenciador, tira de secciones, canción): cuenta
+// solo () [] {} fuera de strings y comentarios — nunca < > (el `>` de `x=>x.ply(2)` lo
+// descuadraba y ⇋ instrumentos anidaba el arreglo dentro de otro).
 export function splitArrange(code: string): ArrangeArm[] | null {
-  const m = /\barrange\s*\(/.exec(code);
+  // primer `arrange(` que sea CÓDIGO (no texto de un string o un comentario)
+  const re = /\barrange\s*\(/g;
+  let m: RegExpExecArray | null = null;
+  for (let x = re.exec(code); x; x = re.exec(code)) {
+    const at = x.index;
+    if (scanCode(code, 0, at + 1, (_c, i) => i === at) === at) { m = x; break; }
+  }
   if (!m) return null;
   const open = m.index + m[0].length - 1;
-  let depth = 0, close = -1;
-  for (let i = open; i < code.length; i++) {
-    const c = code[i];
-    if (c === '(') depth++;
-    else if (c === ')') { depth--; if (!depth) { close = i; break; } }
-  }
+  let depth = 0;
+  const close = scanCode(code, open, code.length, (c) => {
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') { depth--; if (!depth) return c === ')'; }
+    return false;
+  });
   if (close < 0) return null;
-  const inner = code.slice(open + 1, close);
   const innerOff = open + 1;
-  // trozos al nivel superior (coma fuera de paréntesis/corchetes), con offset.
+  // trozos al nivel superior (coma fuera de () [] {}, strings y comentarios), con offset.
   const pieces: { text: string; start: number }[] = [];
-  let d = 0, curStart = 0;
-  for (let k = 0; k < inner.length; k++) {
-    const c = inner[k];
-    if (c === '(' || c === '[' || c === '<') d++;
-    else if (c === ')' || c === ']' || c === '>') d--;
-    else if (c === ',' && d === 0) { pieces.push({ text: inner.slice(curStart, k), start: curStart }); curStart = k + 1; }
-  }
-  pieces.push({ text: inner.slice(curStart), start: curStart });
+  let d = 0, curStart = innerOff;
+  scanCode(code, innerOff, close, (c, k) => {
+    if (c === '(' || c === '[' || c === '{') d++;
+    else if (c === ')' || c === ']' || c === '}') d--;
+    else if (c === ',' && d === 0) { pieces.push({ text: code.slice(curStart, k), start: curStart - innerOff }); curStart = k + 1; }
+  });
+  pieces.push({ text: code.slice(curStart, close), start: curStart - innerOff });
   const arms: ArrangeArm[] = [];
   for (const p of pieces) {
     const t = p.text;
+    if (!t.trim() && p === pieces[pieces.length - 1] && pieces.length > 1) continue; // coma final: `[4, a], [4, b],`
     const bm = /^\s*\[\s*([\d.]+)\s*,/.exec(t); // brazo estándar: [n, expr]
     if (!bm) return null;
-    const closeBr = t.lastIndexOf(']');
+    // `]` que cierra ESTE brazo: el que deja la profundidad en 0 (no el último del trozo,
+    // que podría estar en un comentario o un string detrás)
+    let dd = 0;
+    const closeBr = scanCode(t, t.indexOf('['), t.length, (c) => {
+      if (c === '(' || c === '[' || c === '{') dd++;
+      else if (c === ')' || c === ']' || c === '}') { dd--; if (!dd) return true; }
+      return false;
+    });
     if (closeBr < bm[0].length) return null;
     let s = bm[0].length, e = closeBr;
     while (s < e && /\s/.test(t[s])) s++;
