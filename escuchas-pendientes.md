@@ -99,5 +99,12 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **⇋ instrumentos dos veces** sobre la **base de aves** (o un source con `x=>…`): las secciones quedan planas (nada de arrange dentro de arrange) y **suena igual**.
 - [ ] **○ y luego ●** en una sección (tira de secciones del source): se apaga y al encenderla **suena exactamente igual que antes**. En el secuenciador, la sección apagada muestra su patrón y «● encender».
 
+## 13 · Vista DAW (Fase 1) — NUEVO, medido sin oír
+- [ ] Botón **daw** (junto a standard / dj): la canción entera, pistas en filas y compases en columnas; cada fila coincide con las secciones de esa pista (las vacías punteadas, las apagadas rayadas).
+- [ ] Con canción armada: arriba salen sus secciones con el nombre de la escena; sin canción, las del primer instrumento con arrange («sección N»).
+- [ ] Un instrumento que no dura lo que la canción muestra **⚠** y sus bloques repetidos en tenue (es lo que de verdad suena desfasado).
+- [ ] **▶ canción** desde la vista DAW y pasar a standard o dj sonando: la canción sigue cambiando de escena en cada sección (antes se quedaba quieta sin el panel de la canción).
+- [ ] **M / S** de cada fila silencian / aíslan esa pista; recargar la página vuelve a la vista DAW.
+
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

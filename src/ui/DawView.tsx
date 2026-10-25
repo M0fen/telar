@@ -1,0 +1,171 @@
+import { useMemo, useState } from 'react';
+import './DawView.css';
+import { useGraphStore } from '../store/useGraphStore';
+import { useSongStore } from '../store/useSongStore';
+import { useScenesStore } from '../store/useScenesStore';
+import { buildDawModel, type DawBlock, type DawTrack } from '../lib/dawModel';
+import { playSong } from '../lib/songTransport';
+
+// VISTA DAW (Fase 1.1, solo lectura): la canción entera de un vistazo. Pistas en filas,
+// compases en columnas, secciones arriba. Cada bloque ES un brazo del `arrange([n, patrón])`
+// de esa pista (el código manda: buildDawModel lo reconstruye en cada cambio), así que lo
+// que ves es lo que suena. Las pistas sin arrange suenan igual en todos los compases.
+
+const ZOOM_KEY = 'telar.daw.zoom';
+const ZOOM_MIN = 10;
+const ZOOM_MAX = 96;
+const ZOOM_DEF = 28; // px por compás
+
+function readZoom(): number {
+  try {
+    const v = Number(localStorage.getItem(ZOOM_KEY));
+    return v >= ZOOM_MIN && v <= ZOOM_MAX ? v : ZOOM_DEF;
+  } catch {
+    return ZOOM_DEF;
+  }
+}
+
+const STATE_TXT: Record<DawBlock['state'], string> = { on: 'suena', off: 'apagada (conserva su patrón)', empty: 'vacía' };
+
+function blockTitle(t: DawTrack, b: DawBlock): string {
+  if (t.plain) return `${t.name} · sin secciones: suena igual en todos los compases\n${b.code.slice(0, 160)}`;
+  const rep = b.ghost ? ` · repetición (su arrange dura ${t.bars} compases y vuelve a empezar)` : '';
+  return `${t.name} · sección ${b.arm + 1} · ${b.bars} compases · ${STATE_TXT[b.state]}${rep}\n${b.code.slice(0, 160)}`;
+}
+
+export function DawView() {
+  const nodes = useGraphStore((s) => s.nodes);
+  const update = useGraphStore((s) => s.updateNodeData);
+  const stop = useGraphStore((s) => s.stop);
+  const steps = useSongStore((s) => s.steps);
+  const loop = useSongStore((s) => s.loop);
+  const songPlaying = useSongStore((s) => s.playing);
+  const setLoop = useSongStore((s) => s.setLoop);
+  const scenes = useScenesStore((s) => s.scenes);
+  const [px, setPx] = useState<number>(readZoom);
+
+  const zoom = (dir: 1 | -1) =>
+    setPx((p) => {
+      const v = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(p * (dir > 0 ? 1.25 : 0.8))));
+      try { localStorage.setItem(ZOOM_KEY, String(v)); } catch { /* sin almacenamiento: solo esta sesión */ }
+      return v;
+    });
+
+  // Solo lo que cambia el modelo: id, nombre, código, mute y solo de cada pista (mover una
+  // perilla de ganancia o un nodo en el lienzo no lo recalcula).
+  const sources = nodes.filter((n) => n.data.kind === 'source');
+  const srcSig = sources.map((n) => `${n.id}\u0000${n.data.name ?? ''}\u0000${n.data.code ?? ''}\u0000${n.data.mute ? 1 : 0}${n.data.solo ? 1 : 0}`).join('\u0001');
+  const model = useMemo(
+    () =>
+      buildDawModel(
+        sources.map((n) => ({ id: n.id, name: n.data.name, code: n.data.code, mute: n.data.mute, solo: n.data.solo })),
+        steps,
+        (sc) => scenes[sc]?.name ?? `escena ${sc}`,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [srcSig, steps, scenes],
+  );
+
+  const { sections, total, tracks, fromSong } = model;
+  const width = total * px;
+  const mism = tracks.filter((t) => t.mismatch);
+  const every = px >= 22 ? 1 : px >= 12 ? 4 : 8; // números de compás legibles con poco zoom
+  const gridBg = {
+    backgroundImage: 'linear-gradient(to right, var(--line-soft, #161f28) 1px, transparent 1px), linear-gradient(to right, var(--line, #202c38) 1px, transparent 1px)',
+    backgroundSize: `${px}px 100%, ${px * 4}px 100%`,
+  };
+
+  return (
+    <div className="daw">
+      <div className="daw-head">
+        {steps.length > 0 ? (
+          songPlaying ? (
+            <button className="daw-btn on" onClick={() => void stop()} title="detener la canción y el transporte">■ canción</button>
+          ) : (
+            <button className="daw-btn" onClick={() => void playSong()} title="reproducir la canción desde el compás 1 (escenas e instrumentos juntos)">▶ canción</button>
+          )
+        ) : null}
+        {steps.length > 0 && (
+          <button className={`daw-btn${loop ? ' on' : ''}`} onClick={() => setLoop(!loop)} title="repetir la canción al terminar">⟳</button>
+        )}
+        <span className="daw-info">
+          {total} compases
+          {fromSong ? ' · secciones de la canción' : sections.length ? ' · sin canción: secciones del primer arrange' : ''}
+        </span>
+        {mism.length > 0 && (
+          <span
+            className="daw-warn"
+            title={`no duran lo que la línea de tiempo (${total} compases): ${mism.map((t) => `${t.name} ${t.bars}`).join(' · ')}. Sus bloques se repiten desfasados (los ves en la fila). ⇋ instrumentos, en la canción, los alinea.`}
+          >
+            ⚠ {mism.length} no cuadra{mism.length > 1 ? 'n' : ''}
+          </span>
+        )}
+        <span className="daw-zoom">
+          <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar">−</button>
+          <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>
+        </span>
+      </div>
+
+      {tracks.length === 0 ? (
+        <div className="daw-empty">No hay pistas. Crea sources en la vista standard o carga un ejemplo desde «proyecto».</div>
+      ) : (
+        <div className="daw-body">
+          <div className="daw-grid" style={{ width: `calc(var(--daw-name-w) + ${width}px)` }}>
+            <div className="daw-ruler">
+              <div className="daw-corner">{sections.length === 0 ? 'sin secciones' : 'secciones'}</div>
+              <div className="daw-ruler-lane" style={{ width }}>
+                <div className="daw-bars" style={gridBg}>
+                  {Array.from({ length: total }, (_, i) =>
+                    i % every === 0 ? (
+                      <span key={i} className="daw-barn" style={{ left: i * px }}>{i + 1}</span>
+                    ) : null,
+                  )}
+                </div>
+                <div className="daw-secs">
+                  {sections.map((s, i) => (
+                    <div
+                      key={i}
+                      className={`daw-sec${i % 2 ? ' alt' : ''}`}
+                      style={{ left: s.start * px, width: Math.max(2, s.bars * px - 1) }}
+                      title={`${s.label} · compases ${s.start + 1}–${s.start + s.bars} (${s.bars})`}
+                    >
+                      {s.bars * px >= 36 && <span>{s.label}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {tracks.map((t) => (
+              <div className={`daw-row${t.audible ? '' : ' muted'}`} key={t.id}>
+                <div className="daw-tname">
+                  <span className="daw-tn" title={t.name}>{t.name}</span>
+                  {t.mismatch && <span className="daw-tw" title={`su arrange dura ${t.bars} compases (la línea de tiempo ${total})`}>⚠{t.bars}</span>}
+                  <button className={`daw-ms${t.mute ? ' on mute' : ''}`} onClick={() => update(t.id, { mute: !t.mute })} title="mute de la pista">M</button>
+                  <button className={`daw-ms${t.solo ? ' on solo' : ''}`} onClick={() => update(t.id, { solo: !t.solo })} title="solo de la pista">S</button>
+                </div>
+                <div className="daw-lane" style={{ width, ...gridBg }}>
+                  {t.blocks.map((b, i) => (
+                    <div
+                      key={i}
+                      className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}`}
+                      style={{ left: b.start * px, width: Math.max(2, b.bars * px - 2) }}
+                      title={blockTitle(t, b)}
+                    >
+                      {b.bars * px >= 30 && (
+                        <span className="daw-blk-l">{t.plain ? 'suena siempre' : b.state === 'empty' ? 'vacía' : b.state === 'off' ? 'apagada' : `${b.arm + 1}`}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+          {sections.length === 0 && (
+            <div className="daw-hint">Sin secciones: los instrumentos suenan en bucle. Crea la canción en la vista standard (máster › canción) y usa «⇋ instrumentos».</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

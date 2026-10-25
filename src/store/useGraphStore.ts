@@ -127,10 +127,10 @@ interface GraphState {
   mastering: boolean;
   autoMaster: (target?: number) => Promise<void>;
   // vistas: 'standard' = grafo para crear; 'dj' = canales lado a lado para mezclar.
-  mode: 'standard' | 'dj';
+  mode: 'standard' | 'dj' | 'daw';
   djOrientation: 'vertical' | 'horizontal';
   djShowCode: boolean; // modo DJ: mostrar los editores de código (off = colapsados)
-  setMode: (m: 'standard' | 'dj') => void;
+  setMode: (m: 'standard' | 'dj' | 'daw') => void;
   setDjOrientation: (o: 'vertical' | 'horizontal') => void;
   setDjShowCode: (v: boolean) => void;
   // modo de visualización de las ondas (índice de shader).
@@ -293,7 +293,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     hoverEdgeId: null,
     master: releaseMomentary({ ...DEFAULT_MASTER, ...(saved?.master ?? {}) }), // roll/gate/rev/½ tiempo nunca «pegados» al recargar
     mastering: false,
-    mode: saved?.mode ?? 'standard',
+    mode: saved?.mode === 'dj' || saved?.mode === 'daw' ? saved.mode : 'standard',
     djOrientation: saved?.djOrientation ?? 'vertical',
     djShowCode: false, // decks arrancan en ONDAS (compacto); el editor es opt-in por deck
     vizMode: saved?.vizMode ?? 0,
@@ -890,9 +890,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
       );
       const edges = snap.edges ?? get().edges;
       idCounter = maxIdCounter(nodes);
-      // sanea el modo: solo 'standard'|'dj' son válidos. Un valor inválido (p.ej.
+      // sanea el modo: solo 'standard'|'dj'|'daw' son válidos. Un valor inválido (p.ej.
       // "studio") hacía que la app cayera al layout DJ (roto para proyectos de grafo).
-      const mode = snap.mode === 'dj' ? 'dj' : 'standard';
+      const mode = snap.mode === 'dj' || snap.mode === 'daw' ? snap.mode : 'standard';
       // MÁSTER: rellena defaults + ACOTA a rango válido (un import de otra IA / JSON a mano
       // puede traer valores que suenan raro o silencian, p.ej. filter:-2 → mudo). Se avisa
       // qué se ajustó para que el usuario sepa por qué y afine desde una perilla sana.

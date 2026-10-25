@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { useGraphStore } from '../store/useGraphStore';
 import { useVizFlagsStore } from '../store/useVizFlagsStore';
-import { getScheduler } from '../audio/engine';
 import { alignArrangeToBars, splitArrange } from '../nodes/stepseqCode';
 import { sectionEnergy } from '../lib/arrangeEnergy';
-import { songPosition, songTotal, arrangeMismatches } from '../lib/songClock';
+import { songTotal, arrangeMismatches } from '../lib/songClock';
+import { playSong, stopSong } from '../lib/songTransport';
 import { askConfirm, toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
 
 // Línea de tiempo / SONG MODE: arregla la canción como secciones (escena × compases)
 // y la reproduce avanzando por ellas al ritmo del reloj. Vive en el panel de
-// performance (colapsable). Cada bloque = una sección editable.
+// performance (colapsable). Cada bloque = una sección editable. El MOTOR que dispara las
+// escenas es ui/SongEngine (montado en App) y ▶/■ vienen de lib/songTransport: así la
+// canción sigue sonando igual desde la vista estándar, la DJ o la DAW.
 export function SongTimeline() {
   const steps = useSongStore((s) => s.steps);
   const loop = useSongStore((s) => s.loop);
@@ -22,8 +24,6 @@ export function SongTimeline() {
   const updateStep = useSongStore((s) => s.updateStep);
   const removeStep = useSongStore((s) => s.removeStep);
   const setLoop = useSongStore((s) => s.setLoop);
-  const setPlaying = useSongStore((s) => s.setPlaying);
-  const setIndex = useSongStore((s) => s.setIndex);
   const scenes = useScenesStore((s) => s.scenes);
   // V2 — mapa de energía: nº de sources del grafo (no filtrar EN el selector → zustand v5
   // cuelga si devuelve un array nuevo; derivamos aquí) y el flag para gatear el render.
@@ -37,45 +37,6 @@ export function SongTimeline() {
     [steps, nodes],
   );
   const [open, setOpen] = useState(false);
-
-  // motor: UN SOLO RELOJ. La posición de la canción es el ciclo del scheduler (1 ciclo =
-  // 1 compás), el mismo con el que corren los arrange de cada instrumento desde el ciclo 0;
-  // no hay `start` propio. Dispara la escena de la sección activa en cada frontera. Editar
-  // los pasos sonando ya no reinicia la canción: sigue en el compás donde va.
-  useEffect(() => {
-    if (!playing) return;
-    if (!steps.length) { setPlaying(false); return; }
-    let last = -1;
-    let raf = 0;
-    const tick = () => {
-      // P2.3 — ANTICIPACIÓN: el disparo por rAF llegaba hasta un frame + un hot-swap
-      // TARDE respecto a la frontera del compás. Miramos ~90 ms hacia delante (en
-      // ciclos, según el cps real) para que la escena aterrice EN el 1, no después.
-      const lookCyc = 0.09 * (useGraphStore.getState().cps || 0.5);
-      const pos = songPosition(steps, getScheduler()?.now?.() ?? 0, loop, lookCyc);
-      if (pos.end) { setPlaying(false); return; }
-      if (pos.idx !== last) { last = pos.idx; setIndex(pos.idx); useScenesStore.getState().trigger(steps[pos.idx].scene); }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, steps, loop, setIndex, setPlaying]);
-
-  // ▶ canción = compás 1 para TODO: si el transporte ya suena se reinicia (stop + play: el
-  // scheduler vuelve al ciclo 0), así las escenas y los arrange de los instrumentos cuentan
-  // desde el mismo compás. Sonando a mitad de compás quedaban desfasados.
-  const playSong = async () => {
-    if (!steps.length) return;
-    const g = useGraphStore.getState();
-    if (g.playing) await g.stop();
-    await useGraphStore.getState().play();
-    setPlaying(true);
-    if (mismatches.length) {
-      const list = mismatches.slice(0, 3).map((m) => `${m.name} (${m.bars})`).join(', ');
-      toast.warn(`la canción dura ${total} compases y ${list}${mismatches.length > 3 ? '…' : ''} no: la primera vuelta cae junta, la segunda se desfasa. Usa ⇋ instrumentos.`);
-    }
-  };
-  const stopSong = () => setPlaying(false);
 
   // P0.3 ampliado — la canción GENERA/EDITA las secciones (arrange) de los instrumentos:
   // alinea cada source a los compases de estas secciones. Plano → se envuelve sembrado

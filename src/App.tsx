@@ -27,6 +27,8 @@ import { Palette, type PaletteDrag } from './ui/Palette';
 import { Performance } from './ui/Performance';
 import { MidiLive } from './ui/MidiLive';
 import { DjMixer } from './ui/DjMixer';
+import { DawView } from './ui/DawView';
+import { SongEngine } from './ui/SongEngine';
 import { ProjectMenu } from './ui/ProjectMenu';
 import { VoiceStudio } from './ui/VoiceStudio';
 import { SynthStudio } from './ui/SynthStudio';
@@ -478,12 +480,19 @@ export default function App() {
           <ErrorBoundary variant="panel" label="máster"><Performance /></ErrorBoundary>
           <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
         </>
-      ) : (
+      ) : mode === 'dj' ? (
         <>
           <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><DjMixer /></ErrorBoundary>
           <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
         </>
+      ) : (
+        <>
+          <ErrorBoundary variant="panel" label="vista DAW" onClose={() => setMode('standard')}><DawView /></ErrorBoundary>
+          <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
+        </>
       )}
+      {/* motor de la canción: UNO, fuera de las vistas → sigue disparando escenas en cualquiera */}
+      <SongEngine />
       <header className="topbar">
         <div className="brand">
           <span className="logo">Telar</span>
@@ -499,7 +508,7 @@ export default function App() {
             </svg>
           </button>
           <div className="rt-group">
-          {mode === 'standard' && (
+          {mode !== 'dj' && (
             <div className="edit-tools">
               <button className="et-btn" onClick={undo} disabled={!canUndo} title="deshacer (Ctrl+Z)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7 4 12l5 5" /><path d="M4 12h11a5 5 0 0 1 0 10h-1" /></svg>
@@ -507,15 +516,16 @@ export default function App() {
               <button className="et-btn" onClick={redo} disabled={!canRedo} title="rehacer (Ctrl+Shift+Z)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M15 7l5 5-5 5" /><path d="M20 12H9a5 5 0 0 0 0 10h1" /></svg>
               </button>
-              <button className="et-btn" onClick={duplicateSelected} disabled={!hasSelection} title="duplicar selección (Ctrl+D)">
+              {mode === 'standard' && <button className="et-btn" onClick={duplicateSelected} disabled={!hasSelection} title="duplicar selección (Ctrl+D)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
-              </button>
+              </button>}
             </div>
           )}
           <div className="mode-switch">
             <div className="seg">
               <button className={mode === 'standard' ? 'on' : ''} onClick={() => setMode('standard')}>standard</button>
               <button className={mode === 'dj' ? 'on' : ''} onClick={() => setMode('dj')}>dj</button>
+              <button className={mode === 'daw' ? 'on' : ''} onClick={() => setMode('daw')} title="línea de tiempo: la canción entera, pistas × compases">daw</button>
             </div>
             {mode === 'dj' && (
               <div className="seg sub">

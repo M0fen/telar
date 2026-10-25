@@ -25,7 +25,7 @@ export interface ProjectSnapshot {
   beatsPerCycle: number; // tiempos por ciclo ("/4"): conversión BPM↔cps (display)
   transpose: number; // "tono" global en semitonos (transpone note(…))
   master: MasterFx;
-  mode: 'standard' | 'dj';
+  mode: 'standard' | 'dj' | 'daw'; // vista: grafo · mezclador DJ · línea de tiempo DAW
   djOrientation: 'vertical' | 'horizontal';
   vizMode: number;
   vizHeight: number; // alto (px) de la pantalla de visualizadores, redimensionable
