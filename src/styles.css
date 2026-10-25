@@ -1822,6 +1822,8 @@ button.pal-item { width: 100%; }
 .song-loop.on { color: var(--accent); border-color: var(--accent-dim); }
 .song-track { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; }
 .song-empty { font-size: 10px; color: var(--faint); font-style: italic; padding: 4px 2px; }
+.song-total { font-family: var(--mono); font-size: 10px; color: var(--faint); }
+.song-warn { font-family: var(--mono); font-size: 10px; color: var(--warn, #e8b44a); cursor: help; }
 .song-step { flex: 1 1 0; min-width: 64px; background: #04070a; border: 1px solid var(--line); border-radius: 3px; padding: 4px 5px; display: flex; flex-direction: column; gap: 3px; }
 .song-step.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim), 0 0 8px rgba(61,240,208,0.25); }
 .song-step-top { display: flex; align-items: center; justify-content: space-between; }

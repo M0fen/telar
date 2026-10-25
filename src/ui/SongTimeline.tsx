@@ -6,6 +6,7 @@ import { useVizFlagsStore } from '../store/useVizFlagsStore';
 import { getScheduler } from '../audio/engine';
 import { alignArrangeToBars, splitArrange } from '../nodes/stepseqCode';
 import { sectionEnergy } from '../lib/arrangeEnergy';
+import { songPosition, songTotal, arrangeMismatches } from '../lib/songClock';
 import { askConfirm, toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
 
@@ -29,41 +30,50 @@ export function SongTimeline() {
   const nodes = useGraphStore((s) => s.nodes);
   const energyMap = useVizFlagsStore((s) => s.flags.energyMap);
   const sourceIds = useMemo(() => nodes.filter((n) => n.data.kind === 'source').map((n) => n.id), [nodes]);
+  // instrumentos cuyo arrange no dura lo que la canción (se desfasan desde la 2.ª vuelta)
+  const total = songTotal(steps);
+  const mismatches = useMemo(
+    () => arrangeMismatches(steps, nodes.filter((n) => n.data.kind === 'source').map((n) => ({ id: n.id, name: n.data.name, code: n.data.code }))),
+    [steps, nodes],
+  );
   const [open, setOpen] = useState(false);
 
-  // motor: mientras la canción suena, sigue el reloj (ciclos = compases) y dispara
-  // la escena de la sección activa en cada frontera. Reinicia si cambian los pasos.
+  // motor: UN SOLO RELOJ. La posición de la canción es el ciclo del scheduler (1 ciclo =
+  // 1 compás), el mismo con el que corren los arrange de cada instrumento desde el ciclo 0;
+  // no hay `start` propio. Dispara la escena de la sección activa en cada frontera. Editar
+  // los pasos sonando ya no reinicia la canción: sigue en el compás donde va.
   useEffect(() => {
     if (!playing) return;
     if (!steps.length) { setPlaying(false); return; }
-    const total = steps.reduce((s, st) => s + Math.max(1, st.bars), 0) || 1;
-    const start = getScheduler()?.now?.() ?? 0;
     let last = -1;
     let raf = 0;
     const tick = () => {
-      const now = getScheduler()?.now?.() ?? start;
-      let elapsed = now - start;
-      if (loop) elapsed = ((elapsed % total) + total) % total;
-      else if (elapsed >= total) { setPlaying(false); return; }
       // P2.3 — ANTICIPACIÓN: el disparo por rAF llegaba hasta un frame + un hot-swap
       // TARDE respecto a la frontera del compás. Miramos ~90 ms hacia delante (en
       // ciclos, según el cps real) para que la escena aterrice EN el 1, no después.
       const lookCyc = 0.09 * (useGraphStore.getState().cps || 0.5);
-      const ahead = loop ? (((elapsed + lookCyc) % total) + total) % total : Math.min(elapsed + lookCyc, total - 1e-6);
-      let acc = 0;
-      let idx = steps.length - 1;
-      for (let i = 0; i < steps.length; i++) { acc += Math.max(1, steps[i].bars); if (ahead < acc) { idx = i; break; } }
-      if (idx !== last) { last = idx; setIndex(idx); useScenesStore.getState().trigger(steps[idx].scene); }
+      const pos = songPosition(steps, getScheduler()?.now?.() ?? 0, loop, lookCyc);
+      if (pos.end) { setPlaying(false); return; }
+      if (pos.idx !== last) { last = pos.idx; setIndex(pos.idx); useScenesStore.getState().trigger(steps[pos.idx].scene); }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing, steps, loop, setIndex, setPlaying]);
 
+  // ▶ canción = compás 1 para TODO: si el transporte ya suena se reinicia (stop + play: el
+  // scheduler vuelve al ciclo 0), así las escenas y los arrange de los instrumentos cuentan
+  // desde el mismo compás. Sonando a mitad de compás quedaban desfasados.
   const playSong = async () => {
     if (!steps.length) return;
-    if (!useGraphStore.getState().playing) await useGraphStore.getState().play();
+    const g = useGraphStore.getState();
+    if (g.playing) await g.stop();
+    await useGraphStore.getState().play();
     setPlaying(true);
+    if (mismatches.length) {
+      const list = mismatches.slice(0, 3).map((m) => `${m.name} (${m.bars})`).join(', ');
+      toast.warn(`la canción dura ${total} compases y ${list}${mismatches.length > 3 ? '…' : ''} no: la primera vuelta cae junta, la segunda se desfasa. Usa ⇋ instrumentos.`);
+    }
   };
   const stopSong = () => setPlaying(false);
 
@@ -107,6 +117,12 @@ export function SongTimeline() {
             <button className={`song-loop${loop ? ' on' : ''}`} onClick={() => setLoop(!loop)} title="repetir la canción al terminar">⟳</button>
             <button className="song-add" onClick={addStep} title="añadir sección">+ sección</button>
             <button className="song-add" onClick={() => void alignInstruments()} title="alinear los INSTRUMENTOS a esta estructura: cada source queda arreglado (arrange) con estas secciones y compases — los planos suenan igual y luego editas cada sección en el secuenciador">⇋ instrumentos</button>
+            {total > 0 && <span className="song-total" title="compases de la canción (1 compás = 1 ciclo)">{total} c.</span>}
+            {mismatches.length > 0 && (
+              <span className="song-warn" title={`no duran lo que la canción (${total} compases): ${mismatches.map((m) => `${m.name} ${m.bars}`).join(' · ')}. La primera vuelta cae junta; desde la segunda se desfasan. ⇋ instrumentos los alinea.`}>
+                ⚠ {mismatches.length} no cuadra{mismatches.length > 1 ? 'n' : ''}
+              </span>
+            )}
           </>
         )}
       </div>

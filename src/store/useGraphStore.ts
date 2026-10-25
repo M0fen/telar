@@ -857,6 +857,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
     stop: async () => {
       await stopAudio();
       set({ playing: false });
+      // el reloj vuelve al ciclo 0: el modo canción no puede seguir (dispararía la escena
+      // del compás 1 con todo parado). ▶ canción vuelve a arrancar desde el 1.
+      useSongStore.getState().setPlaying(false);
     },
 
     resetProject: () => {
