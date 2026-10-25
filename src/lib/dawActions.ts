@@ -163,7 +163,16 @@ function applyJamTake(take: JamTake): void {
   const sc = useScenesStore.getState().scenes;
   const r = buildFromTake(take, st.codes, { freeScene: freeSceneSlots(1)[0], sceneName: (k) => sc[k]?.name });
   if (!r) { toast.warn('la toma duró menos de un compás: no se armó nada'); return; }
+  // las curvas grabadas REEMPLAZAN solo los parámetros que moviste (las demás curvas siguen)
+  const nodes = useGraphStore.getState().nodes;
+  for (const [id, p] of Object.entries(r.patches)) {
+    if (!p.auto) continue;
+    const prev = nodes.find((n) => n.id === id)?.data.auto;
+    if (prev) p.auto = { ...prev, ...p.auto };
+  }
   useGraphStore.getState().applyArrangement({ ...st.codes, ...r.codes }, r.steps, r.patches);
+  const curves = Object.values(r.patches).filter((p) => p.auto).length;
+  if (curves) toast.info(`${curves} pista(s) con curvas de volumen/filtro grabadas desde las perillas (botón A en el DAW para verlas)`);
   const total = r.steps.reduce((a, x) => a + x.bars, 0);
   toast.ok(`canción armada desde el jam: ${r.steps.length} secciones · ${total} compases. ▶ canción para escucharla (Ctrl+Z la deshace)`);
   if (r.skipped.length) toast.warn(`${r.skipped.slice(0, 3).map(trackName).join(', ')}${r.skipped.length > 3 ? '…' : ''} ya tenía${r.skipped.length > 1 ? 'n' : ''} secciones propias: no se tocó.`);

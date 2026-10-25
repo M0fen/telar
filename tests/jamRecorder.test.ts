@@ -64,3 +64,26 @@ test('2.5 una sección de más de 64 compases se parte; menos de un compás no a
   assert.deepEqual(r.steps.map((s) => s.bars), [64, 6]);
   assert.equal(buildFromTake({ samples: [], bars: 0 }, { kick: 's("bd")' }, { freeScene: 1 }), null);
 });
+
+// --- Fase 3.2: perillas → curvas -------------------------------------------------------
+import { knobCurves } from '../src/lib/jamRecorder.ts';
+
+test('3.2 volumen y filtro movidos durante la toma → curvas (simplificadas); la perilla queda neutra', () => {
+  const samples: JamSample[] = [];
+  for (let q = 0; q < 6 * 4; q++) {
+    const t = q / 4;
+    const gain = t < 4 ? 1.2 - (0.6 * t) / 4 : 0.6; // baja 1.2 → 0.6 en 4 compases y se queda
+    const filt = t < 2 ? 0 : -0.6; // salto del filtro en el compás 3
+    samples.push({ t, scene: 1, tracks: { kick: { audible: true, gain, filt }, hats: { audible: true, gain: 1, filt: 0 } } });
+  }
+  const take: JamTake = { samples, bars: 6 };
+  const c = knobCurves(take, 'kick', 6)!;
+  assert.equal(c.gain, 1.2); // la perilla queda en el máximo tocado
+  assert.equal(c.chFilter, 0);
+  assert.deepEqual(c.auto!.vol!.map(([b, v]) => [b, Math.round(v * 100) / 100]), [[0, 1], [4, 0.5], [5.75, 0.5]]);
+  assert.deepEqual(c.auto!.filt!.map(([b, v]) => [b, v]), [[0, 0], [1.75, 0], [2, -0.6], [5.75, -0.6]]);
+  assert.equal(knobCurves(take, 'hats', 6), null); // no se movió → sin curva
+  const r = buildFromTake(take, { kick: 's("bd*4")', hats: 's("hh*8")' }, { freeScene: 9 })!;
+  assert.deepEqual(Object.keys(r.patches.kick).sort(), ['auto', 'chFilter', 'gain', 'mute', 'solo']);
+  assert.deepEqual(r.patches.hats, { mute: false, solo: false });
+});

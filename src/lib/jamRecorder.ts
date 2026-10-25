@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { splitArrange, muteArm } from '../nodes/stepseqCode';
 import { MAX_SECTION_BARS, newStepId, type EditStep } from './arrangeEdit';
+import { simplify, type AutoPoint } from './automation';
 
 export interface JamTrackState {
   audible: boolean;
@@ -27,7 +28,9 @@ export interface JamTake {
 export interface JamBuild {
   steps: EditStep[];
   codes: Record<string, string>; // solo las pistas que cambian
-  patches: Record<string, { mute?: boolean; solo?: boolean }>; // la mezcla en vivo queda neutra: manda el arreglo
+  // la mezcla en vivo queda neutra (manda el arreglo) y las perillas movidas pasan a curvas:
+  // gain = el máximo tocado (la curva de volumen baja desde ahí), chFilter = 0 (la curva manda)
+  patches: Record<string, { mute?: boolean; solo?: boolean; gain?: number; chFilter?: number; auto?: { vol?: AutoPoint[]; filt?: AutoPoint[] } }>;
   skipped: string[]; // pistas que ya tenían secciones propias (no se tocan)
 }
 
@@ -78,12 +81,45 @@ export function buildFromTake(
   for (const id of ids) {
     const code = (codes[id] ?? '').trim();
     if (!code) continue;
-    if (splitArrange(code)) { skipped.push(id); continue; }
+    const auto = knobCurves(take, id, bars);
+    if (splitArrange(code)) {
+      skipped.push(id);
+      if (auto) patches[id] = auto; // sus secciones no se tocan, pero lo que moviste sí queda
+      continue;
+    }
     const arms = sections.map((s) => `[${s.bars}, ${s.state?.tracks[id]?.audible === false ? muteArm(code) : code}]`);
     out[id] = `arrange(${arms.join(', ')})`;
-    patches[id] = { mute: false, solo: false };
+    patches[id] = { mute: false, solo: false, ...(auto ?? {}) };
   }
   return { steps, codes: out, patches, skipped };
+}
+
+// PERILLAS → CURVAS (Fase 3.2): volumen (data.gain) y filtro de canal (data.chFilter) de cada
+// ¼ de compás. Solo si se movieron (si quedaron fijos, la perilla sigue igual y no hay curva).
+// Volumen: la perilla queda en el MÁXIMO tocado y la curva (0–1) baja desde ahí. Filtro: la
+// perilla vuelve a 0 y la curva lleva el movimiento. Se quitan los puntos redundantes.
+export function knobCurves(take: JamTake, id: string, bars: number): JamBuild['patches'][string] | null {
+  const ss = take.samples.filter((x) => x.t < bars && x.tracks[id]);
+  if (ss.length < 2) return null;
+  const gains = ss.map((x) => x.tracks[id].gain);
+  const filts = ss.map((x) => x.tracks[id].filt);
+  const gMax = Math.max(...gains);
+  const gMin = Math.min(...gains);
+  const fMax = Math.max(...filts);
+  const fMin = Math.min(...filts);
+  const out: NonNullable<JamBuild['patches'][string]> = {};
+  const auto: { vol?: AutoPoint[]; filt?: AutoPoint[] } = {};
+  if (gMax - gMin > 0.02 && gMax > 0) {
+    out.gain = Math.round(gMax * 1000) / 1000;
+    auto.vol = simplify(ss.map((x) => [x.t, Math.round((x.tracks[id].gain / gMax) * 1000) / 1000] as AutoPoint), 0.015);
+  }
+  if (fMax - fMin > 0.02) {
+    out.chFilter = 0;
+    auto.filt = simplify(ss.map((x) => [x.t, Math.round(x.tracks[id].filt * 1000) / 1000] as AutoPoint), 0.015);
+  }
+  if (!auto.vol && !auto.filt) return null;
+  out.auto = auto;
+  return out;
 }
 
 // --- muestreo en vivo ------------------------------------------------------------------
