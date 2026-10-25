@@ -73,7 +73,8 @@ export function sanitizeSong(raw: unknown): ProjectSong | null {
     let id = typeof o.id === 'string' && o.id ? o.id : `st_imp_${i}`;
     if (ids.has(id)) id = `${id}_${i}`;
     ids.add(id);
-    steps.push({ id, scene: Math.min(9, Math.max(1, scene)), bars: Math.min(64, Math.max(1, bars)) });
+    const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 48) : undefined;
+    steps.push({ id, scene: Math.min(9, Math.max(1, scene)), bars: Math.min(64, Math.max(1, bars)), ...(name ? { name } : {}) });
   });
   return { steps, loop: r.loop !== false };
 }

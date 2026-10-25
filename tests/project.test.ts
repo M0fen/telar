@@ -99,3 +99,9 @@ test('migración: un proyecto viejo adopta las claves viejas UNA vez; uno nuevo 
   assert.deepEqual(startupSong(null, null), { steps: [], loop: true });
   assert.deepEqual(startupScenes(null, '{roto'), {});
 });
+
+test('Fase 2.1: el nombre propio de una sección (marcador del DAW) viaja en el proyecto', async () => {
+  const { sanitizeSong } = await import('../src/lib/projectStore.ts');
+  const s = sanitizeSong({ steps: [{ id: 'a', scene: 1, bars: 8, name: '  drop  ' }, { id: 'b', scene: 2, bars: 8, name: '' }, { id: 'c', scene: 2, bars: 8, name: 7 }], loop: true })!;
+  assert.deepEqual(s.steps.map((x) => x.name), ['drop', undefined, undefined]);
+});

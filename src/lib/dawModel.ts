@@ -51,6 +51,7 @@ export interface DawSourceLike {
 export interface DawStepLike {
   scene: number;
   bars: number;
+  name?: string; // nombre propio de la sección (Fase 2): manda sobre el de la escena
 }
 
 export const DAW_DEFAULT_BARS = 8; // sin canción ni arrange: 8 compases para ver los bucles
@@ -105,7 +106,7 @@ export function buildDawModel(
     let acc = 0;
     sections = steps.map((st) => {
       const bars = Math.max(1, st.bars);
-      const sec: DawSection = { start: acc, bars, label: sceneName(st.scene), scene: st.scene };
+      const sec: DawSection = { start: acc, bars, label: st.name?.trim() || sceneName(st.scene), scene: st.scene };
       acc += bars;
       return sec;
     });

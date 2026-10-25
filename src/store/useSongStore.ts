@@ -11,6 +11,7 @@ export interface SongStep {
   id: string;
   scene: number; // 1..9
   bars: number; // compases (ciclos) que dura la sección
+  name?: string; // nombre propio de la sección (marcador del DAW); sin él se usa el de la escena
 }
 
 const seed = startupSong(savedProject(), readLegacy(LEGACY_SONG_KEY));
@@ -33,6 +34,8 @@ interface SongState {
   setLoop: (b: boolean) => void;
   setPlaying: (b: boolean) => void;
   setIndex: (i: number) => void;
+  // Cambia las secciones SIN detener la canción (edición desde el DAW y su deshacer).
+  setSteps: (steps: SongStep[]) => void;
   // Reemplaza la canción entera (cargar proyecto / deshacer una carga). Detiene el modo
   // canción: sus secciones ya no son las que sonaban.
   replace: (song: ProjectSong) => void;
@@ -54,5 +57,6 @@ export const useSongStore = create<SongState>((set, get) => ({
   setLoop: (loop) => set({ loop }),
   setPlaying: (playing) => set({ playing }),
   setIndex: (index) => set({ index }),
+  setSteps: (steps) => set({ steps, index: Math.min(get().index, Math.max(0, steps.length - 1)) }),
   replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0 }),
 }));

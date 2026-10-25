@@ -26,7 +26,7 @@ import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type P
 import { backupProject } from '../lib/projectBackups';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
-import { useSongStore } from './useSongStore';
+import { useSongStore, type SongStep } from './useSongStore';
 import { useScenesStore } from './useScenesStore';
 import { registerDownloadedSamples } from './useDownloadsStore';
 
@@ -75,6 +75,9 @@ interface HistoryEntry {
   nodes: GNode[];
   edges: Edge[];
   extras?: ProjectExtras;
+  // edición del ARREGLO desde el DAW (Fase 2.1): al deshacer/rehacer, la canción cambia
+  // sus secciones SIN detenerse (las cargas sí la detienen: sus secciones eran otras).
+  live?: boolean;
 }
 
 interface GraphState {
@@ -165,6 +168,9 @@ interface GraphState {
   moveNodesBy: (ids: string[] | Set<string>, dx: number, dy: number) => void;
   // aplica un mapa nodeId→parche de data (lo usan las escenas) en un solo paso.
   applyNodeStates: (states: Record<string, Partial<NodeData>>) => void;
+  // EDICIÓN DEL ARREGLO (DAW, Fase 2.1): código nuevo de varias pistas + secciones de la
+  // canción en UN paso deshacible y un solo recompile, sin detener lo que suena.
+  applyArrangement: (codes: Record<string, string>, steps?: SongStep[]) => void;
 
   onNodesChange: (c: NodeChange[]) => void;
   onEdgesChange: (c: EdgeChange[]) => void;
@@ -266,12 +272,13 @@ export const useGraphStore = create<GraphState>((set, get) => {
   // portapapeles de nodos (copiar/pegar). Vive fuera del estado (no persiste).
   let clipboard: { nodes: GNode[]; edges: Edge[] } | null = null;
   let lastPush = 0;
-  const pushPast = (force = false, withExtras = false) => {
+  const pushPast = (force = false, withExtras = false, live = false) => {
     const now = Date.now();
     if (!force && now - lastPush < 500) return;
     lastPush = now;
     const entry = snap();
     if (withExtras) entry.extras = currentExtras();
+    if (live) entry.live = true;
     set({ past: [...get().past.slice(-49), entry], future: [] });
   };
 
@@ -549,8 +556,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const prev = past[past.length - 1];
       const cur = snap();
       if (prev.extras) cur.extras = currentExtras(); // rehacer la carga devuelve sus extras
+      if (prev.live) cur.live = true;
       set({ nodes: prev.nodes, edges: prev.edges, past: past.slice(0, -1), future: [cur, ...get().future].slice(0, 50) });
-      if (prev.extras) applyExtras(prev.extras);
+      if (prev.extras) applyExtras(prev.extras, prev.live);
       get().recompile();
     },
     redo: () => {
@@ -559,8 +567,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const next = future[0];
       const cur = snap();
       if (next.extras) cur.extras = currentExtras();
+      if (next.live) cur.live = true;
       set({ nodes: next.nodes, edges: next.edges, future: future.slice(1), past: [...get().past, cur].slice(-50) });
-      if (next.extras) applyExtras(next.extras);
+      if (next.extras) applyExtras(next.extras, next.live);
       get().recompile();
     },
     canUndo: () => get().past.length > 0,
@@ -734,6 +743,24 @@ export const useGraphStore = create<GraphState>((set, get) => {
           idset.has(n.id) ? { ...n, position: { x: n.position.x + dx, y: n.position.y + dy } } : n
         ),
       });
+    },
+
+    applyArrangement: (codes, steps) => {
+      const cur = get().nodes;
+      const changed = cur.some((n) => n.data.kind === 'source' && codes[n.id] !== undefined && codes[n.id] !== n.data.code);
+      const song = useSongStore.getState().steps;
+      const stepsChanged = !!steps && JSON.stringify(steps) !== JSON.stringify(song);
+      if (!changed && !stepsChanged) return;
+      pushPast(true, true, true);
+      if (changed) {
+        set({
+          nodes: cur.map((n) =>
+            n.data.kind === 'source' && codes[n.id] !== undefined && codes[n.id] !== n.data.code ? { ...n, data: { ...n.data, code: codes[n.id] } } : n,
+          ),
+        });
+      }
+      if (stepsChanged && steps) useSongStore.getState().setSteps(steps);
+      if (changed) recompile();
     },
 
     applyNodeStates: (states) => {
@@ -950,7 +977,13 @@ function currentExtras(): ProjectExtras {
   const song = useSongStore.getState();
   return { song: { steps: song.steps, loop: song.loop }, scenes: useScenesStore.getState().scenes };
 }
-function applyExtras(x: ProjectExtras): void {
+function applyExtras(x: ProjectExtras, live = false): void {
+  if (live) {
+    // deshacer una edición del DAW: mismas escenas, secciones de antes, la canción sigue sonando
+    useSongStore.getState().setSteps(x.song.steps);
+    useSongStore.getState().setLoop(x.song.loop);
+    return;
+  }
   useSongStore.getState().replace(x.song);
   useScenesStore.getState().replace(x.scenes);
 }
