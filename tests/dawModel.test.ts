@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildDawModel, DAW_DEFAULT_BARS } from '../src/lib/dawModel.ts';
+import { buildDawModel, playheadAt, DAW_DEFAULT_BARS } from '../src/lib/dawModel.ts';
 
 const SONG = [
   { scene: 1, bars: 8 },
@@ -87,4 +87,15 @@ test('DAW: nombre de la pista (o su id) y brazo con flecha no rompen el modelo',
   const t = buildDawModel([{ id: 'src_9', name: '  ', code: 'arrange([16, s("hh*8").sometimesBy(0.3, x=>x.ply(2))], [16, silence])' }], SONG).tracks[0];
   assert.equal(t.name, 'src_9');
   assert.deepEqual(t.blocks.map((b) => [b.start, b.bars, b.state]), [[0, 16, 'on'], [16, 16, 'empty']]);
+});
+
+test('DAW 1.2: la línea de reproducción es el ciclo del scheduler dentro de la canción (cíclica) y marca su sección', () => {
+  const { sections, total } = buildDawModel([{ id: 'k', code: 's("bd")' }], SONG, sceneName); // 8 · 8 · 16
+  assert.deepEqual(playheadAt(0, total, sections), { pos: 0, section: 0 });
+  assert.deepEqual(playheadAt(7.99, total, sections).section, 0);
+  assert.deepEqual(playheadAt(8, total, sections).section, 1);     // el 1 de la sección 2
+  assert.deepEqual(playheadAt(20, total, sections), { pos: 20, section: 2 });
+  assert.deepEqual(playheadAt(33.5, total, sections), { pos: 1.5, section: 0 }); // segunda vuelta
+  assert.deepEqual(playheadAt(5, 8, []), { pos: 5, section: -1 });  // sin secciones
+  assert.deepEqual(playheadAt(Number.NaN, total, sections).pos, 0); // reloj sin arrancar
 });

@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './DawView.css';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
-import { buildDawModel, type DawBlock, type DawTrack } from '../lib/dawModel';
+import { buildDawModel, playheadAt, type DawBlock, type DawTrack } from '../lib/dawModel';
 import { playSong } from '../lib/songTransport';
+import { getScheduler } from '../audio/engine';
 
-// VISTA DAW (Fase 1.1, solo lectura): la canción entera de un vistazo. Pistas en filas,
+// VISTA DAW (Fase 1.1 vista + 1.2 línea de reproducción): la canción entera de un vistazo. Pistas en filas,
 // compases en columnas, secciones arriba. Cada bloque ES un brazo del `arrange([n, patrón])`
 // de esa pista (el código manda: buildDawModel lo reconstruye en cada cambio), así que lo
 // que ves es lo que suena. Las pistas sin arrange suenan igual en todos los compases.
@@ -42,7 +43,12 @@ export function DawView() {
   const songPlaying = useSongStore((s) => s.playing);
   const setLoop = useSongStore((s) => s.setLoop);
   const scenes = useScenesStore((s) => s.scenes);
+  const playing = useGraphStore((s) => s.playing);
   const [px, setPx] = useState<number>(readZoom);
+  const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const phRulerRef = useRef<HTMLDivElement>(null);
+  const phRowsRef = useRef<HTMLDivElement>(null);
 
   const zoom = (dir: 1 | -1) =>
     setPx((p) => {
@@ -67,6 +73,39 @@ export function DawView() {
   );
 
   const { sections, total, tracks, fromSong } = model;
+
+  // LÍNEA DE REPRODUCCIÓN: rAF que lee el ciclo del scheduler y mueve DOS elementos (marca en la
+  // regla + línea sobre las pistas) con `transform`, sin re-renderizar la rejilla 60×/s. Solo
+  // la sección resaltada pasa por React, y solo cuando cambia. Si la línea sale de la vista,
+  // el scroll salta para dejarla al 10 % del borde izquierdo (no pelea con tu scroll mientras
+  // la tengas a la vista).
+  useEffect(() => {
+    const marks = [phRulerRef.current, phRowsRef.current];
+    if (!playing) {
+      for (const m of marks) if (m) m.style.display = 'none';
+      setSecNow(-1);
+      return;
+    }
+    for (const m of marks) if (m) m.style.display = '';
+    let raf = 0;
+    let lastSec = -2;
+    const tick = () => {
+      const { pos, section } = playheadAt(Number(getScheduler()?.now?.() ?? 0), total, sections);
+      const x = pos * px;
+      const t = `translateX(${x}px)`;
+      for (const m of marks) if (m) m.style.transform = t;
+      if (section !== lastSec) { lastSec = section; setSecNow(section); }
+      const body = bodyRef.current;
+      if (body) {
+        const nameW = parseFloat(getComputedStyle(body).getPropertyValue('--daw-name-w')) || 168;
+        const vis = body.clientWidth - nameW;
+        if (vis > 40 && (x < body.scrollLeft || x > body.scrollLeft + vis * 0.92)) body.scrollLeft = Math.max(0, x - vis * 0.1);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, total, px, sections]);
   const width = total * px;
   const mism = tracks.filter((t) => t.mismatch);
   const every = px >= 22 ? 1 : px >= 12 ? 4 : 8; // números de compás legibles con poco zoom
@@ -109,11 +148,12 @@ export function DawView() {
       {tracks.length === 0 ? (
         <div className="daw-empty">No hay pistas. Crea sources en la vista standard o carga un ejemplo desde «proyecto».</div>
       ) : (
-        <div className="daw-body">
+        <div className="daw-body" ref={bodyRef}>
           <div className="daw-grid" style={{ width: `calc(var(--daw-name-w) + ${width}px)` }}>
             <div className="daw-ruler">
               <div className="daw-corner">{sections.length === 0 ? 'sin secciones' : 'secciones'}</div>
               <div className="daw-ruler-lane" style={{ width }}>
+                <div className="daw-ph-mark" ref={phRulerRef} style={{ display: 'none' }} />
                 <div className="daw-bars" style={gridBg}>
                   {Array.from({ length: total }, (_, i) =>
                     i % every === 0 ? (
@@ -125,7 +165,7 @@ export function DawView() {
                   {sections.map((s, i) => (
                     <div
                       key={i}
-                      className={`daw-sec${i % 2 ? ' alt' : ''}`}
+                      className={`daw-sec${i % 2 ? ' alt' : ''}${i === secNow ? ' now' : ''}`}
                       style={{ left: s.start * px, width: Math.max(2, s.bars * px - 1) }}
                       title={`${s.label} · compases ${s.start + 1}–${s.start + s.bars} (${s.bars})`}
                     >
@@ -136,6 +176,8 @@ export function DawView() {
               </div>
             </div>
 
+            <div className="daw-rows">
+            <div className="daw-ph" ref={phRowsRef} style={{ display: 'none' }} />
             {tracks.map((t) => (
               <div className={`daw-row${t.audible ? '' : ' muted'}`} key={t.id}>
                 <div className="daw-tname">
@@ -160,6 +202,7 @@ export function DawView() {
                 </div>
               </div>
             ))}
+            </div>
           </div>
           {sections.length === 0 && (
             <div className="daw-hint">Sin secciones: los instrumentos suenan en bucle. Crea la canción en la vista standard (máster › canción) y usa «⇋ instrumentos».</div>

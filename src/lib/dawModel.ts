@@ -54,6 +54,19 @@ export interface DawStepLike {
 
 export const DAW_DEFAULT_BARS = 8; // sin canción ni arrange: 8 compases para ver los bucles
 
+// LÍNEA DE REPRODUCCIÓN (Fase 1.2): el ciclo del scheduler dentro de la línea de tiempo (1
+// ciclo = 1 compás; la canción y los arrange son cíclicos desde el ciclo 0, el mismo reloj
+// que songClock). Devuelve el compás (fraccional) y la sección que suena (-1 sin secciones).
+export function playheadAt(now: number, total: number, sections: DawSection[]): { pos: number; section: number } {
+  const pos = total > 0 && Number.isFinite(now) ? ((now % total) + total) % total : 0;
+  let section = -1;
+  for (let i = 0; i < sections.length; i++) {
+    const s = sections[i];
+    if (pos >= s.start && pos < s.start + s.bars) { section = i; break; }
+  }
+  return { pos, section };
+}
+
 export function buildDawModel(
   sources: DawSourceLike[],
   steps: DawStepLike[],
