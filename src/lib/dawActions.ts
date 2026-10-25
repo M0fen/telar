@@ -10,6 +10,7 @@ import * as E from './arrangeEdit';
 import { blockPattern } from './dawModel';
 import { startJam, finishJam, isJamRecording, buildFromTake, type JamHooks, type JamTake } from './jamRecorder';
 import { getScheduler } from '../audio/engine';
+import { cleanAuto } from './automation';
 
 export function arrangeState(): E.ArrangeState {
   const codes: Record<string, string> = {};
@@ -166,8 +167,8 @@ function applyJamTake(take: JamTake): void {
   const nodes = useGraphStore.getState().nodes;
   for (const [id, p] of Object.entries(r.patches)) {
     if (!p.auto) continue;
-    const prev = nodes.find((n) => n.id === id)?.data.auto;
-    if (prev) p.auto = { ...prev, ...p.auto };
+    const prev = cleanAuto(nodes.find((n) => n.id === id)?.data.auto);
+    p.auto = { ...prev, ...p.auto };
   }
   useGraphStore.getState().applyArrangement({ ...st.codes, ...r.codes }, r.steps, r.patches);
   const curves = Object.values(r.patches).filter((p) => p.auto).length;

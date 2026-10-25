@@ -58,9 +58,38 @@ export function valueAt(pts: AutoPoint[], x: number): number {
   return pts[pts.length - 1][1];
 }
 
+// Puntos VÁLIDOS de una curva: un proyecto importado (hecho a mano o por otra IA) puede traer
+// cualquier cosa en `auto`. Pares [compás ≥ 0, valor] numéricos, valor dentro del rango,
+// ordenados y sin compases repetidos; máximo 512. Nunca lanza.
+const MAX_POINTS = 512;
+export function cleanPoints(pts: unknown, p: AutoParam): AutoPoint[] {
+  if (!Array.isArray(pts)) return [];
+  const out: AutoPoint[] = [];
+  for (const x of pts) {
+    if (!Array.isArray(x) || x.length < 2) continue;
+    const b = Number(x[0]);
+    const v = Number(x[1]);
+    if (!Number.isFinite(b) || !Number.isFinite(v) || b < 0) continue;
+    out.push([r3(b), r3(clampV(p, v))]);
+    if (out.length >= MAX_POINTS) break;
+  }
+  const s = sortPoints(out);
+  return s.filter((x, i) => i === 0 || Math.abs(x[0] - s[i - 1][0]) > 1e-6);
+}
+export function cleanAuto(a: unknown): TrackAuto {
+  if (!a || typeof a !== 'object') return {};
+  const o = a as Record<string, unknown>;
+  const out: TrackAuto = {};
+  const vol = cleanPoints(o.vol, 'vol');
+  const filt = cleanPoints(o.filt, 'filt');
+  if (vol.length) out.vol = vol;
+  if (filt.length) out.filt = filt;
+  return out;
+}
+
 // ¿la curva hace algo? (al menos un punto fuera del valor neutro)
-export function isActive(pts: AutoPoint[] | undefined, p: AutoParam): boolean {
-  return !!pts && pts.length > 0 && pts.some((x) => Math.abs(x[1] - AUTO_RANGE[p].neutral) > 1e-3);
+export function isActive(pts: unknown, p: AutoParam): boolean {
+  return cleanPoints(pts, p).some((x) => Math.abs(x[1] - AUTO_RANGE[p].neutral) > 1e-3);
 }
 
 // Función JS (texto) de la curva con repetición cada L compases (L ≤ 0: sin repetir).
@@ -71,10 +100,11 @@ function curveFn(pts: AutoPoint[], L: number): string {
 }
 
 // Sufijo de automatización del Source ('' si no hay nada que hacer → código idéntico).
-export function automationSuffix(auto: TrackAuto | undefined, songBars: number): string {
-  if (!auto) return '';
-  const vol = isActive(auto.vol, 'vol') ? curveFn(auto.vol!, songBars) : 'null';
-  const filt = isActive(auto.filt, 'filt') ? curveFn(auto.filt!, songBars) : 'null';
+export function automationSuffix(auto: unknown, songBars: number): string {
+  const a = cleanAuto(auto);
+  const L = Number.isFinite(songBars) && songBars > 0 ? songBars : 0;
+  const vol = a.vol && isActive(a.vol, 'vol') ? curveFn(a.vol, L) : 'null';
+  const filt = a.filt && isActive(a.filt, 'filt') ? curveFn(a.filt, L) : 'null';
   if (vol === 'null' && filt === 'null') return '';
   return (
     `.withHap(((V,F)=>h=>{const t=h.whole?Number(h.whole.begin):0;return h.withValue(v=>{const o=Object.assign({},v);` +

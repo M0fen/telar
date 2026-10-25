@@ -1,7 +1,7 @@
 // Automatización de volumen y filtro por pista (Modo DAW, Fase 3.1).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addPoint, movePoint, removePoint, valueAt, simplify, automationSuffix, isActive, type AutoPoint } from '../src/lib/automation.ts';
+import { addPoint, movePoint, removePoint, valueAt, simplify, automationSuffix, isActive, cleanAuto, cleanPoints, type AutoPoint } from '../src/lib/automation.ts';
 import { strudelCore } from './helpers/strudelNode.ts';
 
 test('3.1 puntos: añadir (reemplaza en el mismo compás), mover, quitar, ordenados y acotados', () => {
@@ -47,4 +47,20 @@ test('3.1 semántica con Strudel real: volumen por compás, filtro compuesto con
 test('3.1 simplificar (curvas grabadas): quita los puntos que caen en la recta', () => {
   const pts: AutoPoint[] = [[0, 0], [1, 0.25], [2, 0.5], [3, 0.75], [4, 1], [5, 1], [6, 0.2]];
   assert.deepEqual(simplify(pts, 0.01), [[0, 0], [4, 1], [5, 1], [6, 0.2]]);
+});
+
+test('JSON roto en `auto` (proyecto importado): se limpia y nunca rompe el código', () => {
+  // cualquier cosa que no sea objeto → sin curvas, código idéntico
+  for (const junk of [null, undefined, 'x', 3, [], true]) assert.equal(automationSuffix(junk, 8), '');
+  assert.deepEqual(cleanAuto('x'), {});
+  // puntos inválidos fuera, valor acotado al rango, ordenados y sin compases repetidos
+  const filt = cleanPoints([[4, 5], [1, 'a'], ['b', 2], null, [-1, 0.5], [3], [2, -0.4], [2, 0.9], [Infinity, 1]], 'filt');
+  assert.deepEqual(filt, [[2, -0.4], [4, 1]]);
+  assert.deepEqual(cleanPoints('nada', 'vol'), []);
+  assert.equal(isActive({ length: 3 }, 'vol'), false);
+  const suf = automationSuffix({ vol: 'mucho', filt: [[4, 5], [1, 'a'], [2, -0.4]] }, NaN);
+  assert.ok(suf.startsWith('.withHap('));
+  assert.ok(!/NaN|undefined|\[null/.test(suf), suf);
+  // compás de canción inválido → la curva no se repite (L = 0), sin NaN en el código
+  assert.ok(suf.includes(',0)'), suf);
 });

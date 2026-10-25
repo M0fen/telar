@@ -11,7 +11,7 @@ import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
 import { DawExport } from './DawExport';
-import { AUTO_RANGE, isActive, type AutoParam, type AutoPoint } from '../lib/automation';
+import { AUTO_RANGE, isActive, cleanAuto, type AutoParam, type AutoPoint } from '../lib/automation';
 import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
@@ -404,7 +404,7 @@ export function DawView() {
                   <button className={`daw-ms${t.mute ? ' on mute' : ''}`} onClick={() => update(t.id, { mute: !t.mute })} title="mute de la pista">M</button>
                   <button className={`daw-ms${t.solo ? ' on solo' : ''}`} onClick={() => update(t.id, { solo: !t.solo })} title="solo de la pista">S</button>
                   {fromSong && (() => {
-                    const au = sources.find((n) => n.id === t.id)?.data.auto;
+                    const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
                     const has = isActive(au?.vol, 'vol') || isActive(au?.filt, 'filt');
                     const open = !!autoOpen[t.id];
                     return (
@@ -448,8 +448,8 @@ export function DawView() {
               </div>
               {autoOpen[t.id] && (() => {
                 const param = autoOpen[t.id];
-                const au = sources.find((n) => n.id === t.id)?.data.auto ?? {};
-                const pts = (au[param] ?? []) as AutoPoint[];
+                const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
+                const pts: AutoPoint[] = au[param] ?? [];
                 const setPts = (next: AutoPoint[]) => update(t.id, { auto: { ...au, [param]: next } });
                 return (
                   <div className="daw-row auto" key={`${t.id}-auto`}>
