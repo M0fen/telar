@@ -112,6 +112,7 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **Editar secciones**: clic en una sección → su barra: nombre, escena, − / + / ×2 compases, ← → mover, ⧉ duplicar, ✚ vacía, ✕ borrar, ▶ desde aquí. Cada cambio afecta la canción y TODAS las pistas a la vez (nunca quedan desfasadas); **Ctrl+Z** lo deshace **sin cortar** la canción que suena. Atajos con una sección elegida: Ctrl+D, Supr, Alt+← →, ← →, Esc.
 - [ ] Un tramo que la **escena** de la sección silencia se ve rayado en rojo sobre la pista (la escena es la mezcla; los bloques, qué suena).
 - [ ] **Bloques: copiar / pegar / vaciar / editar**: clic derecho (o mantener pulsado en táctil) sobre un bloque → menú. Copiar el hat del drop y pegarlo en la subida suena igual que en el drop. Con un bloque enfocado (Tab o clic): Ctrl+C, Ctrl+V, Supr (vaciar), E (editar). «Editar en la vista estándar» abre el nodo centrado, con su secuenciador en ESA sección.
+- [ ] **Loop de región** (oído): arrastrar sobre los números de compás marca una región; **⟳ región** (o **L**) la repite **sin saltos y con su escena**; la línea se queda dentro. Activarlo sonando arranca en el inicio de la región; quitarlo sonando sigue desde donde iba. Clic sin arrastre sigue siendo «tocar desde aquí»; × borra la región.
 
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

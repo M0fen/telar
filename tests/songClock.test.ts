@@ -77,3 +77,31 @@ test('1.4: .early(from) solo con from > 0, entero, y POR DENTRO del máster', ()
   const half = applyGlobalMaster(applyStartBar(code, 8), { ...m, swing: 0, half: 2 });
   assert.ok(half.startsWith('((p)=>stack(') && half.includes(`((${code}\n).early(8))`));
 });
+
+// --- Modo DAW Fase 2.4: loop de región ---------------------------------------------------
+import { timelinePos, regionOffset } from '../src/lib/songClock.ts';
+import { applyTimeline } from '../src/graph/compile.ts';
+
+test('2.4: posición con loop de región (y arrancando dentro de ella)', () => {
+  const r = { start: 16, bars: 8 };
+  assert.equal(timelinePos(3, { from: 0, region: r, regionOn: false }), 3);
+  assert.equal(timelinePos(3, { from: 8, region: r, regionOn: false }), 11);
+  assert.equal(timelinePos(0, { from: 0, region: r, regionOn: true }), 16);
+  assert.equal(timelinePos(7.5, { from: 0, region: r, regionOn: true }), 23.5);
+  assert.equal(timelinePos(8, { from: 0, region: r, regionOn: true }), 16); // vuelve al inicio
+  assert.equal(regionOffset({ from: 20, region: r, regionOn: true }), 4);
+  assert.equal(timelinePos(0, { from: 20, region: r, regionOn: true }), 20); // arrancó dentro
+  assert.equal(timelinePos(4, { from: 20, region: r, regionOn: true }), 16); // y vuelve al inicio
+  assert.equal(regionOffset({ from: 40, region: r, regionOn: true }), 0); // fuera → desde el inicio
+});
+
+test('2.4: .ribbon solo con el bucle activo, con .early si se arrancó dentro, y por dentro del máster', () => {
+  const code = 's("bd*4")';
+  assert.equal(applyTimeline(code, { from: 0, region: { start: 16, bars: 8 }, regionOn: false }), code);
+  assert.equal(applyTimeline(code, { from: 8, region: null, regionOn: true }), `(${code}\n).early(8)`);
+  assert.equal(applyTimeline(code, { from: 0, region: { start: 16, bars: 8 }, regionOn: true }), `(${code}\n).ribbon(16, 8)`);
+  assert.equal(applyTimeline(code, { from: 19, region: { start: 16, bars: 8 }, regionOn: true }), `(${code}\n).ribbon(16, 8).early(3)`);
+  const m = { gain: 1, filter: 0, room: 0, drive: 0, delay: 0, crush: 0, swing: 0.1, humanize: 0, half: 0 } as Parameters<typeof applyGlobalMaster>[1];
+  const out = applyGlobalMaster(applyTimeline(code, { from: 0, region: { start: 16, bars: 8 }, regionOn: true }), m);
+  assert.ok(out.indexOf('.ribbon(16, 8)') < out.indexOf('.swingBy('));
+});

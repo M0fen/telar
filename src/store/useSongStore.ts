@@ -7,6 +7,11 @@ import { savedProject, startupSong, readLegacy, LEGACY_SONG_KEY, type ProjectSon
 // (el reloj del scheduler manda). Convierte el jam de bucles en una estructura
 // (intro→drop→break→…). steps+loop son PARTE DEL PROYECTO (los guarda el autoguardado
 // y viajan al exportar/compartir: ver projectStore); playing/index son de ejecución.
+export interface SongRegion {
+  start: number; // compás de inicio (desde 0)
+  bars: number; // compases (≥ 1)
+}
+
 export interface SongStep {
   id: string;
   scene: number; // 1..9
@@ -28,6 +33,12 @@ interface SongState {
   // línea de reproducción cuentan desde ahí. ■ lo devuelve a 0.
   from: number;
   setFrom: (bar: number) => void;
+  // LOOP DE REGIÓN (Fase 2.4, de ejecución): compases marcados en la regla del DAW y si el
+  // bucle está activo. Con el bucle activo el compilador repite esa región (.ribbon).
+  region: SongRegion | null;
+  regionOn: boolean;
+  setRegion: (r: SongRegion | null) => void;
+  setRegionOn: (on: boolean) => void;
   addStep: () => void;
   updateStep: (id: string, patch: Partial<SongStep>) => void;
   removeStep: (id: string) => void;
@@ -48,6 +59,10 @@ export const useSongStore = create<SongState>((set, get) => ({
   index: 0,
   from: 0,
   setFrom: (bar) => set({ from: Number.isFinite(bar) && bar > 0 ? Math.floor(bar) : 0 }),
+  region: null,
+  regionOn: false,
+  setRegion: (r) => set(r && r.bars >= 1 ? { region: { start: Math.max(0, Math.floor(r.start)), bars: Math.max(1, Math.floor(r.bars)) } } : { region: null, regionOn: false }),
+  setRegionOn: (on) => set({ regionOn: on && !!get().region }),
   addStep: () => {
     const last = get().steps[get().steps.length - 1];
     set({ steps: [...get().steps, { id: newId(), scene: last ? last.scene : 1, bars: 8 }] });
@@ -58,5 +73,5 @@ export const useSongStore = create<SongState>((set, get) => ({
   setPlaying: (playing) => set({ playing }),
   setIndex: (index) => set({ index }),
   setSteps: (steps) => set({ steps, index: Math.min(get().index, Math.max(0, steps.length - 1)) }),
-  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0 }),
+  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0, region: null, regionOn: false }),
 }));

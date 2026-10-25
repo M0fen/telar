@@ -4,7 +4,8 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { buildDawModel, playheadAt, toggleBlockCode, type DawBlock, type DawTrack } from '../lib/dawModel';
-import { playSong, playFrom } from '../lib/songTransport';
+import { playSong, playFrom, setRegionLoop } from '../lib/songTransport';
+import { timelinePos } from '../lib/songClock';
 import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
@@ -138,6 +139,44 @@ export function DawView() {
 
   // MENÚ Y TECLAS DEL BLOQUE (Fase 2.3): clic derecho / mantener pulsado (táctil) = menú;
   // con el bloque enfocado: Enter/Espacio ○/● · Ctrl+C · Ctrl+V · Supr vaciar · E editar.
+  // LOOP DE REGIÓN (Fase 2.4): arrastrar sobre los números marca la región; clic sin arrastre
+  // = tocar desde ese compás. ⟳ región (o L) la repite.
+  const region = useSongStore((s) => s.region);
+  const regionOn = useSongStore((s) => s.regionOn);
+  const [drag, setDrag] = useState<{ a: number; b: number; x0: number; moved: boolean } | null>(null);
+  const onBarsDown = (e: { clientX: number; currentTarget: Element; pointerId: number; button: number }) => {
+    if (e.button !== 0) return;
+    const a = barAt(e);
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDrag({ a, b: a, x0: e.clientX, moved: false });
+  };
+  const onBarsMove = (e: { clientX: number; currentTarget: Element }) => {
+    if (!drag) return;
+    const b = barAt(e);
+    const moved = drag.moved || Math.abs(e.clientX - drag.x0) > 4;
+    if (b !== drag.b || moved !== drag.moved) setDrag({ ...drag, b, moved });
+  };
+  const onBarsUp = () => {
+    if (!drag) return;
+    if (drag.moved) useSongStore.getState().setRegion({ start: Math.min(drag.a, drag.b), bars: Math.abs(drag.b - drag.a) + 1 });
+    else void playFrom(drag.a);
+    setDrag(null);
+  };
+  const shownRegion = drag?.moved ? { start: Math.min(drag.a, drag.b), bars: Math.abs(drag.b - drag.a) + 1 } : region;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest('.cm-editor'))) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== 'l') return;
+      const s = useSongStore.getState();
+      if (!s.region) return;
+      e.preventDefault();
+      void setRegionLoop(!s.regionOn);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const [menu, setMenu] = useState<{ trackId: string; arm: number; start: number; x: number; y: number } | null>(null);
   const openMenu = (t: DawTrack, b: DawBlock, x: number, y: number) => setMenu({ trackId: t.id, arm: b.arm, start: b.start, x, y });
   const longPressed = useRef(false);
@@ -187,7 +226,7 @@ export function DawView() {
     let lastSec = -2;
     const tick = () => {
       // + from: tras «tocar desde aquí» el reloj arrancó en 0 pero suena el compás from + 1
-      const { pos, section } = playheadAt(Number(getScheduler()?.now?.() ?? 0) + useSongStore.getState().from, total, sections);
+      const { pos, section } = playheadAt(timelinePos(Number(getScheduler()?.now?.() ?? 0), useSongStore.getState()), total, sections);
       const x = pos * px;
       const t = `translateX(${x}px)`;
       for (const m of marks) if (m) m.style.transform = t;
@@ -224,6 +263,18 @@ export function DawView() {
         {steps.length > 0 && (
           <button className={`daw-btn${loop ? ' on' : ''}`} onClick={() => setLoop(!loop)} title="repetir la canción al terminar">⟳</button>
         )}
+        {region ? (
+          <span className="daw-regionctl">
+            <button
+              className={`daw-btn${regionOn ? ' on' : ''}`}
+              onClick={() => void setRegionLoop(!regionOn)}
+              title={regionOn ? 'quitar el bucle (L): sigue desde donde iba' : 'repetir la región en bucle, con sus escenas (L)'}
+            >
+              ⟳ región {region.start + 1}–{region.start + region.bars}
+            </button>
+            <button className="daw-btn ghost" onClick={() => { if (useSongStore.getState().regionOn) void setRegionLoop(false); useSongStore.getState().setRegion(null); }} title="borrar la región" aria-label="borrar la región">×</button>
+          </span>
+        ) : null}
         <span className="daw-info">
           {total} compases
           {fromSong ? ' · secciones de la canción' : sections.length ? ' · sin canción: secciones del primer arrange' : ''}
@@ -284,9 +335,18 @@ export function DawView() {
                 <div
                   className="daw-bars"
                   style={gridBg}
-                  onClick={(e) => void playFrom(barAt(e))}
-                  title="clic: tocar desde este compás (reinicia el transporte; ■ vuelve al compás 1)"
+                  onPointerDown={onBarsDown}
+                  onPointerMove={onBarsMove}
+                  onPointerUp={onBarsUp}
+                  onPointerCancel={() => setDrag(null)}
+                  title="clic: tocar desde este compás (■ vuelve al compás 1) · arrastrar: marcar una región para repetirla (⟳ región o L)"
                 >
+                  {shownRegion && (
+                    <div
+                      className={`daw-region${regionOn ? ' on' : ''}${drag?.moved ? ' drag' : ''}`}
+                      style={{ left: shownRegion.start * px, width: Math.max(2, shownRegion.bars * px) }}
+                    />
+                  )}
                   {Array.from({ length: total }, (_, i) =>
                     i % every === 0 ? (
                       <span key={i} className="daw-barn" style={{ left: i * px }}>{i + 1}</span>
@@ -316,6 +376,9 @@ export function DawView() {
 
             <div className="daw-rows">
             <div className="daw-ph" ref={phRowsRef} style={{ display: 'none' }} />
+            {regionOn && region && (
+              <div className="daw-region-rows" style={{ left: `calc(var(--daw-name-w) + ${region.start * px}px)`, width: region.bars * px }} />
+            )}
             {tracks.map((t) => (
               <div className={`daw-row${t.audible ? '' : ' muted'}`} key={t.id}>
                 <div className="daw-tname">

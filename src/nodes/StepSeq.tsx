@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { getScheduler } from '../audio/engine';
 import { useSongStore } from '../store/useSongStore';
+import { timelinePos } from '../lib/songClock';
 import { useUiFocusStore } from '../store/useUiFocusStore';
 import { playDrumHit } from '../audio/playNote';
 import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
@@ -546,7 +547,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       const now = getScheduler()?.now?.();
       if (typeof now === 'number') {
         // + from: tras «tocar desde aquí» (vista DAW) suena el compás from + 1 (Fase 1.4)
-        const t = now + useSongStore.getState().from;
+        const t = timelinePos(now, useSongStore.getState());
         const pos = ((t % total) + total) % total;
         let acc = 0, idx = arms.length - 1;
         for (let i = 0; i < arms.length; i++) { acc += Math.max(1, arms[i].bars); if (pos < acc) { idx = i; break; } }

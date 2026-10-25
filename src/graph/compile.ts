@@ -492,6 +492,21 @@ export function applyStartBar(code: string, from: number): string {
   return Number.isFinite(f) && f > 0 ? `(${code}\n).early(${f})` : code;
 }
 
+// LÍNEA DE TIEMPO (Fase 2.4): con el LOOP DE REGIÓN activo el grafo entero repite esos
+// compases (`.ribbon(inicio, compases)`; `.early(off)` si se arrancó dentro de la región);
+// si no, «tocar desde un compás» (applyStartBar). También por DENTRO del máster global.
+export function applyTimeline(code: string, t: { from: number; region: { start: number; bars: number } | null; regionOn: boolean }): string {
+  const r = t.region;
+  if (t.regionOn && r && r.bars >= 1) {
+    const start = Math.max(0, Math.floor(r.start));
+    const bars = Math.max(1, Math.floor(r.bars));
+    const off = Math.floor(Number(t.from)) - start;
+    const tail = off > 0 && off < bars ? `.early(${off})` : '';
+    return `(${code}\n).ribbon(${start}, ${bars})${tail}`;
+  }
+  return applyStartBar(code, t.from);
+}
+
 // Los FX MOMENTÁNEOS del máster (se sostienen mientras pulsas) nunca sobreviven a una carga:
 // un roll «pegado» al recargar, o un ancla vieja de ½ tiempo que se dispararía sola minutos
 // después, serían fallos en vivo.

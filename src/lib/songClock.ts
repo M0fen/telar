@@ -51,3 +51,26 @@ export function arrangeMismatches(
   }
   return out;
 }
+
+// POSICIÓN EN LA LÍNEA DE TIEMPO (Fases 1.4 y 2.4): el compás de la canción que suena dado el
+// ciclo del scheduler. Sin bucle de región: `now + from`. Con bucle: dentro de la región,
+// arrancando en `from` si cae dentro (si no, en su inicio) y volviendo a su inicio al final.
+export interface TimelineLike {
+  from: number;
+  region: { start: number; bars: number } | null;
+  regionOn: boolean;
+}
+export function regionOffset(t: TimelineLike): number {
+  const r = t.region;
+  if (!t.regionOn || !r) return 0;
+  const off = Math.floor(t.from) - r.start;
+  return off > 0 && off < r.bars ? off : 0;
+}
+export function timelinePos(now: number, t: TimelineLike): number {
+  const r = t.region;
+  if (t.regionOn && r && r.bars >= 1) {
+    const x = now + regionOffset(t);
+    return r.start + (((x % r.bars) + r.bars) % r.bars);
+  }
+  return now + (Number.isFinite(t.from) && t.from > 0 ? t.from : 0);
+}

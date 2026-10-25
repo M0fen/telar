@@ -4,7 +4,8 @@
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { toast } from '../store/useNotifyStore';
-import { songTotal, arrangeMismatches } from './songClock';
+import { songTotal, arrangeMismatches, timelinePos } from './songClock';
+import { getScheduler } from '../audio/engine';
 
 // ▶ canción = compás 1 para TODO: si el transporte ya suena se reinicia (stop + play: el
 // scheduler vuelve al ciclo 0), así las escenas y los arrange de los instrumentos cuentan
@@ -34,6 +35,9 @@ export async function playSong(): Promise<void> {
 export async function playFrom(bar: number): Promise<void> {
   const g = useGraphStore.getState();
   if (g.playing) await g.stop(); // suelta el ½ tiempo y pone from en 0
+  // con el loop de región activo: dentro de la región arranca ahí y sigue en bucle; fuera, lo apaga
+  const sg = useSongStore.getState();
+  if (sg.regionOn && sg.region && (bar < sg.region.start || bar >= sg.region.start + sg.region.bars)) sg.setRegionOn(false);
   useSongStore.getState().setFrom(bar);
   await useGraphStore.getState().play();
   if (useSongStore.getState().steps.length) useSongStore.getState().setPlaying(true);
@@ -42,4 +46,25 @@ export async function playFrom(bar: number): Promise<void> {
 // Detiene el MODO canción (deja de disparar escenas); el transporte sigue.
 export function stopSong(): void {
   useSongStore.getState().setPlaying(false);
+}
+
+// ⟳ LOOP DE REGIÓN (Fase 2.4). Activarlo sonando reinicia en el inicio de la región (como un
+// DAW al activar el ciclo); desactivarlo sonando sigue desde el compás donde iba. Parado,
+// solo cambia el modo: el próximo ▶ toca la región en bucle. ■ no la borra.
+export async function setRegionLoop(on: boolean): Promise<void> {
+  const song = useSongStore.getState();
+  if (on && !song.region) return;
+  const g = useGraphStore.getState();
+  if (on) {
+    if (g.playing) await g.stop();
+    useSongStore.getState().setRegionOn(true);
+    if (g.playing) {
+      await useGraphStore.getState().play();
+      if (useSongStore.getState().steps.length) useSongStore.getState().setPlaying(true);
+    }
+    return;
+  }
+  const cur = g.playing ? Math.floor(timelinePos(Number(getScheduler()?.now?.() ?? 0), song)) : 0;
+  useSongStore.getState().setRegionOn(false);
+  if (g.playing) await playFrom(cur);
 }

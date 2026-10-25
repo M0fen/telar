@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyGlobalMaster, applyStartBar, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
+import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
@@ -237,7 +237,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     }
     set({ compileError: error, lastCode: code });
     // `from` (Fase 1.4): compás de arranque tras «tocar desde aquí»; 0 = desde el compás 1.
-    if (playing && code) void swapPattern(applyGlobalMaster(applyStartBar(code, useSongStore.getState().from), master), cps);
+    if (playing && code) void swapPattern(applyGlobalMaster(applyTimeline(code, useSongStore.getState()), master), cps);
   };
 
   // Recompilado THROTTLED (borde inicial + final, ~70 ms): un arrastre de perilla

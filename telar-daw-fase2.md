@@ -1,6 +1,6 @@
 # Telar — Modo DAW · Fase 2 (estructura + puente con la vista estándar)
 
-**Aprobada por Carlos el 2026-10-25** («termina el DAW y luego lo pulimos»). **Hecho:** 2.1 (`041d924`) · 2.2 (`ec3e251`) · 2.3. Protocolo de `CLAUDE.md`: una tarea por commit → `npm run build` + `npm test` → verificación sin oído (Node + Chromium headless) → lo que falta escuchar va a `escuchas-pendientes.md`. Orden fijo: 2.1 → 2.2 → 2.3 → 2.4 → 2.5.
+**Aprobada por Carlos el 2026-10-25** («termina el DAW y luego lo pulimos»). **Hecho:** 2.1 (`041d924`) · 2.2 (`ec3e251`) · 2.3 (`8114a69`) · 2.4. Protocolo de `CLAUDE.md`: una tarea por commit → `npm run build` + `npm test` → verificación sin oído (Node + Chromium headless) → lo que falta escuchar va a `escuchas-pendientes.md`. Orden fijo: 2.1 → 2.2 → 2.3 → 2.4 → 2.5.
 
 **Qué entrega:** que el DAW sirva para ARMAR la canción, no solo para verla: editar secciones (duplicar, vaciar, borrar, alargar, mover, renombrar), copiar y pegar bloques, loop de una región, y el puente con la vista estándar: crear la estructura de un tema que hoy es un jam de bucles y **grabar el jam en la canción** (como el paso sesión → arreglo de Ableton). La verdad sigue siendo el código: cada operación edita los `arrange` de las pistas y los pasos de la canción **en un solo paso deshacible**.
 

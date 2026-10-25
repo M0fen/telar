@@ -3,7 +3,7 @@ import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { useGraphStore } from '../store/useGraphStore';
 import { getScheduler } from '../audio/engine';
-import { songPosition } from '../lib/songClock';
+import { songPosition, timelinePos } from '../lib/songClock';
 
 // MOTOR DE LA CANCIÓN (sin interfaz). UN SOLO RELOJ: la posición de la canción es el ciclo
 // del scheduler (1 ciclo = 1 compás), el mismo con el que corren los arrange de cada
@@ -27,7 +27,9 @@ export function SongEngine(): null {
       // respecto a la frontera del compás. Miramos ~90 ms hacia delante (en ciclos, según el
       // cps real) para que la escena aterrice EN el 1, no después.
       const lookCyc = 0.09 * (useGraphStore.getState().cps || 0.5);
-      const pos = songPosition(steps, getScheduler()?.now?.() ?? 0, loop, lookCyc, useSongStore.getState().from);
+      // compás de la canción (con «tocar desde» y loop de región) + anticipación ya dentro de la región
+      const tl = useSongStore.getState();
+      const pos = songPosition(steps, timelinePos((getScheduler()?.now?.() ?? 0) + lookCyc, tl), loop || tl.regionOn, 0, 0);
       if (pos.end) { useSongStore.getState().setPlaying(false); return; }
       if (pos.idx !== last) {
         last = pos.idx;

@@ -180,3 +180,17 @@
 .daw-ctx button:disabled { opacity: 0.35; cursor: default; background: transparent; color: var(--text, #d4dee6); }
 .daw-ctx kbd { font-family: inherit; font-size: 9px; color: var(--faint, #44515c); }
 .daw-blk:focus-visible { outline: 2px solid var(--accent, #3df0d0); outline-offset: 1px; }
+
+/* Fase 2.4 · loop de región */
+.daw-region {
+  position: absolute; top: 0; bottom: 0; z-index: 1; pointer-events: none;
+  background: rgba(212, 222, 230, 0.10); border-left: 1px solid var(--dim, #6b7a88); border-right: 1px solid var(--dim, #6b7a88);
+}
+.daw-region.on { background: rgba(61, 240, 208, 0.22); border-color: var(--accent, #3df0d0); }
+.daw-region.drag { background: rgba(212, 222, 230, 0.18); }
+.daw-region-rows {
+  position: absolute; top: 0; bottom: 0; z-index: 0; pointer-events: none;
+  background: rgba(61, 240, 208, 0.05); border-left: 1px dashed rgba(61, 240, 208, 0.45); border-right: 1px dashed rgba(61, 240, 208, 0.45);
+}
+.daw-regionctl { display: inline-flex; gap: 2px; }
+.daw-barn { pointer-events: none; z-index: 2; }
