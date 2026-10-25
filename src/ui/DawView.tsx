@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import './DawView.css';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
@@ -9,6 +9,8 @@ import { timelinePos } from '../lib/songClock';
 import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
+import { DawAutoLane } from './DawAutoLane';
+import { AUTO_RANGE, isActive, type AutoParam, type AutoPoint } from '../lib/automation';
 import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
@@ -69,6 +71,8 @@ export function DawView() {
   const [px, setPx] = useState<number>(readZoom);
   const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
   const [sel, setSel] = useState(-1); // sección seleccionada (Fase 2.2: su barra de edición)
+  // carriles de automatización abiertos (Fase 3.1): pista → parámetro que se edita
+  const [autoOpen, setAutoOpen] = useState<Record<string, AutoParam>>({});
   const jamRec = useJamStore((s) => s.recording);
   const jamBars = useJamStore((s) => s.bars);
   const [createOpen, setCreateOpen] = useState(false);
@@ -390,12 +394,28 @@ export function DawView() {
               <div className="daw-region-rows" style={{ left: `calc(var(--daw-name-w) + ${region.start * px}px)`, width: region.bars * px }} />
             )}
             {tracks.map((t) => (
-              <div className={`daw-row${t.audible ? '' : ' muted'}`} key={t.id}>
+              <Fragment key={t.id}>
+              <div className={`daw-row${t.audible ? '' : ' muted'}`}>
                 <div className="daw-tname">
                   <span className="daw-tn" title={t.name}>{t.name}</span>
                   {t.mismatch && <span className="daw-tw" title={`su arrange dura ${t.bars} compases (la línea de tiempo ${total})`}>⚠{t.bars}</span>}
                   <button className={`daw-ms${t.mute ? ' on mute' : ''}`} onClick={() => update(t.id, { mute: !t.mute })} title="mute de la pista">M</button>
                   <button className={`daw-ms${t.solo ? ' on solo' : ''}`} onClick={() => update(t.id, { solo: !t.solo })} title="solo de la pista">S</button>
+                  {fromSong && (() => {
+                    const au = sources.find((n) => n.id === t.id)?.data.auto;
+                    const has = isActive(au?.vol, 'vol') || isActive(au?.filt, 'filt');
+                    const open = !!autoOpen[t.id];
+                    return (
+                      <button
+                        className={`daw-ms${open ? ' on' : ''}${has ? ' has' : ''}`}
+                        aria-pressed={open}
+                        onClick={() => setAutoOpen((o) => { const n = { ...o }; if (n[t.id]) delete n[t.id]; else n[t.id] = isActive(au?.vol, 'vol') || !isActive(au?.filt, 'filt') ? 'vol' : 'filt'; return n; })}
+                        title={`automatización (volumen y filtro por compás)${has ? ' · esta pista tiene curvas' : ''}`}
+                      >
+                        A
+                      </button>
+                    );
+                  })()}
                 </div>
                 <div className="daw-lane" style={{ width, ...gridBg }}>
                   {t.blocks.map((b, i) => (
@@ -424,6 +444,27 @@ export function DawView() {
                   ))}
                 </div>
               </div>
+              {autoOpen[t.id] && (() => {
+                const param = autoOpen[t.id];
+                const au = sources.find((n) => n.id === t.id)?.data.auto ?? {};
+                const pts = (au[param] ?? []) as AutoPoint[];
+                const setPts = (next: AutoPoint[]) => update(t.id, { auto: { ...au, [param]: next } });
+                return (
+                  <div className="daw-row auto" key={`${t.id}-auto`}>
+                    <div className="daw-tname daw-autoname">
+                      <select value={param} onChange={(e) => setAutoOpen((o) => ({ ...o, [t.id]: e.target.value as AutoParam }))} aria-label="parámetro automatizado">
+                        <option value="vol">volumen{isActive(au.vol, 'vol') ? ' ●' : ''}</option>
+                        <option value="filt">filtro{isActive(au.filt, 'filt') ? ' ●' : ''}</option>
+                      </select>
+                      <button className="daw-ms" onClick={() => setPts([])} disabled={!pts.length} title={`borrar la curva de ${AUTO_RANGE[param].label}`}>✕</button>
+                    </div>
+                    <div className="daw-lane" style={{ width, ...gridBg }}>
+                      <DawAutoLane points={pts} param={param} total={total} px={px} onChange={setPts} />
+                    </div>
+                  </div>
+                );
+              })()}
+            </Fragment>
             ))}
             </div>
           </div>

@@ -27,6 +27,7 @@ import { backupProject } from '../lib/projectBackups';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
 import { useSongStore, type SongStep } from './useSongStore';
+import { songTotal } from '../lib/songClock';
 import { useScenesStore } from './useScenesStore';
 import { registerDownloadedSamples } from './useDownloadsStore';
 
@@ -224,7 +225,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
   let lastDroppedKey = '';
   const recompile = () => {
     const { nodes, edges, cps, playing, master, transpose, xfader } = get();
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader });
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars: songTotal(useSongStore.getState().steps) });
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
     if (eqKey !== lastEqKey) { lastEqKey = eqKey; setChannelEqs(channelEqs); }
@@ -510,6 +511,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         'synthNote' in patch ||
         'voice' in patch ||
         'eq' in patch || // EQ por canal: enruta a un orbit + setChannelEqs (antes NO recompilaba → EQ inerte)
+        'auto' in patch || // curvas de automatización del DAW (Fase 3.1) → sufijo .withHap
         'perf' in patch || // FX de deck momentáneos (DJ): roll/gate/echo
         'xfa' in patch // asignación de crossfader
       )
@@ -1033,4 +1035,8 @@ useGraphStore.subscribe(() => saveProjectSoon());
 // playing/index son de ejecución: solo steps/loop disparan el guardado.
 useSongStore.subscribe((s, p) => {
   if (s.steps !== p.steps || s.loop !== p.loop) saveProjectSoon();
+  // las curvas de automatización se repiten con la canción: si cambia su largo, recompilar
+  if (s.steps !== p.steps && songTotal(s.steps) !== songTotal(p.steps) && useGraphStore.getState().nodes.some((n) => n.data.auto)) {
+    useGraphStore.getState().recompile();
+  }
 });

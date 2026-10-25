@@ -290,6 +290,9 @@ export interface NodeData {
   // escucha la sección al instante, sin esperar a que el arreglo llegue a ella.
   seqPreviewCode?: string;
   chFilter?: number; // -1..1 : <0 lpf baja, >0 hpf sube
+  // AUTOMATIZACIÓN (Modo DAW, Fase 3.1): curvas [compás, valor] de volumen (0–1.5, multiplica)
+  // y filtro (−1…1 como chFilter) sobre la canción. Ver lib/automation.ts.
+  auto?: { vol?: [number, number][]; filt?: [number, number][] };
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
   chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)

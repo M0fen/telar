@@ -11,6 +11,7 @@
 // (hap.context.locations, en coords del código evaluado) de vuelta a su editor
 // para resaltar qué se está tocando, como en strudel.cc.
 import type { Edge, Node } from '@xyflow/react';
+import { automationSuffix } from '../lib/automation';
 import type { NodeData, SynthParams, VoiceParams } from './types';
 import { channelEqActive, SYNTH_WAVES } from './types';
 import { OPS_BY_ID } from './ops';
@@ -660,6 +661,7 @@ export function sanitizeMasterFx(m: MasterFx): { master: MasterFx; notes: string
 export interface CompileOpts {
   transpose?: number; // semitonos globales ("tono"): se suma SOLO a fuentes con note(…)
   xfader?: number; // crossfader DJ 0..1 (0 = todo A, 1 = todo B); afecta el gain de los decks asignados
+  songBars?: number; // compases de la canción: las curvas de automatización se repiten con ella (Fase 3.1)
 }
 
 // Ganancia de crossfader por lado (curva de potencia constante: ambos a −3 dB en el
@@ -870,6 +872,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
             filter: node.data.chFilter ?? 0,
             room: Math.max(chRoom, perfWash),
           });
+          // AUTOMATIZACIÓN (Fase 3.1): volumen y filtro por compás de la canción, DESPUÉS de la
+          // mezcla del canal (compone con su filtro y su volumen). Sin curvas: no añade nada.
+          text += automationSuffix(node.data.auto, opts.songBars ?? 0);
           // tap del analyser del instrumento (no altera el sonido): alimenta el VU
           // por canal (siempre) y el osciloscopio inline (cuando está activo).
           text += `.analyze("${SRC_ANALYSER_PREFIX}${id}")`;

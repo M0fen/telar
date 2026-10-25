@@ -201,3 +201,19 @@
 .daw-btn.rec.on { background: #ff5d5d; color: #1a0303; border-color: #ff5d5d; animation: daw-rec 1s steps(2) infinite; }
 @keyframes daw-rec { 50% { opacity: 0.72; } }
 @media (prefers-reduced-motion: reduce) { .daw-btn.rec.on { animation: none; } }
+
+/* Fase 3.1 · automatización */
+.daw-ms.has { border-color: var(--accent, #3df0d0); color: var(--accent, #3df0d0); }
+.daw-row.auto { background: rgba(61, 240, 208, 0.03); }
+.daw-row.auto .daw-lane { height: 56px; }
+.daw-autoname { gap: 4px; }
+.daw-autoname select {
+  flex: 1; min-width: 0; background: var(--bg, #040506); color: var(--text, #d4dee6);
+  border: 1px solid var(--line, #202c38); border-radius: 2px; font-family: inherit; font-size: 10px; padding: 2px 3px;
+}
+.daw-auto-svg { position: absolute; left: 0; top: 0; cursor: crosshair; touch-action: none; overflow: visible; }
+.daw-auto-neutral { stroke: var(--faint, #44515c); stroke-dasharray: 3 4; stroke-width: 1; }
+.daw-auto-line { fill: none; stroke: var(--accent, #3df0d0); stroke-width: 1.6; }
+.daw-auto-pt { fill: var(--bg, #040506); stroke: var(--accent, #3df0d0); stroke-width: 1.6; cursor: grab; }
+.daw-auto-pt:hover, .daw-auto-pt.drag, .daw-auto-pt:focus-visible { fill: var(--accent, #3df0d0); outline: none; }
+.daw-auto-pt.drag { cursor: grabbing; }
