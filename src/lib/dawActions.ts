@@ -8,6 +8,8 @@ import { toast } from '../store/useNotifyStore';
 import { useUiFocusStore } from '../store/useUiFocusStore';
 import * as E from './arrangeEdit';
 import { blockPattern } from './dawModel';
+import { startJam, finishJam, isJamRecording, buildFromTake, type JamHooks, type JamTake } from './jamRecorder';
+import { getScheduler } from '../audio/engine';
 
 export function arrangeState(): E.ArrangeState {
   const codes: Record<string, string> = {};
@@ -111,3 +113,58 @@ export const dawBlock = {
     useGraphStore.getState().setMode('standard');
   },
 };
+
+// --- GRABAR EL JAM EN LA CANCIÓN (Fase 2.5) ----------------------------------------------
+function jamHooks(): JamHooks {
+  return {
+    now: () => Number(getScheduler()?.now?.() ?? 0),
+    playing: () => useGraphStore.getState().playing,
+    snapshot: () => {
+      const src = useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source');
+      const anySolo = src.some((n) => n.data.solo);
+      const tracks: Record<string, { audible: boolean; gain: number; filt: number }> = {};
+      for (const n of src) {
+        tracks[n.id] = {
+          audible: !n.data.mute && (!anySolo || !!n.data.solo),
+          gain: typeof n.data.gain === 'number' ? n.data.gain : 1,
+          filt: typeof n.data.chFilter === 'number' ? n.data.chFilter : 0,
+        };
+      }
+      return { scene: useScenesStore.getState().active, tracks };
+    },
+    onFinish: (take) => applyJamTake(take),
+  };
+}
+
+// Arranca la toma: transporte desde el compás 1, SIN el modo canción (las escenas las disparas
+// tú) y sin bucle de región. Todo lo que hagas en vivo (cualquier vista, MIDI) queda anotado.
+export async function startJamRecording(): Promise<void> {
+  if (isJamRecording()) return;
+  const g = useGraphStore.getState();
+  if (g.playing) await g.stop();
+  const s = useSongStore.getState();
+  s.setRegionOn(false);
+  s.setFrom(0);
+  s.setPlaying(false);
+  await useGraphStore.getState().play();
+  startJam(jamHooks());
+  toast.info('● grabando el jam desde el compás 1: dispara escenas, silencia y enciende pistas, mueve perillas… ■ para armar la canción');
+}
+
+// Para la toma (y el transporte) y arma la canción.
+export async function stopJamRecording(): Promise<void> {
+  if (!isJamRecording()) return;
+  finishJam(jamHooks());
+  await useGraphStore.getState().stop();
+}
+
+function applyJamTake(take: JamTake): void {
+  const st = arrangeState();
+  const sc = useScenesStore.getState().scenes;
+  const r = buildFromTake(take, st.codes, { freeScene: freeSceneSlots(1)[0], sceneName: (k) => sc[k]?.name });
+  if (!r) { toast.warn('la toma duró menos de un compás: no se armó nada'); return; }
+  useGraphStore.getState().applyArrangement({ ...st.codes, ...r.codes }, r.steps, r.patches);
+  const total = r.steps.reduce((a, x) => a + x.bars, 0);
+  toast.ok(`canción armada desde el jam: ${r.steps.length} secciones · ${total} compases. ▶ canción para escucharla (Ctrl+Z la deshace)`);
+  if (r.skipped.length) toast.warn(`${r.skipped.slice(0, 3).map(trackName).join(', ')}${r.skipped.length > 3 ? '…' : ''} ya tenía${r.skipped.length > 1 ? 'n' : ''} secciones propias: no se tocó.`);
+}

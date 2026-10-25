@@ -9,7 +9,8 @@ import { timelinePos } from '../lib/songClock';
 import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
-import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections } from '../lib/dawActions';
+import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
+import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
@@ -68,6 +69,8 @@ export function DawView() {
   const [px, setPx] = useState<number>(readZoom);
   const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
   const [sel, setSel] = useState(-1); // sección seleccionada (Fase 2.2: su barra de edición)
+  const jamRec = useJamStore((s) => s.recording);
+  const jamBars = useJamStore((s) => s.bars);
   const [createOpen, setCreateOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const phRulerRef = useRef<HTMLDivElement>(null);
@@ -275,6 +278,13 @@ export function DawView() {
             <button className="daw-btn ghost" onClick={() => { if (useSongStore.getState().regionOn) void setRegionLoop(false); useSongStore.getState().setRegion(null); }} title="borrar la región" aria-label="borrar la región">×</button>
           </span>
         ) : null}
+        {tracks.length > 0 && (
+          jamRec ? (
+            <button className="daw-btn rec on" onClick={() => void stopJamRecording()} title="parar la toma y armar la canción con lo que tocaste">■ parar y armar · {jamBars} c.</button>
+          ) : (
+            <button className="daw-btn rec" onClick={() => void startJamRecording()} title="grabar el jam en la canción: arranca en el compás 1; dispara escenas, silencia/enciende pistas (aquí, en la vista estándar o la DJ, o con el MIDI). Al parar, los compases iguales seguidos forman las secciones y cada pista suena donde sonaba.">● grabar jam</button>
+          )
+        )}
         <span className="daw-info">
           {total} compases
           {fromSong ? ' · secciones de la canción' : sections.length ? ' · sin canción: secciones del primer arrange' : ''}

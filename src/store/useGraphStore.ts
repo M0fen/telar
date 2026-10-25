@@ -170,7 +170,7 @@ interface GraphState {
   applyNodeStates: (states: Record<string, Partial<NodeData>>) => void;
   // EDICIÓN DEL ARREGLO (DAW, Fase 2.1): código nuevo de varias pistas + secciones de la
   // canción en UN paso deshacible y un solo recompile, sin detener lo que suena.
-  applyArrangement: (codes: Record<string, string>, steps?: SongStep[]) => void;
+  applyArrangement: (codes: Record<string, string>, steps?: SongStep[], patches?: Record<string, Partial<NodeData>>) => void;
 
   onNodesChange: (c: NodeChange[]) => void;
   onEdgesChange: (c: EdgeChange[]) => void;
@@ -745,18 +745,22 @@ export const useGraphStore = create<GraphState>((set, get) => {
       });
     },
 
-    applyArrangement: (codes, steps) => {
+    applyArrangement: (codes, steps, patches) => {
       const cur = get().nodes;
-      const changed = cur.some((n) => n.data.kind === 'source' && codes[n.id] !== undefined && codes[n.id] !== n.data.code);
+      const codeChanged = (n: GNode) => n.data.kind === 'source' && codes[n.id] !== undefined && codes[n.id] !== n.data.code;
+      const patchFor = (n: GNode) => (patches ? patches[n.id] : undefined);
+      const changed = cur.some((n) => codeChanged(n) || !!patchFor(n));
       const song = useSongStore.getState().steps;
       const stepsChanged = !!steps && JSON.stringify(steps) !== JSON.stringify(song);
       if (!changed && !stepsChanged) return;
       pushPast(true, true, true);
       if (changed) {
         set({
-          nodes: cur.map((n) =>
-            n.data.kind === 'source' && codes[n.id] !== undefined && codes[n.id] !== n.data.code ? { ...n, data: { ...n.data, code: codes[n.id] } } : n,
-          ),
+          nodes: cur.map((n) => {
+            const p = patchFor(n);
+            if (!codeChanged(n) && !p) return n;
+            return { ...n, data: { ...n.data, ...(p ?? {}), ...(codeChanged(n) ? { code: codes[n.id] } : {}) } };
+          }),
         });
       }
       if (stepsChanged && steps) useSongStore.getState().setSteps(steps);

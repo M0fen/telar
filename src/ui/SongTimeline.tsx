@@ -7,6 +7,8 @@ import { alignArrangeToBars, splitArrange } from '../nodes/stepseqCode';
 import { sectionEnergy } from '../lib/arrangeEnergy';
 import { songTotal, arrangeMismatches } from '../lib/songClock';
 import { playSong, stopSong } from '../lib/songTransport';
+import { startJamRecording, stopJamRecording } from '../lib/dawActions';
+import { useJamStore } from '../lib/jamRecorder';
 import { askConfirm, toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
 
@@ -37,6 +39,8 @@ export function SongTimeline() {
     [steps, nodes],
   );
   const [open, setOpen] = useState(false);
+  const jamRec = useJamStore((s) => s.recording);
+  const jamBars = useJamStore((s) => s.bars);
 
   // P0.3 ampliado — la canción GENERA/EDITA las secciones (arrange) de los instrumentos:
   // alinea cada source a los compases de estas secciones. Plano → se envuelve sembrado
@@ -77,6 +81,13 @@ export function SongTimeline() {
             </button>
             <button className={`song-loop${loop ? ' on' : ''}`} onClick={() => setLoop(!loop)} title="repetir la canción al terminar">⟳</button>
             <button className="song-add" onClick={addStep} title="añadir sección">+ sección</button>
+            <button
+              className={`song-add song-rec${jamRec ? ' on' : ''}`}
+              onClick={() => void (jamRec ? stopJamRecording() : startJamRecording())}
+              title={jamRec ? 'parar la toma y armar la canción con lo que tocaste' : 'grabar el jam en la canción (desde el compás 1): dispara escenas y silencia/enciende pistas; al parar se arman las secciones'}
+            >
+              {jamRec ? `■ armar · ${jamBars} c.` : '● grabar jam'}
+            </button>
             <button className="song-add" onClick={() => useGraphStore.getState().setMode('daw')} title="abrir la canción en la vista DAW (pistas × compases: editar secciones, encender y apagar bloques, automatizar, exportar)">DAW ↗</button>
             <button className="song-add" onClick={() => void alignInstruments()} title="alinear los INSTRUMENTOS a esta estructura: cada source queda arreglado (arrange) con estas secciones y compases — los planos suenan igual y luego editas cada sección en el secuenciador">⇋ instrumentos</button>
             {total > 0 && <span className="song-total" title="compases de la canción (1 compás = 1 ciclo)">{total} c.</span>}

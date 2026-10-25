@@ -1820,6 +1820,9 @@ button.pal-item { width: 100%; }
 .song-toggle:hover { color: var(--accent); }
 .song-play, .song-loop, .song-add { background: #04070a; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 10px; padding: 3px 8px; border-radius: 2px; cursor: pointer; }
 .song-play:hover, .song-loop:hover, .song-add:hover { border-color: var(--accent); color: var(--accent); }
+.song-add.song-rec { color: #ff5d5d; border-color: rgba(255, 93, 93, 0.55); }
+.song-add.song-rec:hover { color: #ff5d5d; border-color: #ff5d5d; }
+.song-add.song-rec.on { background: #ff5d5d; color: #1a0303; border-color: #ff5d5d; }
 .song-play.on { color: #02110e; background: var(--accent); border-color: var(--accent); }
 .song-loop.on { color: var(--accent); border-color: var(--accent-dim); }
 .song-track { display: flex; gap: 4px; margin-top: 6px; overflow-x: auto; padding-bottom: 4px; }

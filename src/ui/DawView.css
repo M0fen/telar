@@ -194,3 +194,10 @@
 }
 .daw-regionctl { display: inline-flex; gap: 2px; }
 .daw-barn { pointer-events: none; z-index: 2; }
+
+/* Fase 2.5 · grabar el jam */
+.daw-btn.rec { color: #ff5d5d; border-color: rgba(255, 93, 93, 0.6); }
+.daw-btn.rec:hover:not(:disabled) { color: #ff5d5d; border-color: #ff5d5d; }
+.daw-btn.rec.on { background: #ff5d5d; color: #1a0303; border-color: #ff5d5d; animation: daw-rec 1s steps(2) infinite; }
+@keyframes daw-rec { 50% { opacity: 0.72; } }
+@media (prefers-reduced-motion: reduce) { .daw-btn.rec.on { animation: none; } }
