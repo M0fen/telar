@@ -294,7 +294,7 @@ export default function App() {
   useEffect(() => {
     void readSharedProject().then((snap) => {
       if (snap) {
-        loadSnapshot(snap);
+        loadSnapshot(snap, 'enlace compartido');
         clearShareHash();
       }
     });

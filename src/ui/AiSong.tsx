@@ -52,7 +52,7 @@ export function AiSong({ open, onClose }: { open: boolean; onClose: () => void }
     try {
       const raw = await requestAiGraph(p, undefined, { withLyrics: withVocals });
       const { snap, warnings } = sanitizeAiGraph(raw);
-      loadSnapshot(snap);
+      loadSnapshot(snap, 'Nod-IA · canción');
       const cps = useGraphStore.getState().cps || 0.5;
       const lyrics = String((raw.lyrics as string) || '').trim();
       const title = String((raw.lyricsTitle as string) || 'preview').trim();

@@ -13,7 +13,7 @@ export function Tutorial({ open, onClose }: { open: boolean; onClose: () => void
 
   const loadAndPlay = async () => {
     const demo = DEMOS.find((d) => d.id === 'reggaeton-clasico') ?? DEMOS[0];
-    useGraphStore.getState().loadSnapshot(demo.snap);
+    useGraphStore.getState().loadSnapshot(demo.snap, 'tutorial · ejemplo');
     try { await useGraphStore.getState().play(); } catch { /* gesto pendiente */ }
   };
 
@@ -86,7 +86,7 @@ export function Tutorial({ open, onClose }: { open: boolean; onClose: () => void
           <p>¿En blanco? Abre el <b>copiloto IA</b> y pídele una base. A partir de ahí, todo tuyo.</p>
         </>
       ),
-      action: { label: '✎ empezar un proyecto en blanco', run: () => { useGraphStore.getState().resetProject(); onClose(); } },
+      action: { label: '✎ empezar un proyecto en blanco', run: () => { useGraphStore.getState().resetProject('tutorial · lienzo en blanco'); onClose(); } },
     },
   ];
 

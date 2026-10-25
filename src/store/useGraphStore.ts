@@ -23,6 +23,7 @@ import { bareSampleName } from '../lib/sampleFit';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
 import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot } from '../lib/projectStore';
+import { backupProject } from '../lib/projectBackups';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
 import { useSongStore } from './useSongStore';
@@ -189,8 +190,9 @@ interface GraphState {
   autoFitLongSamples: () => Promise<void>;
   recompile: () => void;
   // menú de proyecto: limpiar a un lienzo nuevo / cargar un proyecto importado.
-  resetProject: () => void;
-  loadSnapshot: (snap: Partial<ProjectSnapshot>) => void;
+  // `origin` = qué reemplaza el proyecto (queda escrito en su copia automática).
+  resetProject: (origin?: string) => void;
+  loadSnapshot: (snap: Partial<ProjectSnapshot>, origin?: string) => void;
   // contador que sube en cada carga de grafo (demo/proyecto/IA/reset). La vista lo
   // observa para RE-ENCUADRAR el lienzo (fitView) y que el grafo nuevo se vea siempre
   // — antes quedaba fuera de cuadro y parecía "pantalla en negro" tras generar con IA.
@@ -862,7 +864,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
       useSongStore.getState().setPlaying(false);
     },
 
-    resetProject: () => {
+    resetProject: (origin) => {
+      safetyBackup(origin ?? 'limpiar todo'); // copia del proyecto que se va (recuperable)
       // lienzo nuevo: un Source vacío conectado al Out, listo para empezar.
       const src: GNode = { id: 'src_1', type: 'source', position: { x: 140, y: 180 }, data: { kind: 'source', code: 's("bd*4")' } };
       const out: GNode = { id: 'out_1', type: 'out', position: { x: 560, y: 180 }, data: { kind: 'out' } };
@@ -878,7 +881,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
       get().recompile();
     },
 
-    loadSnapshot: (snap) => {
+    loadSnapshot: (snap, origin) => {
+      safetyBackup(origin ?? 'cargar proyecto'); // copia del proyecto que se va (recuperable tras recargar)
       pushPast(true, true); // cargar (demo/proyecto/copiloto IA) es deshacible con Ctrl+Z, canción y escenas incluidas
       const rawNodes = (snap.nodes as GNode[] | undefined) ?? get().nodes;
       // Al CARGAR un proyecto/demo, los Source aparecen COLAPSADOS: lienzo limpio y
@@ -949,9 +953,9 @@ function applyExtras(x: ProjectExtras): void {
 // del grafo, la canción o las escenas (estas se suscriben en useScenesStore). Siempre lleva
 // `song` y `scenes`, aunque estén vacías: así, al arrancar, un proyecto guardado se
 // distingue de uno de antes de que viajaran con él (la migración las adopta una sola vez).
-export function saveProjectSoon(): void {
+export function projectSnapshotNow(): ProjectSnapshot {
   const s = useGraphStore.getState();
-  saveProjectDebounced({
+  return {
     nodes: s.nodes,
     edges: s.edges,
     cps: s.cps,
@@ -966,7 +970,21 @@ export function saveProjectSoon(): void {
     vizHeadless: s.vizHeadless,
     vizMilkStyle: s.vizMilkStyle,
     ...currentExtras(),
-  });
+  };
+}
+export function saveProjectSoon(): void {
+  saveProjectDebounced(projectSnapshotNow());
+}
+
+// COPIA AUTOMÁTICA antes de REEMPLAZAR el proyecto (cargar ejemplo, Nod-IA, archivo, galería,
+// enlace, tutorial, limpiar todo). Sin esto, el autoguardado pisaba el proyecto anterior y,
+// tras recargar, se perdía. Se recupera en «proyecto ▾ › copias automáticas». Nunca bloquea.
+function safetyBackup(reason: string): void {
+  try {
+    if (backupProject(projectSnapshotNow(), reason)) toast.info('El proyecto anterior quedó a salvo en «proyecto ▾ › copias automáticas».');
+  } catch {
+    /* la copia jamás debe impedir la carga */
+  }
 }
 useGraphStore.subscribe(() => saveProjectSoon());
 // playing/index son de ejecución: solo steps/loop disparan el guardado.

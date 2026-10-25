@@ -157,7 +157,7 @@ export function applyActions(actions: Action[]): AgentResult {
         else skipped.push('master (sin cambios)');
       } else if (type === 'replace') {
         const { snap } = sanitizeAiGraph(a.graph);
-        S().loadSnapshot(snap); applied.push('proyecto nuevo'); changedSound = true;
+        S().loadSnapshot(snap, 'Nod-IA · proyecto nuevo'); applied.push('proyecto nuevo'); changedSound = true;
       } else {
         skipped.push(`acción desconocida (${type})`);
       }

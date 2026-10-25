@@ -7,6 +7,16 @@ import type { ProjectSnapshot } from '../lib/projectStore';
 import { DEMOS } from '../lib/demos';
 import { buildShareUrl, shortenUrl } from '../lib/share';
 import { askPrompt, askConfirm } from '../store/useNotifyStore';
+import { listBackups, type ProjectBackup } from '../lib/projectBackups';
+
+// «25 oct, 13:42» — cuándo se guardó una copia automática.
+const whenLabel = (at: number) => {
+  try {
+    return new Date(at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return new Date(at).toLocaleString();
+  }
+};
 
 // Menú de proyecto: guardar/abrir (.json), galería de proyectos (localStorage),
 // copiar el código compilado y limpiar todo. El proyecto además se autoguarda en
@@ -66,6 +76,8 @@ export function ProjectMenu() {
   const galRemove = useGalleryStore((s) => s.remove);
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // copias automáticas (se leen al abrir el menú: cambian cada vez que algo reemplaza el proyecto)
+  const [backups, setBackups] = useState<ProjectBackup[]>([]);
   // Diálogo de compartir: muestra el enlace en un campo seleccionable (no
   // dependemos solo del portapapeles, que falla tras el await de red).
   const [share, setShare] = useState<{ url: string; short: boolean } | null>(null);
@@ -96,7 +108,7 @@ export function ProjectMenu() {
       const f = input.files?.[0];
       if (!f) return;
       try {
-        loadSnapshot(JSON.parse(await f.text()));
+        loadSnapshot(JSON.parse(await f.text()), `abrir archivo · ${f.name}`);
         flash('proyecto cargado');
       } catch {
         flash('archivo inválido');
@@ -117,22 +129,30 @@ export function ProjectMenu() {
   const loadFromGallery = (id: string) => {
     const entry = gallery.find((e) => e.id === id);
     if (!entry) return;
-    loadSnapshot(entry.snap);
+    loadSnapshot(entry.snap, `galería · ${entry.name}`);
     setOpen(false);
     flash(`cargado · ${entry.name}`);
+  };
+
+  // Recuperar una copia también deja copia del proyecto actual (loadSnapshot la guarda):
+  // nada queda sin vuelta atrás.
+  const recoverBackup = (b: ProjectBackup) => {
+    loadSnapshot(b.snap, `recuperar copia · ${b.reason}`);
+    setOpen(false);
+    flash('copia recuperada');
   };
 
   const loadDemo = (id: string) => {
     const demo = DEMOS.find((d) => d.id === id);
     if (!demo) return;
-    loadSnapshot(demo.snap);
+    loadSnapshot(demo.snap, `ejemplo · ${demo.title}`);
     setOpen(false);
     flash(`ejemplo · ${demo.title}`);
   };
 
   const clearAll = async () => {
     setOpen(false);
-    if (await askConfirm('¿Limpiar todo el proyecto?', { message: 'Esto reemplaza el grafo actual por un lienzo vacío y borra la canción y las escenas. No se puede deshacer.', confirmLabel: 'limpiar', danger: true })) {
+    if (await askConfirm('¿Limpiar todo el proyecto?', { message: 'Esto reemplaza el grafo actual por un lienzo vacío y borra la canción y las escenas. El proyecto actual queda en «copias automáticas» por si quieres volver.', confirmLabel: 'limpiar', danger: true })) {
       resetProject();
       flash('lienzo nuevo');
     }
@@ -204,7 +224,13 @@ export function ProjectMenu() {
 
   return (
     <div className="pm">
-      <button className={`pm-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)}>
+      <button
+        className={`pm-btn${open ? ' on' : ''}`}
+        onClick={() => {
+          if (!open) setBackups(listBackups());
+          setOpen(!open);
+        }}
+      >
         proyecto ▾
       </button>
       {note && <span className="pm-note">{note}</span>}
@@ -240,6 +266,23 @@ export function ProjectMenu() {
                   </div>
                 ))}
               </div>
+            )}
+            {backups.length > 0 && (
+              <>
+                <div className="pm-sep" />
+                <div className="pm-section" title="se guardan solas justo antes de que algo reemplace el proyecto (un ejemplo, Nod-IA, abrir un archivo, la galería, limpiar todo…)">
+                  copias automáticas
+                </div>
+                <div className="pm-gallery">
+                  {backups.map((b) => (
+                    <div key={b.id} className="pm-gal-item">
+                      <button className="pm-gal-load" title={`${b.summary}\nse guardó antes de: ${b.reason}\nclic para recuperarla`} onClick={() => recoverBackup(b)}>
+                        <span className="pm-bk-when">{whenLabel(b.at)}</span> {b.summary}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
             <div className="pm-sep" />
             <button className="danger" onClick={clearAll}>Limpiar todo</button>

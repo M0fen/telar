@@ -33,7 +33,7 @@ export function AiCopilot({ open, onClose }: { open: boolean; onClose: () => voi
     try {
       const raw = await requestAiGraph(p);
       const { snap, warnings } = sanitizeAiGraph(raw);
-      loadSnapshot(snap);
+      loadSnapshot(snap, 'Nod-IA');
       setWarnings(warnings);
       setStatus('done');
       void play(); // el clic es el gesto de usuario que habilita el audio
