@@ -22,7 +22,11 @@ import { sampleDuration } from '../lib/audioMeta';
 import { bareSampleName } from '../lib/sampleFit';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
-import { loadProject, saveProjectDebounced, maxIdCounter, type ProjectSnapshot } from '../lib/projectStore';
+import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot } from '../lib/projectStore';
+// Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
+// se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
+import { useSongStore } from './useSongStore';
+import { useScenesStore } from './useScenesStore';
 import { registerDownloadedSamples } from './useDownloadsStore';
 
 export type GNode = Node<NodeData>;
@@ -57,10 +61,20 @@ const initialEdges: Edge[] = [
 ];
 
 // Restaura el último proyecto si existe (autoguardado en localStorage).
-const saved = loadProject();
+const saved = savedProject();
 const startNodes: GNode[] = (saved?.nodes as GNode[] | undefined) ?? initialNodes;
 const startEdges: Edge[] = saved?.edges ?? initialEdges;
 idCounter = maxIdCounter(startNodes); // evita colisiones de id al crear nodos
+
+// Paso del historial. `extras` (canción + escenas) solo en los pasos de una CARGA: deshacer
+// una carga devuelve también la canción y las escenas que se reemplazaron. Los demás pasos
+// no las tocan (editar la canción no entra al historial; restaurarla al deshacer otra cosa
+// borraría esas ediciones).
+interface HistoryEntry {
+  nodes: GNode[];
+  edges: Edge[];
+  extras?: ProjectExtras;
+}
 
 interface GraphState {
   nodes: GNode[];
@@ -91,8 +105,8 @@ interface GraphState {
   runtimeError: string | null; // error de Strudel al evaluar/programar el patrón
   lastCode: string | null;
   // historial deshacer/rehacer (pilas de snapshots del grafo).
-  past: { nodes: GNode[]; edges: Edge[] }[];
-  future: { nodes: GNode[]; edges: Edge[] }[];
+  past: HistoryEntry[];
+  future: HistoryEntry[];
   undo: () => void;
   redo: () => void;
   canUndo: () => boolean;
@@ -242,18 +256,20 @@ export const useGraphStore = create<GraphState>((set, get) => {
 
   // --- historial (deshacer/rehacer) -----------------------------------------
   // Snapshot profundo de nodos/edges (sin funciones → structuredClone es seguro).
-  const snap = () => ({ nodes: structuredClone(get().nodes), edges: structuredClone(get().edges) });
+  const snap = (): HistoryEntry => ({ nodes: structuredClone(get().nodes), edges: structuredClone(get().edges) });
   // Empuja el estado ACTUAL a la pila `past` ANTES de una mutación. Coalescido:
   // los arrastres de sliders (muchos updateNodeData/frame) generan 1 paso, no 60
   // (a menos que `force`, para cambios estructurales: crear/borrar/conectar).
   // portapapeles de nodos (copiar/pegar). Vive fuera del estado (no persiste).
   let clipboard: { nodes: GNode[]; edges: Edge[] } | null = null;
   let lastPush = 0;
-  const pushPast = (force = false) => {
+  const pushPast = (force = false, withExtras = false) => {
     const now = Date.now();
     if (!force && now - lastPush < 500) return;
     lastPush = now;
-    set({ past: [...get().past.slice(-49), snap()], future: [] });
+    const entry = snap();
+    if (withExtras) entry.extras = currentExtras();
+    set({ past: [...get().past.slice(-49), entry], future: [] });
   };
 
   return {
@@ -528,14 +544,20 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const { past } = get();
       if (!past.length) return;
       const prev = past[past.length - 1];
-      set({ nodes: prev.nodes, edges: prev.edges, past: past.slice(0, -1), future: [snap(), ...get().future].slice(0, 50) });
+      const cur = snap();
+      if (prev.extras) cur.extras = currentExtras(); // rehacer la carga devuelve sus extras
+      set({ nodes: prev.nodes, edges: prev.edges, past: past.slice(0, -1), future: [cur, ...get().future].slice(0, 50) });
+      if (prev.extras) applyExtras(prev.extras);
       get().recompile();
     },
     redo: () => {
       const { future } = get();
       if (!future.length) return;
       const next = future[0];
-      set({ nodes: next.nodes, edges: next.edges, future: future.slice(1), past: [...get().past, snap()].slice(-50) });
+      const cur = snap();
+      if (next.extras) cur.extras = currentExtras();
+      set({ nodes: next.nodes, edges: next.edges, future: future.slice(1), past: [...get().past, cur].slice(-50) });
+      if (next.extras) applyExtras(next.extras);
       get().recompile();
     },
     canUndo: () => get().past.length > 0,
@@ -849,11 +871,12 @@ export const useGraphStore = create<GraphState>((set, get) => {
         runtimeError: null,
         loadNonce: get().loadNonce + 1,
       });
+      applyExtras(projectExtras(null)); // la canción y las escenas eran del grafo anterior
       get().recompile();
     },
 
     loadSnapshot: (snap) => {
-      pushPast(true); // cargar (demo/proyecto/copiloto IA) es deshacible con Ctrl+Z
+      pushPast(true, true); // cargar (demo/proyecto/copiloto IA) es deshacible con Ctrl+Z, canción y escenas incluidas
       const rawNodes = (snap.nodes as GNode[] | undefined) ?? get().nodes;
       // Al CARGAR un proyecto/demo, los Source aparecen COLAPSADOS: lienzo limpio y
       // legible de un vistazo (se expanden con clic). Pedido del usuario.
@@ -894,6 +917,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
         runtimeError: null,
         loadNonce: get().loadNonce + 1,
       });
+      // canción y escenas: las del proyecto cargado, o NINGUNA (las de antes eran de otro
+      // grafo: sus nodeIds ya no existen y dispararían escenas fantasma).
+      applyExtras(projectExtras(snap));
       if (snap.cps != null) setCps(snap.cps);
       get().recompile();
       // avisa (sin bloquear) si hubo que acotar el máster del proyecto importado.
@@ -906,8 +932,22 @@ export const useGraphStore = create<GraphState>((set, get) => {
   };
 });
 
-// Autoguardado: persiste el proyecto (debounced) ante cualquier cambio relevante.
-useGraphStore.subscribe((s) => {
+// Canción + escenas tal como están ahora (para el historial y el autoguardado).
+function currentExtras(): ProjectExtras {
+  const song = useSongStore.getState();
+  return { song: { steps: song.steps, loop: song.loop }, scenes: useScenesStore.getState().scenes };
+}
+function applyExtras(x: ProjectExtras): void {
+  useSongStore.getState().replace(x.song);
+  useScenesStore.getState().replace(x.scenes);
+}
+
+// Autoguardado: persiste el proyecto COMPLETO (debounced) ante cualquier cambio relevante
+// del grafo, la canción o las escenas (estas se suscriben en useScenesStore). Siempre lleva
+// `song` y `scenes`, aunque estén vacías: así, al arrancar, un proyecto guardado se
+// distingue de uno de antes de que viajaran con él (la migración las adopta una sola vez).
+export function saveProjectSoon(): void {
+  const s = useGraphStore.getState();
   saveProjectDebounced({
     nodes: s.nodes,
     edges: s.edges,
@@ -922,5 +962,11 @@ useGraphStore.subscribe((s) => {
     vizVisible: s.vizVisible,
     vizHeadless: s.vizHeadless,
     vizMilkStyle: s.vizMilkStyle,
+    ...currentExtras(),
   });
+}
+useGraphStore.subscribe(() => saveProjectSoon());
+// playing/index son de ejecución: solo steps/loop disparan el guardado.
+useSongStore.subscribe((s, p) => {
+  if (s.steps !== p.steps || s.loop !== p.loop) saveProjectSoon();
 });

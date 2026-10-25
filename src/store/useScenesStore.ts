@@ -1,14 +1,16 @@
 import { create } from 'zustand';
 import type { ChannelEq, NodeData } from '../graph/types';
 import { withoutMomentary, type MasterFx } from '../graph/compile';
-import { useGraphStore } from './useGraphStore';
+import { useGraphStore, saveProjectSoon } from './useGraphStore';
+import { savedProject, startupScenes, readLegacy, LEGACY_SCENES_KEY } from '../lib/projectStore';
 
 // Escenas / bancos de patrones disparables (Fase A — performance en vivo). Una
 // escena NO recarga el grafo (eso es la galería): captura el ESTADO de mezcla de
 // cada nodo —mute, solo, gain, filtro, pan, EQ de canal y params de fx/transform—
 // MÁS el estado del MÁSTER (P2.1: un "drop" puede abrir el filtro del máster o
 // cambiar su groove), y al dispararla lo reaplica de golpe. Teclas 1–9.
-// Persistido en localStorage por proyecto vivo.
+// Son PARTE DEL PROYECTO (estado por nodeId de este grafo): las guarda el autoguardado y
+// viajan al exportar/compartir; cargar otro proyecto trae las suyas o ninguna.
 
 // Parche de estado por nodo que guarda una escena.
 export interface SceneState {
@@ -29,22 +31,6 @@ export interface Scene {
   savedAt: number;
 }
 
-const KEY = 'telar.scenes.v1';
-
-function load(): Record<number, Scene> {
-  try {
-    return JSON.parse(localStorage.getItem(KEY) || '{}') as Record<number, Scene>;
-  } catch {
-    return {};
-  }
-}
-function persist(scenes: Record<number, Scene>) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(scenes));
-  } catch (e) {
-    console.warn('scenes: no se pudo guardar', e);
-  }
-}
 
 // Toma del grafo actual el estado "tocable" de cada nodo (lo que una escena recuerda).
 function snapshotState(): Record<string, SceneState> {
@@ -71,10 +57,12 @@ interface ScenesStore {
   trigger: (slot: number) => void;
   clear: (slot: number) => void;
   rename: (slot: number, name: string) => void;
+  // Reemplaza el banco entero (cargar proyecto / deshacer una carga).
+  replace: (scenes: Record<number, Scene>) => void;
 }
 
 export const useScenesStore = create<ScenesStore>((set, get) => ({
-  scenes: load(),
+  scenes: startupScenes(savedProject(), readLegacy(LEGACY_SCENES_KEY)),
   active: null,
 
   capture: (slot, name) => {
@@ -86,9 +74,7 @@ export const useScenesStore = create<ScenesStore>((set, get) => ({
       master: withoutMomentary(useGraphStore.getState().master), // el máster forma parte de la escena (sin pads sostenidos)
       savedAt: Date.now(),
     };
-    const scenes = { ...get().scenes, [slot]: scene };
-    persist(scenes);
-    set({ scenes, active: slot });
+    set({ scenes: { ...get().scenes, [slot]: scene }, active: slot });
   },
 
   trigger: (slot) => {
@@ -106,15 +92,21 @@ export const useScenesStore = create<ScenesStore>((set, get) => ({
   clear: (slot) => {
     const scenes = { ...get().scenes };
     delete scenes[slot];
-    persist(scenes);
     set({ scenes, active: get().active === slot ? null : get().active });
   },
 
   rename: (slot, name) => {
     const cur = get().scenes[slot];
     if (!cur) return;
-    const scenes = { ...get().scenes, [slot]: { ...cur, name } };
-    persist(scenes);
-    set({ scenes });
+    set({ scenes: { ...get().scenes, [slot]: { ...cur, name } } });
   },
+
+  replace: (scenes) => set({ scenes, active: null }),
 }));
+
+// Autoguardado: las escenas viajan dentro del proyecto. Se suscribe AQUÍ (no en
+// useGraphStore) porque los dos módulos se importan entre sí: desde aquí el store ya
+// existe al suscribirse sea cual sea el orden de carga. `active` no se guarda.
+useScenesStore.subscribe((s, p) => {
+  if (s.scenes !== p.scenes) saveProjectSoon();
+});

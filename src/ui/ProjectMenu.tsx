@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
+import { useSongStore } from '../store/useSongStore';
+import { useScenesStore } from '../store/useScenesStore';
 import { useGalleryStore } from '../store/useGalleryStore';
 import type { ProjectSnapshot } from '../lib/projectStore';
 import { DEMOS } from '../lib/demos';
@@ -41,6 +43,18 @@ function currentSnapshot(): Partial<ProjectSnapshot> {
     vizVisible: s.vizVisible,
     vizHeadless: s.vizHeadless,
     vizMilkStyle: s.vizMilkStyle,
+    // canción y escenas viajan con el proyecto; vacías se omiten (al cargar, faltar = vacías)
+    // para no inflar el enlace de compartir.
+    ...songAndScenes(),
+  };
+}
+
+function songAndScenes(): Pick<ProjectSnapshot, 'song' | 'scenes'> {
+  const { steps, loop } = useSongStore.getState();
+  const scenes = useScenesStore.getState().scenes;
+  return {
+    ...(steps.length ? { song: { steps, loop } } : {}),
+    ...(Object.keys(scenes).length ? { scenes } : {}),
   };
 }
 
@@ -118,7 +132,7 @@ export function ProjectMenu() {
 
   const clearAll = async () => {
     setOpen(false);
-    if (await askConfirm('¿Limpiar todo el proyecto?', { message: 'Esto reemplaza el grafo actual por un lienzo vacío. No se puede deshacer.', confirmLabel: 'limpiar', danger: true })) {
+    if (await askConfirm('¿Limpiar todo el proyecto?', { message: 'Esto reemplaza el grafo actual por un lienzo vacío y borra la canción y las escenas. No se puede deshacer.', confirmLabel: 'limpiar', danger: true })) {
       resetProject();
       flash('lienzo nuevo');
     }

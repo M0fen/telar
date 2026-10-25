@@ -1,36 +1,19 @@
 import { create } from 'zustand';
+import { savedProject, startupSong, readLegacy, LEGACY_SONG_KEY, type ProjectSong } from '../lib/projectStore';
 
 // Línea de tiempo / SONG MODE: arregla una canción como una secuencia de SECCIONES,
 // cada una = una escena (1–9, del banco de escenas) que dura N compases. Al reproducir
 // la canción, avanza por las secciones disparando su escena en cada frontera de compás
 // (el reloj del scheduler manda). Convierte el jam de bucles en una estructura
-// (intro→drop→break→…). steps+loop persisten; playing/index son de ejecución.
+// (intro→drop→break→…). steps+loop son PARTE DEL PROYECTO (los guarda el autoguardado
+// y viajan al exportar/compartir: ver projectStore); playing/index son de ejecución.
 export interface SongStep {
   id: string;
   scene: number; // 1..9
   bars: number; // compases (ciclos) que dura la sección
 }
 
-const KEY = 'telar.song.v1';
-interface Persisted { steps: SongStep[]; loop: boolean }
-function load(): Persisted {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) return JSON.parse(raw) as Persisted;
-  } catch {
-    /* ignore */
-  }
-  return { steps: [], loop: true };
-}
-function persist(steps: SongStep[], loop: boolean) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify({ steps, loop }));
-  } catch {
-    /* ignore */
-  }
-}
-
-const seed = load();
+const seed = startupSong(savedProject(), readLegacy(LEGACY_SONG_KEY));
 let n = 0;
 const newId = () => `st_${Date.now().toString(36)}_${n++}`;
 
@@ -45,6 +28,9 @@ interface SongState {
   setLoop: (b: boolean) => void;
   setPlaying: (b: boolean) => void;
   setIndex: (i: number) => void;
+  // Reemplaza la canción entera (cargar proyecto / deshacer una carga). Detiene el modo
+  // canción: sus secciones ya no son las que sonaban.
+  replace: (song: ProjectSong) => void;
 }
 
 export const useSongStore = create<SongState>((set, get) => ({
@@ -54,21 +40,12 @@ export const useSongStore = create<SongState>((set, get) => ({
   index: 0,
   addStep: () => {
     const last = get().steps[get().steps.length - 1];
-    const steps = [...get().steps, { id: newId(), scene: last ? last.scene : 1, bars: 8 }];
-    persist(steps, get().loop);
-    set({ steps });
+    set({ steps: [...get().steps, { id: newId(), scene: last ? last.scene : 1, bars: 8 }] });
   },
-  updateStep: (id, patch) => {
-    const steps = get().steps.map((s) => (s.id === id ? { ...s, ...patch } : s));
-    persist(steps, get().loop);
-    set({ steps });
-  },
-  removeStep: (id) => {
-    const steps = get().steps.filter((s) => s.id !== id);
-    persist(steps, get().loop);
-    set({ steps });
-  },
-  setLoop: (loop) => { persist(get().steps, loop); set({ loop }); },
+  updateStep: (id, patch) => set({ steps: get().steps.map((s) => (s.id === id ? { ...s, ...patch } : s)) }),
+  removeStep: (id) => set({ steps: get().steps.filter((s) => s.id !== id) }),
+  setLoop: (loop) => set({ loop }),
   setPlaying: (playing) => set({ playing }),
   setIndex: (index) => set({ index }),
+  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0 }),
 }));
