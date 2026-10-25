@@ -106,6 +106,7 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **▶ canción** desde la vista DAW y pasar a standard o dj sonando: la canción sigue cambiando de escena en cada sección (antes se quedaba quieta sin el panel de la canción).
 - [ ] **M / S** de cada fila silencian / aíslan esa pista; recargar la página vuelve a la vista DAW.
 - [ ] **Línea de reproducción**: con ▶ la línea recorre la canción al ritmo de lo que suena y la sección actual se ilumina justo en su 1 (también en la 2.ª vuelta); con mucho zoom la vista la sigue sola; con ■ desaparece.
+- [ ] **Encender / apagar bloques** (oído): clic en el bloque del bombo en el drop → se apaga (rayado) y el bombo sale **justo en ese tramo**; otro clic → vuelve **igual**; **Ctrl+Z** lo deshace. Un bloque vacío (punteado) entra con el patrón de la primera sección que suena. Las pistas sin secciones no cambian al clic. Si el panel MIDI tapa la izquierda de la vista, se minimiza con ▾.
 
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

@@ -3,7 +3,7 @@ import './DawView.css';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
-import { buildDawModel, playheadAt, type DawBlock, type DawTrack } from '../lib/dawModel';
+import { buildDawModel, playheadAt, toggleBlockCode, type DawBlock, type DawTrack } from '../lib/dawModel';
 import { playSong } from '../lib/songTransport';
 import { getScheduler } from '../audio/engine';
 
@@ -28,10 +28,19 @@ function readZoom(): number {
 
 const STATE_TXT: Record<DawBlock['state'], string> = { on: 'suena', off: 'apagada (conserva su patrón)', empty: 'vacía' };
 
+// ¿se puede encender/apagar con un clic? (Fase 1.3) — las pistas planas se parten en la Fase 2.
+const clickable = (t: DawTrack, b: DawBlock) => !t.plain && b.arm >= 0 && (b.state !== 'empty' || t.seed >= 0);
+
 function blockTitle(t: DawTrack, b: DawBlock): string {
   if (t.plain) return `${t.name} · sin secciones: suena igual en todos los compases\n${b.code.slice(0, 160)}`;
   const rep = b.ghost ? ` · repetición (su arrange dura ${t.bars} compases y vuelve a empezar)` : '';
-  return `${t.name} · sección ${b.arm + 1} · ${b.bars} compases · ${STATE_TXT[b.state]}${rep}\n${b.code.slice(0, 160)}`;
+  const act =
+    b.state === 'on' ? 'clic: apagar esta sección (su patrón se conserva)'
+    : b.state === 'off' ? 'clic: encender (vuelve tal cual)'
+    : t.seed >= 0 ? `clic: entra con el patrón de la sección ${t.seed + 1}`
+    : 'vacía y sin patrón en esta pista para sembrarla';
+  const also = b.ghost && clickable(t, b) ? ' (cambia también sus repeticiones)' : '';
+  return `${t.name} · sección ${b.arm + 1} · ${b.bars} compases · ${STATE_TXT[b.state]}${rep}\n${act}${also}\n${b.code.slice(0, 160)}`;
 }
 
 export function DawView() {
@@ -73,6 +82,16 @@ export function DawView() {
   );
 
   const { sections, total, tracks, fromSong } = model;
+
+  // ENCENDER / APAGAR (Fase 1.3): un empalme en el brazo vía updateNodeData → Ctrl+Z lo deshace.
+  // Se lee el código del store en el momento del clic (no el del render) para no pisar un
+  // cambio que haya llegado entre medias.
+  const toggleBlock = (t: DawTrack, b: DawBlock) => {
+    if (!clickable(t, b)) return;
+    const code = useGraphStore.getState().nodes.find((n) => n.id === t.id)?.data.code ?? '';
+    const next = toggleBlockCode(code, b.arm);
+    if (next !== null && next !== code) update(t.id, { code: next });
+  };
 
   // LÍNEA DE REPRODUCCIÓN: rAF que lee el ciclo del scheduler y mueve DOS elementos (marca en la
   // regla + línea sobre las pistas) con `transform`, sin re-renderizar la rejilla 60×/s. Solo
@@ -190,9 +209,20 @@ export function DawView() {
                   {t.blocks.map((b, i) => (
                     <div
                       key={i}
-                      className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}`}
+                      className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}${clickable(t, b) ? ' click' : ''}`}
                       style={{ left: b.start * px, width: Math.max(2, b.bars * px - 2) }}
                       title={blockTitle(t, b)}
+                      {...(clickable(t, b)
+                        ? {
+                            role: 'button',
+                            tabIndex: 0,
+                            'aria-pressed': b.state === 'on',
+                            onClick: () => toggleBlock(t, b),
+                            onKeyDown: (e: { key: string; preventDefault: () => void }) => {
+                              if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBlock(t, b); }
+                            },
+                          }
+                        : {})}
                     >
                       {b.bars * px >= 30 && (
                         <span className="daw-blk-l">{t.plain ? 'suena siempre' : b.state === 'empty' ? 'vacía' : b.state === 'off' ? 'apagada' : `${b.arm + 1}`}</span>

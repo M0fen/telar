@@ -99,3 +99,43 @@ test('DAW 1.2: la línea de reproducción es el ciclo del scheduler dentro de la
   assert.deepEqual(playheadAt(5, 8, []), { pos: 5, section: -1 });  // sin secciones
   assert.deepEqual(playheadAt(Number.NaN, total, sections).pos, 0); // reloj sin arrancar
 });
+
+// --- Fase 1.3: encender / apagar bloques --------------------------------------------------
+import { toggleBlockCode, seedArm } from '../src/lib/dawModel.ts';
+import { splitArrange } from '../src/nodes/stepseqCode.ts';
+
+test('DAW 1.3: apagar y volver a encender un bloque deja el código IDÉNTICO (ida y vuelta)', () => {
+  const code = 'arrange([8, s("bd*4").bank("RolandTR909")], [8, note("c2 eb2").s("sawtooth").sometimesBy(0.3, x=>x.ply(2))], [16, s("bd*4")])';
+  const off = toggleBlockCode(code, 1);
+  assert.ok(off && off !== code);
+  const m = buildDawModel([{ id: 'b', code: off! }], SONG, sceneName).tracks[0];
+  assert.deepEqual(m.blocks.map((b) => b.state), ['on', 'off', 'on']); // solo ese brazo
+  assert.equal(toggleBlockCode(off!, 1), code);
+  // el primero y el último también, sin tocar a los demás
+  const off0 = toggleBlockCode(code, 0)!;
+  assert.deepEqual(buildDawModel([{ id: 'b', code: off0 }], SONG, sceneName).tracks[0].blocks.map((b) => b.state), ['off', 'on', 'on']);
+  assert.equal(toggleBlockCode(off0, 0), code);
+});
+
+test('DAW 1.3: un bloque VACÍO entra con el patrón de la primera sección que suena', () => {
+  const code = 'arrange([8, silence], [8, s("hh*8").mask(0)], [16, s("hh*16").gain(0.7)])';
+  assert.equal(seedArm(splitArrange(code)!), 2);
+  const next = toggleBlockCode(code, 0)!;
+  assert.equal(next, 'arrange([8, s("hh*16").gain(0.7)], [8, s("hh*8").mask(0)], [16, s("hh*16").gain(0.7)])');
+  assert.equal(buildDawModel([{ id: 'h', code }], SONG, sceneName).tracks[0].seed, 2);
+});
+
+test('DAW 1.3: si nada suena, el vacío se siembra con la primera APAGADA (sin su .mask(0)); sin patrón → no se puede', () => {
+  const code = 'arrange([8, s("hh*8").mask(0)], [8, silence], [16, silence])';
+  assert.equal(toggleBlockCode(code, 1), 'arrange([8, s("hh*8").mask(0)], [8, s("hh*8")], [16, silence])');
+  assert.equal(toggleBlockCode('arrange([8, silence], [24, silence])', 0), null);
+  assert.equal(buildDawModel([{ id: 'x', code: 'arrange([8, silence], [24, silence])' }], SONG, sceneName).tracks[0].seed, -1);
+});
+
+test('DAW 1.3: pista plana o brazo inexistente → no hace nada', () => {
+  assert.equal(toggleBlockCode('s("bd*4")', 0), null);
+  assert.equal(toggleBlockCode('arrange([8, s("bd*4")], [8, silence])', 2), null);
+  assert.equal(toggleBlockCode('arrange([8, s("bd*4")], [8, silence])', -1), null);
+  assert.equal(buildDawModel([{ id: 'p', code: 's("bd*4")' }], SONG, sceneName).tracks[0].seed, -1);
+});
+

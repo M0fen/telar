@@ -1,7 +1,7 @@
 // Modelo PURO de la vista DAW (Fase 1.1): de los `arrange([n, patrón], …)` de cada pista y
 // las secciones de la canción a bloques colocados en compases. La verdad es el CÓDIGO de
 // cada Source: esto se recalcula en cada cambio y no guarda estado propio.
-import { splitArrange, isMutedArm, isSilenceArm } from '../nodes/stepseqCode';
+import { splitArrange, isMutedArm, isSilenceArm, isSilentArm, muteArm, unmuteArm, spliceArm } from '../nodes/stepseqCode';
 
 export type BlockState = 'on' | 'off' | 'empty'; // suena · apagada (.mask(0), conserva patrón) · vacía (silence)
 
@@ -19,6 +19,7 @@ export interface DawTrack {
   name: string;
   plain: boolean; // sin arrange: el mismo patrón suena en todos los compases
   bars: number; // compases de SU arrange (0 si es plana)
+  seed: number; // brazo con el que se enciende una sección vacía (-1 = no hay patrón para sembrar)
   blocks: DawBlock[];
   mismatch: boolean; // su arrange no dura lo que la línea de tiempo → se desfasa en cada vuelta
   mute: boolean;
@@ -67,6 +68,28 @@ export function playheadAt(now: number, total: number, sections: DawSection[]): 
   return { pos, section };
 }
 
+// Brazo con el que se SIEMBRA una sección vacía (`silence`): el primero que suena; si ninguno
+// suena, el primero apagado (su patrón sigue en el código). -1 = la pista no tiene patrón.
+export function seedArm(arms: { code: string }[]): number {
+  const on = arms.findIndex((a) => !isSilentArm(a.code));
+  return on >= 0 ? on : arms.findIndex((a) => isMutedArm(a.code));
+}
+
+// ENCENDER / APAGAR UN BLOQUE (Fase 1.3): UN solo empalme sobre el brazo `arm` del arrange,
+// igual que la tira de secciones del nodo. suena → `.mask(0)` (apagada, conserva su patrón) ·
+// apagada → se lo quita (vuelve EXACTO) · vacía → entra con el patrón de `seedArm`. Devuelve
+// el código nuevo o null si no se puede (pista sin arrange, brazo que no existe, nada que sembrar).
+export function toggleBlockCode(code: string, arm: number): string | null {
+  const arms = splitArrange(code);
+  if (!arms || !Number.isInteger(arm) || arm < 0 || arm >= arms.length) return null;
+  const a = arms[arm];
+  if (isSilenceArm(a.code)) {
+    const s = seedArm(arms);
+    return s < 0 ? null : spliceArm(code, a, unmuteArm(arms[s].code));
+  }
+  return spliceArm(code, a, isMutedArm(a.code) ? unmuteArm(a.code) : muteArm(a.code));
+}
+
 export function buildDawModel(
   sources: DawSourceLike[],
   steps: DawStepLike[],
@@ -108,7 +131,7 @@ export function buildDawModel(
     const audible = !mute && (!anySolo || solo);
     if (!arms || !arms.length) {
       return {
-        id: s.id, name, plain: true, bars: 0, mismatch: false, mute, solo, audible,
+        id: s.id, name, plain: true, bars: 0, seed: -1, mismatch: false, mute, solo, audible,
         blocks: [{ arm: -1, start: 0, bars: total, state: 'on', ghost: false, code: (s.code ?? '').trim() }],
       };
     }
@@ -127,7 +150,7 @@ export function buildDawModel(
         pos += bars;
       }
     }
-    return { id: s.id, name, plain: false, bars: own, blocks, mismatch: sections.length > 0 && Math.abs(own - total) > 1e-9, mute, solo, audible };
+    return { id: s.id, name, plain: false, bars: own, seed: seedArm(arms), blocks, mismatch: sections.length > 0 && Math.abs(own - total) > 1e-9, mute, solo, audible };
   });
 
   return { sections, total, tracks, fromSong };

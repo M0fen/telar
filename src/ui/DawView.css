@@ -91,6 +91,9 @@
 }
 .daw-blk.empty { border: 1px dashed var(--line, #2a3846); background: transparent; }
 .daw-blk.ghost { opacity: 0.45; }
+.daw-blk.click { cursor: pointer; }
+.daw-blk.click:hover { box-shadow: inset 0 0 0 1px var(--accent, #3df0d0); }
+.daw-blk.click:focus-visible { outline: 2px solid var(--accent, #3df0d0); outline-offset: 1px; }
 .daw-blk-l { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #02110e; font-weight: 600; }
 .daw-blk.off .daw-blk-l, .daw-blk.empty .daw-blk-l, .daw-blk.plain .daw-blk-l { color: var(--dim, #6b7a88); font-weight: 400; }
 
