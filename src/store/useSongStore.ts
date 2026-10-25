@@ -22,6 +22,11 @@ interface SongState {
   loop: boolean;
   playing: boolean;
   index: number; // sección activa (runtime)
+  // compás de arranque (desde 0) tras «tocar desde aquí» en la vista DAW (Fase 1.4). Es de
+  // EJECUCIÓN (no se guarda): el compilador adelanta todo `from` compases y la canción y la
+  // línea de reproducción cuentan desde ahí. ■ lo devuelve a 0.
+  from: number;
+  setFrom: (bar: number) => void;
   addStep: () => void;
   updateStep: (id: string, patch: Partial<SongStep>) => void;
   removeStep: (id: string) => void;
@@ -38,6 +43,8 @@ export const useSongStore = create<SongState>((set, get) => ({
   loop: seed.loop,
   playing: false,
   index: 0,
+  from: 0,
+  setFrom: (bar) => set({ from: Number.isFinite(bar) && bar > 0 ? Math.floor(bar) : 0 }),
   addStep: () => {
     const last = get().steps[get().steps.length - 1];
     set({ steps: [...get().steps, { id: newId(), scene: last ? last.scene : 1, bars: 8 }] });
@@ -47,5 +54,5 @@ export const useSongStore = create<SongState>((set, get) => ({
   setLoop: (loop) => set({ loop }),
   setPlaying: (playing) => set({ playing }),
   setIndex: (index) => set({ index }),
-  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0 }),
+  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0 }),
 }));

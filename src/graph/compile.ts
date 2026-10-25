@@ -482,6 +482,16 @@ export function applyGlobalMaster(code: string, m: MasterFx): string {
   return applyMaster(code, { ...m, filter: 0 }, { composeSends: true });
 }
 
+// TOCAR DESDE UN COMPÁS (Modo DAW, Fase 1.4): el transporte se reinicia (ciclo 0) y TODO el
+// grafo se adelanta `from` compases → en el ciclo 0 suena el compás `from + 1`, arrange de
+// cada instrumento incluidos (1 ciclo = 1 compás). Va POR DENTRO del máster global: el ancla
+// del ½ tiempo y el swing viven en el reloj del scheduler, no en el de la canción. Con from 0
+// el código queda idéntico. El salto de línea protege de un `//` final en el código.
+export function applyStartBar(code: string, from: number): string {
+  const f = Math.floor(Number(from));
+  return Number.isFinite(f) && f > 0 ? `(${code}\n).early(${f})` : code;
+}
+
 // Los FX MOMENTÁNEOS del máster (se sostienen mientras pulsas) nunca sobreviven a una carga:
 // un roll «pegado» al recargar, o un ancla vieja de ½ tiempo que se dispararía sola minutos
 // después, serían fallos en vivo.

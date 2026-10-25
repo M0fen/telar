@@ -107,6 +107,7 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **M / S** de cada fila silencian / aíslan esa pista; recargar la página vuelve a la vista DAW.
 - [ ] **Línea de reproducción**: con ▶ la línea recorre la canción al ritmo de lo que suena y la sección actual se ilumina justo en su 1 (también en la 2.ª vuelta); con mucho zoom la vista la sigue sola; con ■ desaparece.
 - [ ] **Encender / apagar bloques** (oído): clic en el bloque del bombo en el drop → se apaga (rayado) y el bombo sale **justo en ese tramo**; otro clic → vuelve **igual**; **Ctrl+Z** lo deshace. Un bloque vacío (punteado) entra con el patrón de la primera sección que suena. Las pistas sin secciones no cambian al clic. Si el panel MIDI tapa la izquierda de la vista, se minimiza con ▾.
+- [ ] **Tocar desde un compás** (oído): con la canción armada, clic en la sección **drop** (o en el número de un compás) → suena el drop **en el acto**, con su escena y sus instrumentos juntos, y la línea arranca ahí. **■** y luego **▶ canción** → vuelve al compás 1. Sostener **½ tiempo** después del salto funciona normal y al soltarlo vuelve a tempo.
 
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

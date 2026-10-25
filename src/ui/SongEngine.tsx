@@ -27,7 +27,7 @@ export function SongEngine(): null {
       // respecto a la frontera del compás. Miramos ~90 ms hacia delante (en ciclos, según el
       // cps real) para que la escena aterrice EN el 1, no después.
       const lookCyc = 0.09 * (useGraphStore.getState().cps || 0.5);
-      const pos = songPosition(steps, getScheduler()?.now?.() ?? 0, loop, lookCyc);
+      const pos = songPosition(steps, getScheduler()?.now?.() ?? 0, loop, lookCyc, useSongStore.getState().from);
       if (pos.end) { useSongStore.getState().setPlaying(false); return; }
       if (pos.idx !== last) {
         last = pos.idx;

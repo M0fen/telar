@@ -13,6 +13,7 @@ export async function playSong(): Promise<void> {
   const steps = useSongStore.getState().steps;
   if (!steps.length) return;
   if (useGraphStore.getState().playing) await useGraphStore.getState().stop();
+  useSongStore.getState().setFrom(0); // ▶ canción = SIEMPRE desde el compás 1
   await useGraphStore.getState().play();
   useSongStore.getState().setPlaying(true);
   const total = songTotal(steps);
@@ -24,6 +25,18 @@ export async function playSong(): Promise<void> {
     const list = mismatches.slice(0, 3).map((m) => `${m.name} (${m.bars})`).join(', ');
     toast.warn(`la canción dura ${total} compases y ${list}${mismatches.length > 3 ? '…' : ''} no: la primera vuelta cae junta, la segunda se desfasa. Usa ⇋ instrumentos.`);
   }
+}
+
+// TOCAR DESDE UN COMPÁS (Modo DAW, Fase 1.4), como un DAW al dar play en otro punto: reinicia
+// el transporte (ciclo 0) con `from = bar` → el compilador adelanta TODO `bar` compases, así el
+// primer compás que suena es el `bar + 1`, instrumentos (arrange) y escena de su sección juntos
+// (el motor de la canción cuenta desde ahí). ■ lo devuelve a 0. `bar` va desde 0.
+export async function playFrom(bar: number): Promise<void> {
+  const g = useGraphStore.getState();
+  if (g.playing) await g.stop(); // suelta el ½ tiempo y pone from en 0
+  useSongStore.getState().setFrom(bar);
+  await useGraphStore.getState().play();
+  if (useSongStore.getState().steps.length) useSongStore.getState().setPlaying(true);
 }
 
 // Detiene el MODO canción (deja de disparar escenas); el transporte sigue.

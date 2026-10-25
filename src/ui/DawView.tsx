@@ -4,7 +4,7 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { buildDawModel, playheadAt, toggleBlockCode, type DawBlock, type DawTrack } from '../lib/dawModel';
-import { playSong } from '../lib/songTransport';
+import { playSong, playFrom } from '../lib/songTransport';
 import { getScheduler } from '../audio/engine';
 
 // VISTA DAW (Fase 1.1 vista + 1.2 línea de reproducción): la canción entera de un vistazo. Pistas en filas,
@@ -93,6 +93,11 @@ export function DawView() {
     if (next !== null && next !== code) update(t.id, { code: next });
   };
 
+  // TOCAR DESDE UN COMPÁS (Fase 1.4): clic en los números = desde ese compás; clic en una
+  // sección = desde su primer compás. Reinicia el transporte (como un DAW).
+  const barAt = (e: { clientX: number; currentTarget: Element }) =>
+    Math.max(0, Math.min(total - 1, Math.floor((e.clientX - e.currentTarget.getBoundingClientRect().left) / px)));
+
   // LÍNEA DE REPRODUCCIÓN: rAF que lee el ciclo del scheduler y mueve DOS elementos (marca en la
   // regla + línea sobre las pistas) con `transform`, sin re-renderizar la rejilla 60×/s. Solo
   // la sección resaltada pasa por React, y solo cuando cambia. Si la línea sale de la vista,
@@ -109,7 +114,8 @@ export function DawView() {
     let raf = 0;
     let lastSec = -2;
     const tick = () => {
-      const { pos, section } = playheadAt(Number(getScheduler()?.now?.() ?? 0), total, sections);
+      // + from: tras «tocar desde aquí» el reloj arrancó en 0 pero suena el compás from + 1
+      const { pos, section } = playheadAt(Number(getScheduler()?.now?.() ?? 0) + useSongStore.getState().from, total, sections);
       const x = pos * px;
       const t = `translateX(${x}px)`;
       for (const m of marks) if (m) m.style.transform = t;
@@ -173,7 +179,12 @@ export function DawView() {
               <div className="daw-corner">{sections.length === 0 ? 'sin secciones' : 'secciones'}</div>
               <div className="daw-ruler-lane" style={{ width }}>
                 <div className="daw-ph-mark" ref={phRulerRef} style={{ display: 'none' }} />
-                <div className="daw-bars" style={gridBg}>
+                <div
+                  className="daw-bars"
+                  style={gridBg}
+                  onClick={(e) => void playFrom(barAt(e))}
+                  title="clic: tocar desde este compás (reinicia el transporte; ■ vuelve al compás 1)"
+                >
                   {Array.from({ length: total }, (_, i) =>
                     i % every === 0 ? (
                       <span key={i} className="daw-barn" style={{ left: i * px }}>{i + 1}</span>
@@ -186,7 +197,11 @@ export function DawView() {
                       key={i}
                       className={`daw-sec${i % 2 ? ' alt' : ''}${i === secNow ? ' now' : ''}`}
                       style={{ left: s.start * px, width: Math.max(2, s.bars * px - 1) }}
-                      title={`${s.label} · compases ${s.start + 1}–${s.start + s.bars} (${s.bars})`}
+                      title={`${s.label} · compases ${s.start + 1}–${s.start + s.bars} (${s.bars})\nclic: tocar desde el inicio de esta sección`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void playFrom(s.start)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void playFrom(s.start); } }}
                     >
                       {s.bars * px >= 36 && <span>{s.label}</span>}
                     </div>

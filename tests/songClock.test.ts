@@ -48,3 +48,32 @@ test('aviso: instrumentos cuyo arrange no dura lo que la canción', () => {
   assert.deepEqual(m, [{ id: 'src_2', name: 'bajo', bars: 16 }, { id: 'src_4', name: 'src_4', bars: 2 }]);
   assert.deepEqual(arrangeMismatches([], [{ id: 'a', code: 'arrange([2, s("x")])' }]), []);
 });
+
+// --- Modo DAW Fase 1.4: tocar desde un compás --------------------------------------------
+import { applyStartBar, applyGlobalMaster } from '../src/graph/compile.ts';
+
+test('1.4: songPosition cuenta desde el compás de arranque (from)', () => {
+  const steps = [{ scene: 1, bars: 8 }, { scene: 2, bars: 8 }, { scene: 3, bars: 16 }];
+  assert.deepEqual(songPosition(steps, 0, true, 0, 0), { idx: 0, end: false });
+  assert.deepEqual(songPosition(steps, 0, true, 0, 8), { idx: 1, end: false }); // clic en el compás 9
+  assert.deepEqual(songPosition(steps, 0.5, true, 0, 16), { idx: 2, end: false });
+  assert.deepEqual(songPosition(steps, 16, true, 0, 16), { idx: 0, end: false }); // da la vuelta (32 → 0)
+  assert.deepEqual(songPosition(steps, 16, false, 0, 16), { idx: 2, end: true }); // sin loop: se acaba
+  assert.deepEqual(songPosition(steps, 7.95, true, 0.1, 0), songPosition(steps, 0.95, true, 0.1, 7)); // la anticipación también
+});
+
+test('1.4: .early(from) solo con from > 0, entero, y POR DENTRO del máster', () => {
+  const code = 'stack(arrange([8, s("bd*4")], [8, s("hh*8")]), note("c2").s("sine"))';
+  assert.equal(applyStartBar(code, 0), code);
+  assert.equal(applyStartBar(code, -3), code);
+  assert.equal(applyStartBar(code, Number.NaN), code);
+  assert.equal(applyStartBar(code, 8), `(${code}\n).early(8)`);
+  assert.equal(applyStartBar(code, 8.7), `(${code}\n).early(8)`); // compases enteros
+  assert.equal(applyStartBar('s("bd*4") // fin', 4), '(s("bd*4") // fin\n).early(4)'); // un // final no se come el cierre
+  const m = { gain: 1, filter: 0, room: 0, drive: 0, delay: 0, crush: 0, swing: 0.1, humanize: 0, half: 0 } as Parameters<typeof applyGlobalMaster>[1];
+  const out = applyGlobalMaster(applyStartBar(code, 8), m);
+  assert.ok(out.startsWith(`(${code}\n).early(8)`) && out.indexOf('.early(8)') < out.indexOf('.swingBy('));
+  // ½ tiempo: el ancla (reloj del scheduler) envuelve el patrón YA adelantado
+  const half = applyGlobalMaster(applyStartBar(code, 8), { ...m, swing: 0, half: 2 });
+  assert.ok(half.startsWith('((p)=>stack(') && half.includes(`((${code}\n).early(8))`));
+});

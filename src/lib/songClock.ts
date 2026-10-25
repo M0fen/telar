@@ -18,10 +18,12 @@ export function songTotal(steps: SongStepLike[]): number {
 // Sección que suena en el ciclo `now` del scheduler. `look` (en ciclos) adelanta el
 // cálculo para que la escena se dispare ANTES de la frontera y aterrice en el 1 (el rAF
 // y el hot-swap llegan tarde si se espera a cruzarla). Sin loop, pasado el final: `end`.
-export function songPosition(steps: SongStepLike[], now: number, loop: boolean, look = 0): { idx: number; end: boolean } {
+// `from` (Fase 1.4): compás de arranque tras «tocar desde aquí» — el transporte se reinició en
+// el ciclo 0 pero lo que suena es el compás `from + 1` (el compilador adelantó todo con .early).
+export function songPosition(steps: SongStepLike[], now: number, loop: boolean, look = 0, from = 0): { idx: number; end: boolean } {
   const total = songTotal(steps);
   if (!steps.length || total <= 0) return { idx: -1, end: true };
-  const t = Math.max(0, now);
+  const t = Math.max(0, now + (Number.isFinite(from) && from > 0 ? from : 0));
   if (!loop && t >= total) return { idx: steps.length - 1, end: true };
   const ahead = loop ? (t + look) % total : Math.min(t + look, total - 1e-6);
   let acc = 0;

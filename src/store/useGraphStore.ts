@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyGlobalMaster, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
+import { compileGraph, applyGlobalMaster, applyStartBar, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
@@ -230,7 +230,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
       if (dropped.length) toast.warn(`No pude leer el código de: ${dropped.join(', ')} → esa(s) pista(s) no suena(n), pero el resto sí. Revísalo en «reparar código».`);
     }
     set({ compileError: error, lastCode: code });
-    if (playing && code) void swapPattern(applyGlobalMaster(code, master), cps);
+    // `from` (Fase 1.4): compás de arranque tras «tocar desde aquí»; 0 = desde el compás 1.
+    if (playing && code) void swapPattern(applyGlobalMaster(applyStartBar(code, useSongStore.getState().from), master), cps);
   };
 
   // Recompilado THROTTLED (borde inicial + final, ~70 ms): un arrastre de perilla
@@ -858,10 +859,15 @@ export const useGraphStore = create<GraphState>((set, get) => {
 
     stop: async () => {
       await stopAudio();
-      set({ playing: false });
+      // el ½ tiempo se suelta: su ancla era un ciclo del reloj que se acaba de parar y, al
+      // volver a ▶, saltaría solo minutos después (Fase 1.4).
+      const m = get().master;
+      set({ playing: false, ...(m.half ? { master: { ...m, half: 0 } } : {}) });
       // el reloj vuelve al ciclo 0: el modo canción no puede seguir (dispararía la escena
-      // del compás 1 con todo parado). ▶ canción vuelve a arrancar desde el 1.
+      // del compás 1 con todo parado). ▶ canción vuelve a arrancar desde el 1, y también
+      // el próximo ▶ tras «tocar desde aquí» (from vuelve a 0).
       useSongStore.getState().setPlaying(false);
+      useSongStore.getState().setFrom(0);
     },
 
     resetProject: (origin) => {

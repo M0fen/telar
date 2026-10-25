@@ -47,7 +47,8 @@
   background: var(--bg, #040506); border-right: 1px solid var(--line, #202c38);
 }
 .daw-ruler-lane { flex: none; position: relative; }
-.daw-bars { position: relative; height: 18px; }
+.daw-bars { position: relative; height: 18px; cursor: pointer; }
+.daw-bars:hover { background-color: rgba(61, 240, 208, 0.06); }
 .daw-barn { position: absolute; top: 3px; padding-left: 3px; font-size: 9px; color: var(--dim, #6b7a88); font-variant-numeric: tabular-nums; }
 .daw-secs { position: relative; height: 22px; }
 .daw-sec {
@@ -57,6 +58,9 @@
   padding: 2px 6px; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent, #3df0d0);
 }
 .daw-sec.alt { background: rgba(61, 240, 208, 0.05); }
+.daw-sec { cursor: pointer; }
+.daw-sec:hover { border-color: var(--accent, #3df0d0); }
+.daw-sec:focus-visible { outline: 2px solid var(--accent, #3df0d0); outline-offset: 1px; }
 
 /* filas de pistas */
 .daw-row { display: flex; height: 34px; border-bottom: 1px solid var(--line-soft, #161f28); }
