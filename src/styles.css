@@ -844,6 +844,8 @@ body {
 .seqs-lanebank select:disabled { opacity: 0.4; }
 .seqs-seedline { margin: 0; color: var(--dim); font-size: 9px; line-height: 1.5; }
 .seqs-seedline b { color: var(--accent); }
+.seqs-unmute { background: #04070a; border: 1px solid var(--line); color: var(--accent); font-family: var(--mono); font-size: 9px; padding: 1px 6px; border-radius: 2px; cursor: pointer; margin-left: 4px; }
+.seqs-unmute:hover { border-color: var(--accent); }
 /* sub-filas del panel ≋: vel continua (barras) y micro-timing (punto centrado) */
 .seqs-bars { display: grid; gap: 2px; position: relative; margin-top: 3px; padding-left: 34px; height: 26px; }
 .seqs-bars-tag { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 30px; color: var(--dim); font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; text-align: right; padding-right: 4px; }

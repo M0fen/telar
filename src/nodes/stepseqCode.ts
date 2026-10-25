@@ -533,6 +533,51 @@ export function alignArrangeToBars(code: string, bars: number[]): string | null 
   return out;
 }
 
+// --- apagar / encender una sección SIN perder su patrón (Fase 0.4) ------------------
+// ○ ya no cambia el brazo por `silence` (se perdía el patrón: al volver a ● se sembraba
+// con otra sección): le añade `.mask(0)`, que lo silencia igual (mismos eventos que
+// `silence` en el arreglo) y ● lo quita → vuelve EXACTO. `silence` literal sigue siendo
+// una sección vacía (✚, ⇋ instrumentos): ahí no hay patrón que recuperar.
+const MASK0 = /\.mask\(\s*0\s*\)$/;
+// fin del CÓDIGO del brazo (sin espacios ni un comentario final): ahí va o se busca el
+// `.mask(0)` — pegado detrás de `// …` quedaría comentado y no silenciaría.
+function armCodeEnd(arm: string): number {
+  let end = 0;
+  for (let i = 0; i < arm.length; i++) {
+    const c = arm[i];
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < arm.length && arm[i] !== c; i++) if (arm[i] === '\\') i++;
+      end = Math.min(i + 1, arm.length); // un string ES código (p.ej. un brazo "bd hh")
+      continue;
+    }
+    if (c === '/' && arm[i + 1] === '/') { while (i < arm.length && arm[i] !== '\n') i++; continue; }
+    if (c === '/' && arm[i + 1] === '*') { const e = arm.indexOf('*/', i + 2); i = e < 0 ? arm.length : e + 1; continue; }
+    if (!/\s/.test(c)) end = i + 1;
+  }
+  return end;
+}
+export function isMutedArm(arm: string): boolean {
+  const body = arm.slice(0, armCodeEnd(arm));
+  return MASK0.test(body) && body.replace(MASK0, '').trim() !== '';
+}
+export function isSilenceArm(arm: string): boolean {
+  return arm.slice(0, armCodeEnd(arm)).trim() === 'silence';
+}
+// en silencio por cualquiera de las dos vías (no suena en el arreglo)
+export function isSilentArm(arm: string): boolean {
+  return isSilenceArm(arm) || isMutedArm(arm);
+}
+export function muteArm(arm: string): string {
+  if (isSilentArm(arm)) return arm;
+  const end = armCodeEnd(arm);
+  return arm.slice(0, end) + '.mask(0)' + arm.slice(end);
+}
+export function unmuteArm(arm: string): string {
+  if (!isMutedArm(arm)) return arm;
+  const end = armCodeEnd(arm);
+  return arm.slice(0, end).replace(MASK0, '') + arm.slice(end);
+}
+
 // Reemplaza el patrón de UN brazo dentro del código completo (empalme por span).
 export function spliceArm(code: string, arm: ArrangeArm, newExpr: string): string {
   return code.slice(0, arm.start) + newExpr + code.slice(arm.end);

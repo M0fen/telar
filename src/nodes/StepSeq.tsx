@@ -6,7 +6,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, laneGroove, laneOwnBank, lanePitched, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
+import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
@@ -518,7 +518,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   // arranca en la primera sección CON contenido (no en un silencio inicial: abrir el
   // editor debe mostrar el instrumento "de la forma habitual", listo para tocar).
   const [sec, setSec] = useState(() => {
-    const i = arms ? arms.findIndex((a) => a.code.trim() !== 'silence') : 0;
+    const i = arms ? arms.findIndex((a) => !isSilentArm(a.code)) : 0;
     return i >= 0 ? i : 0;
   });
   // VISTA para melodías: la REJILLA (pasos + afinar arrastrando + «afinar todo») es la
@@ -586,14 +586,16 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   }
   const k = Math.min(sec, arms.length - 1);
   const arm = arms[k];
-  const wrap = (c: string) => spliceArm(code, arm, c);
-  const silent = arm.code.trim() === 'silence';
+  // sección APAGADA (○ = `.mask(0)`): se edita su patrón y sigue apagada al guardar.
+  const muted = isMutedArm(arm.code);
+  const wrap = (c: string) => spliceArm(code, arm, muted ? muteArm(c) : c);
+  const silent = isSilenceArm(arm.code);
   const headOff = live >= 0 && live !== k; // lo que suena no es lo que editas → sin playhead
   // sección en silencio → se SIEMBRA con la instrumentación de la sección de
   // referencia (primer brazo con patrón): mismas pistas / mismo instrumento, pasos
   // vacíos. Pre-escuchas al instante y pintar hace entrar el instrumento aquí.
-  const ref = silent ? arms.find((a) => a.code.trim() !== 'silence') : undefined;
-  const seed = ref ? seedSilent(ref.code) : null;
+  const refArm = silent ? arms.find((a) => !isSilentArm(a.code)) ?? arms.find((a) => isMutedArm(a.code)) : undefined;
+  const seed = refArm ? seedSilent(unmuteArm(refArm.code)) : null;
   return (
     <div className="seqs-secs nodrag" onPointerDown={(e) => e.stopPropagation()}>
       <div className="seqs-sectabs">
@@ -603,7 +605,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
             key={i}
             className={`${i === k ? 'on' : ''}${i === live ? ' live' : ''}`}
             onClick={() => setSec(i)}
-            title={`sección ${i + 1}: ${fmt(a.bars)} compases${a.code.trim() === 'silence' ? ' · en silencio (pinta pasos y el instrumento entra aquí)' : ''}${i === live ? ' · SONANDO ahora en el arreglo' : ''}`}
+            title={`sección ${i + 1}: ${fmt(a.bars)} compases${isSilenceArm(a.code) ? ' · en silencio (pinta pasos y el instrumento entra aquí)' : isMutedArm(a.code) ? ' · apagada (○): su patrón se conserva' : ''}${i === live ? ' · SONANDO ahora en el arreglo' : ''}`}
           >
             {i + 1}<i>·{fmt(a.bars)}c</i>
           </button>
@@ -630,6 +632,14 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
         <>
           <p className="seqs-seedline">sección en silencio — pinta pasos o notas y el instrumento <b>entra aquí</b> (instrumentación de la sección con patrón)</p>
           {editorFor(seed.code, wrap, seed.seedFrom, arm.code, headOff)}
+        </>
+      ) : muted ? (
+        <>
+          <p className="seqs-seedline">
+            sección <b>apagada</b> — su patrón se conserva y no suena en el arreglo{' '}
+            <button className="seqs-unmute" onClick={() => emitFull(spliceArm(code, arm, unmuteArm(arm.code)))} title="encender esta sección: vuelve a sonar tal cual">● encender</button>
+          </p>
+          {editorFor(unmuteArm(arm.code), wrap, undefined, unmuteArm(arm.code), headOff)}
         </>
       ) : (
         editorFor(arm.code, wrap, undefined, arm.code, headOff)

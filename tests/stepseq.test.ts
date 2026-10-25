@@ -534,3 +534,45 @@ test('ARRANGE: coma final tolerada; brazos no estándar siguen siendo null', () 
   assert.equal(splitArrange('arrange(foo, [4, s("bd")])'), null);
   assert.equal(splitArrange('arrange([4, s("bd")]'), null); // paréntesis sin cerrar
 });
+
+// --- Fase 0.4: apagar una sección con ○ no borra su patrón ---
+import { isMutedArm, isSilenceArm, isSilentArm, muteArm, unmuteArm } from '../src/nodes/stepseqCode.ts';
+
+test('SECCIÓN ○/●: mute añade .mask(0), unmute lo quita y devuelve EXACTO el patrón', () => {
+  const pats = [
+    's("bd*4").sometimesBy(0.3, x=>x.ply(2))',
+    'note("[c3,e3,g3] ~ <eb3 g3>").s("sawtooth").lpf(800)',
+    '"bd hh"',
+    'stack(s("bd*4"), s("hh*8").gain(.6))',
+  ];
+  for (const p of pats) {
+    const m = muteArm(p);
+    assert.equal(m, p + '.mask(0)');
+    assert.ok(isMutedArm(m) && isSilentArm(m) && !isSilenceArm(m), m);
+    assert.equal(muteArm(m), m); // apagar dos veces no apila máscaras
+    assert.equal(unmuteArm(m), p);
+    assert.ok(!isSilentArm(p));
+  }
+});
+
+test('SECCIÓN ○/●: comentario final, espacios y `silence` literal', () => {
+  const p = 's("bd*4") // bombo';
+  const m = muteArm(p);
+  assert.equal(m, 's("bd*4").mask(0) // bombo'); // detrás del comentario no silenciaría
+  assert.equal(unmuteArm(m), p);
+  assert.ok(isMutedArm('s("bd").mask( 0 )'));
+  assert.ok(isSilenceArm('silence') && isSilentArm('  silence ') && !isMutedArm('silence'));
+  assert.equal(muteArm('silence'), 'silence');
+  assert.equal(unmuteArm('silence'), 'silence');
+  assert.ok(!isMutedArm('.mask(0)')); // una máscara sin patrón no es una sección apagada
+});
+
+test('SECCIÓN ○/● dentro del arrange completo: ida y vuelta byte a byte', () => {
+  const code = 'arrange([4, s("bd*4").sometimesBy(0.3, x=>x.ply(2))], [8, note("c3 e3").s("sine")], [2, silence])';
+  const arms = splitArrange(code)!;
+  const off = spliceArm(code, arms[1], muteArm(arms[1].code));
+  assert.equal(off, 'arrange([4, s("bd*4").sometimesBy(0.3, x=>x.ply(2))], [8, note("c3 e3").s("sine").mask(0)], [2, silence])');
+  const arms2 = splitArrange(off)!;
+  assert.ok(isSilentArm(arms2[1].code));
+  assert.equal(spliceArm(off, arms2[1], unmuteArm(arms2[1].code)), code);
+});

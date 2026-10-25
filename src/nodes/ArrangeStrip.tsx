@@ -1,6 +1,6 @@
-import { useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
-import { splitArrange, spliceArm, setArmBars, addSilentArm, removeArm } from './stepseqCode';
+import { splitArrange, spliceArm, setArmBars, addSilentArm, removeArm, isSilentArm, isSilenceArm, muteArm, unmuteArm } from './stepseqCode';
 
 // Editor visual de ENTRADAS / SECCIONES para un Source que usa `arrange([n, pat], …)`.
 // Deja cambiar FÁCILMENTE cuándo entra cada sonido (● suena / ○ silencio por sección)
@@ -12,24 +12,23 @@ import { splitArrange, spliceArm, setArmBars, addSilentArm, removeArm } from './
 export function ArrangeStrip({ id, code }: { id: string; code: string }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const arms = useMemo(() => splitArrange(code), [code]);
-  // recuerda el patrón de una sección al silenciarla, para restaurarlo exacto al reactivar.
-  const restore = useRef<Record<number, string>>({});
 
   if (!arms) {
     return <p className="arr-none nodrag">envuelve el patrón en <code>arrange([4, …], [4, …])</code> para editar entradas por sección aquí</p>;
   }
-  const isSilent = (c: string) => c.trim() === 'silence';
   const total = arms.reduce((a, s) => a + Math.max(1, s.bars), 0);
-  const base = arms.find((s) => !isSilent(s.code))?.code ?? 's("bd*4")';
+  // una sección VACÍA (`silence`: la añadió ✚ o ⇋ instrumentos) no tiene patrón propio:
+  // al encenderla se siembra con la primera que suena.
+  const base = arms.find((s) => !isSilentArm(s.code))?.code ?? 's("bd*4")';
   const commit = (next: string) => { if (next !== code) update(id, { code: next }); };
 
   const setCycles = (i: number, d: number) => commit(setArmBars(code, arms[i], arms[i].bars + d));
 
+  // ○ = .mask(0) (el patrón se queda en el código) · ● = lo quita → vuelve EXACTO
   const toggle = (i: number) => {
     const arm = arms[i];
-    if (isSilent(arm.code)) { commit(spliceArm(code, arm, restore.current[i] ?? base)); return; }
-    restore.current[i] = arm.code;
-    commit(spliceArm(code, arm, 'silence'));
+    if (isSilenceArm(arm.code)) { commit(spliceArm(code, arm, base)); return; }
+    commit(spliceArm(code, arm, isSilentArm(arm.code) ? unmuteArm(arm.code) : muteArm(arm.code)));
   };
 
   const addSection = () => commit(addSilentArm(code, arms[arms.length - 1], 4));
@@ -39,11 +38,14 @@ export function ArrangeStrip({ id, code }: { id: string; code: string }) {
     <div className="arr nodrag" onPointerDown={(e) => e.stopPropagation()}>
       <div className="arr-track">
         {arms.map((s, i) => {
-          const silent = isSilent(s.code);
+          const silent = isSilentArm(s.code);
+          const empty = isSilenceArm(s.code);
+          const tip = empty ? 'sección vacía (silencio)' : silent ? `apagada · ${unmuteArm(s.code)}` : s.code;
+          const btnTip = empty ? 'activar: entra con el patrón de la primera sección que suena' : silent ? 'encender: vuelve su patrón tal cual' : 'apagar esta sección (su patrón se conserva)';
           return (
-            <div key={i} className={`arr-sec${silent ? ' off' : ''}`} style={{ flexGrow: Math.max(1, s.bars) }} title={silent ? 'silencio' : s.code}>
+            <div key={i} className={`arr-sec${silent ? ' off' : ''}`} style={{ flexGrow: Math.max(1, s.bars) }} title={tip}>
               <div className="arr-sec-top">
-                <button className="arr-onoff" onClick={() => toggle(i)} title={silent ? 'activar: el sonido entra en esta sección' : 'silenciar esta sección'}>{silent ? '○' : '●'}</button>
+                <button className="arr-onoff" onClick={() => toggle(i)} title={btnTip}>{silent ? '○' : '●'}</button>
                 <button className="arr-del" onClick={() => delSection(i)} disabled={arms.length < 2} title={arms.length < 2 ? 'es la única sección' : 'quitar sección'}>×</button>
               </div>
               <div className="arr-cyc">
