@@ -91,5 +91,13 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 
 ---
 
+## 12 · Modo DAW, Fase 0 (canción, reloj, secciones) — medido sin oír
+- [ ] **Un solo reloj** (oído): con todo sonando, abrir **canción** y dar **▶**: arranca en el compás 1 y cada cambio (escena + instrumentos arreglados) cae **junto en el 1**, también en la **2.ª vuelta** del loop. Al dar ▶ con el transporte sonando hay un corte breve (se reinicia el reloj): ¿molesta?
+- [ ] **⚠ no cuadra**: con un instrumento de otro largo que la canción aparece el aviso; **⇋ instrumentos** lo alinea y el aviso se va.
+- [ ] **■ del transporte** detiene también la canción; volver a ▶ canción arranca en el compás 1.
+- [ ] **Canción y escenas en el proyecto**: **Guardar proyecto** → abrirlo en otro navegador (o en incógnito) → misma canción y mismas escenas. Cargar un **ejemplo** → canción y escenas vacías; **Ctrl+Z** → vuelven. Un enlace **Compartir por URL** las lleva.
+- [ ] **⇋ instrumentos dos veces** sobre la **base de aves** (o un source con `x=>…`): las secciones quedan planas (nada de arrange dentro de arrange) y **suena igual**.
+- [ ] **○ y luego ●** en una sección (tira de secciones del source): se apaga y al encenderla **suena exactamente igual que antes**. En el secuenciador, la sección apagada muestra su patrón y «● encender».
+
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

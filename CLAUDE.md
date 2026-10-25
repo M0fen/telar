@@ -57,7 +57,7 @@ Todo lo "funcional" se juzga contra: **Dancehall, Techno, EBM, Post-punk, Trap, 
 
 ## Próximo trabajo
 
-**Modo DAW, Fase 0** — plan verificado y listo en `telar-daw-fase0.md` (0.1 canción+escenas en el proyecto · 0.2 un solo reloj · 0.3 un solo parser de `arrange` · 0.4 apagar sección sin borrar). Escuchas pendientes de lo último (panel MIDI, pads, filtros): sección 11 de `escuchas-pendientes.md`.
+**Modo DAW, Fase 0 — hecha** (`telar-daw-fase0.md`): canción y escenas viajan en el `ProjectSnapshot`; la canción sigue el reloj del scheduler (`src/lib/songClock.ts`, ▶ canción reinicia el transporte); `splitArrange` es el único parser de `arrange`; ○ apaga una sección con `.mask(0)` (`muteArm`/`unmuteArm`). **Siguiente: Fase 1 (vista DAW)** — escribir su plan antes de tocar código (ver «Para orientar decisiones» en `telar-daw-fase0.md`). Escuchas pendientes: secciones 11 (panel MIDI) y 12 (Fase 0) de `escuchas-pendientes.md`.
 
 ---
 

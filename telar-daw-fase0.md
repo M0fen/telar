@@ -1,6 +1,6 @@
 # Telar — Modo DAW · Fase 0 (cimientos)
 
-Lista para empezar. Plan verificado contra el código el 2026-10-24 (tras `836821b`). Protocolo de `CLAUDE.md`: **plan → OK de Carlos → una tarea por commit → `npm run build` + `npm test` → que lo escuche**. Orden fijo: 0.1 → 0.2 → 0.3 → 0.4.
+**Hecha el 2026-10-25** (0.1 `44864ee` · 0.2 `81158df` · 0.3 `b0af0b7` · 0.4 `86a6733`), medida sin oír; lo que falta escuchar está en la sección 12 de `escuchas-pendientes.md`. Plan verificado contra el código el 2026-10-24 (tras `836821b`). Protocolo de `CLAUDE.md`: **plan → OK de Carlos → una tarea por commit → `npm run build` + `npm test` → que lo escuche**. Orden fijo: 0.1 → 0.2 → 0.3 → 0.4.
 
 **Qué es el Modo DAW (decidido):** una tercera vista (Estándar | DJ | DAW) con pistas en filas, compases en columnas, secciones arriba y playhead. Cada bloque **es** un brazo del `arrange([n, patrón], …)` de esa pista: el código sigue siendo la verdad y todo compila al único string de Strudel (regla 1) → cambia exacto en el compás y suena igual en vivo que al exportar. No es un multipista de audio. La Fase 0 no dibuja nada nuevo: deja **un solo reloj y una sola fuente de verdad** para que la vista no herede fallos.
 
