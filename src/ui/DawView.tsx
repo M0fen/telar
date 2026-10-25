@@ -6,8 +6,12 @@ import { useScenesStore } from '../store/useScenesStore';
 import { buildDawModel, playheadAt, toggleBlockCode, type DawBlock, type DawTrack } from '../lib/dawModel';
 import { playSong, playFrom } from '../lib/songTransport';
 import { getScheduler } from '../audio/engine';
+import { DawSectionBar } from './DawSectionBar';
+import { dawSection, createStructure, createFromTemplate, sceneSections } from '../lib/dawActions';
+import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
 
-// VISTA DAW (Fase 1.1 vista + 1.2 línea de reproducción): la canción entera de un vistazo. Pistas en filas,
+// VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
+// La canción entera de un vistazo. Pistas en filas,
 // compases en columnas, secciones arriba. Cada bloque ES un brazo del `arrange([n, patrón])`
 // de esa pista (el código manda: buildDawModel lo reconstruye en cada cambio), así que lo
 // que ves es lo que suena. Las pistas sin arrange suenan igual en todos los compases.
@@ -27,6 +31,12 @@ function readZoom(): number {
 }
 
 const STATE_TXT: Record<DawBlock['state'], string> = { on: 'suena', off: 'apagada (conserva su patrón)', empty: 'vacía' };
+
+// aviso en el tooltip si la ESCENA de alguna sección silencia este tramo (Fase 2.2)
+function sceneMuteNote(t: DawTrack, b: DawBlock): string {
+  const m = t.sceneMuted.filter((x) => b.start < x.start + x.bars && x.start < b.start + b.bars);
+  return m.length ? `\n⚠ la escena ${[...new Set(m.map((x) => x.scene))].join(', ')} silencia esta pista aquí (la escena es la mezcla de la sección)` : '';
+}
 
 // ¿se puede encender/apagar con un clic? (Fase 1.3) — las pistas planas se parten en la Fase 2.
 const clickable = (t: DawTrack, b: DawBlock) => !t.plain && b.arm >= 0 && (b.state !== 'empty' || t.seed >= 0);
@@ -55,6 +65,8 @@ export function DawView() {
   const playing = useGraphStore((s) => s.playing);
   const [px, setPx] = useState<number>(readZoom);
   const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
+  const [sel, setSel] = useState(-1); // sección seleccionada (Fase 2.2: su barra de edición)
+  const [createOpen, setCreateOpen] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const phRulerRef = useRef<HTMLDivElement>(null);
   const phRowsRef = useRef<HTMLDivElement>(null);
@@ -76,12 +88,42 @@ export function DawView() {
         sources.map((n) => ({ id: n.id, name: n.data.name, code: n.data.code, mute: n.data.mute, solo: n.data.solo })),
         steps,
         (sc) => scenes[sc]?.name ?? `escena ${sc}`,
+        (sc) => scenes[sc]?.state,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [srcSig, steps, scenes],
   );
 
   const { sections, total, tracks, fromSong } = model;
+
+  // la selección sigue siendo válida tras borrar/cargar
+  const selIdx = fromSong && sel >= 0 && sel < steps.length ? sel : -1;
+  useEffect(() => { if (sel >= 0 && selIdx < 0) setSel(-1); }, [sel, selIdx]);
+
+  // ATAJOS DEL DAW (fase de captura: ganan a los globales del grafo mientras hay una sección
+  // seleccionada): Ctrl+D duplicar · Supr borrar · Alt+←/→ mover · ←/→ elegir · Esc soltar.
+  useEffect(() => {
+    if (selIdx < 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest('.cm-editor'))) return;
+      const n = useSongStore.getState().steps.length;
+      let done = true;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { if (dawSection.duplicate(selIdx)) setSel(selIdx + 1); }
+      else if (e.key === 'Delete' || e.key === 'Backspace') { if (dawSection.remove(selIdx)) setSel(Math.max(0, selIdx - 1)); }
+      else if (e.altKey && e.key === 'ArrowLeft') { if (selIdx > 0 && dawSection.move(selIdx, selIdx - 1)) setSel(selIdx - 1); }
+      else if (e.altKey && e.key === 'ArrowRight') { if (selIdx < n - 1 && dawSection.move(selIdx, selIdx + 1)) setSel(selIdx + 1); }
+      else if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowLeft') setSel(Math.max(0, selIdx - 1));
+      else if (!e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowRight') setSel(Math.min(n - 1, selIdx + 1));
+      else if (e.key === 'Escape') setSel(-1);
+      else done = false;
+      if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [selIdx]);
+
+  const needsAlign = fromSong && tracks.some((t) => (t.plain && t.blocks[0]?.code) || t.mismatch);
 
   // ENCENDER / APAGAR (Fase 1.3): un empalme en el brazo vía updateNodeData → Ctrl+Z lo deshace.
   // Se lee el código del store en el momento del clic (no el del render) para no pisar un
@@ -156,6 +198,33 @@ export function DawView() {
           {total} compases
           {fromSong ? ' · secciones de la canción' : sections.length ? ' · sin canción: secciones del primer arrange' : ''}
         </span>
+        {steps.length === 0 && tracks.length > 0 && (
+          <span className="daw-create">
+            <button className={`daw-btn${createOpen ? ' on' : ''}`} onClick={() => setCreateOpen((o) => !o)} aria-expanded={createOpen} title="convertir este jam de bucles en una canción con secciones (todo suena igual; luego apagas lo que sobra)">
+              crear estructura ▾
+            </button>
+            {createOpen && (
+              <span className="daw-menu" role="menu">
+                {STRUCTURE_TEMPLATES.map((tp) => (
+                  <button key={tp.id} role="menuitem" onClick={() => { setCreateOpen(false); createFromTemplate(tp.sections); }}>
+                    {tp.label}
+                  </button>
+                ))}
+                {sceneSections().length > 0 && (
+                  <button role="menuitem" onClick={() => { setCreateOpen(false); createStructure(sceneSections()); }}>
+                    una sección por escena capturada ({sceneSections().length} × 8 compases)
+                  </button>
+                )}
+              </span>
+            )}
+          </span>
+        )}
+        {steps.length > 0 && (
+          <button className="daw-btn" onClick={() => { if (dawSection.insertEmpty(steps.length - 1, 8)) setSel(steps.length); }} title="añadir al final una sección vacía de 8 compases">+ sección</button>
+        )}
+        {needsAlign && (
+          <button className="daw-btn warn" onClick={() => dawSection.alignAll()} title="alinear las pistas a las secciones de la canción: las planas suenan igual en cada sección; las cortas se completan con silencio">⇋ alinear pistas</button>
+        )}
         {mism.length > 0 && (
           <span
             className="daw-warn"
@@ -169,6 +238,9 @@ export function DawView() {
           <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>
         </span>
       </div>
+      {selIdx >= 0 && (
+        <DawSectionBar index={selIdx} steps={steps} scenes={scenes} start={sections[selIdx]?.start ?? 0} onSelect={setSel} />
+      )}
 
       {tracks.length === 0 ? (
         <div className="daw-empty">No hay pistas. Crea sources en la vista standard o carga un ejemplo desde «proyecto».</div>
@@ -195,13 +267,15 @@ export function DawView() {
                   {sections.map((s, i) => (
                     <div
                       key={i}
-                      className={`daw-sec${i % 2 ? ' alt' : ''}${i === secNow ? ' now' : ''}`}
+                      className={`daw-sec${i % 2 ? ' alt' : ''}${i === secNow ? ' now' : ''}${i === selIdx ? ' sel' : ''}`}
                       style={{ left: s.start * px, width: Math.max(2, s.bars * px - 1) }}
-                      title={`${s.label} · compases ${s.start + 1}–${s.start + s.bars} (${s.bars})\nclic: tocar desde el inicio de esta sección`}
+                      title={`${s.label} · compases ${s.start + 1}–${s.start + s.bars} (${s.bars})${fromSong ? '\nclic: seleccionar para editarla · doble clic: tocar desde aquí' : '\ndoble clic: tocar desde aquí'}`}
                       role="button"
                       tabIndex={0}
-                      onClick={() => void playFrom(s.start)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); void playFrom(s.start); } }}
+                      aria-pressed={i === selIdx}
+                      onClick={() => { if (fromSong) setSel(i === selIdx ? -1 : i); }}
+                      onDoubleClick={() => void playFrom(s.start)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (fromSong) setSel(i); else void playFrom(s.start); } }}
                     >
                       {s.bars * px >= 36 && <span>{s.label}</span>}
                     </div>
@@ -226,7 +300,7 @@ export function DawView() {
                       key={i}
                       className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}${clickable(t, b) ? ' click' : ''}`}
                       style={{ left: b.start * px, width: Math.max(2, b.bars * px - 2) }}
-                      title={blockTitle(t, b)}
+                      title={blockTitle(t, b) + sceneMuteNote(t, b)}
                       {...(clickable(t, b)
                         ? {
                             role: 'button',
@@ -243,6 +317,9 @@ export function DawView() {
                         <span className="daw-blk-l">{t.plain ? 'suena siempre' : b.state === 'empty' ? 'vacía' : b.state === 'off' ? 'apagada' : `${b.arm + 1}`}</span>
                       )}
                     </div>
+                  ))}
+                  {t.sceneMuted.map((m, i) => (
+                    <div key={`m${i}`} className="daw-scmute" style={{ left: m.start * px, width: Math.max(2, m.bars * px - 2) }} />
                   ))}
                 </div>
               </div>

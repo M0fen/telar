@@ -25,6 +25,7 @@ export interface DawTrack {
   mute: boolean;
   solo: boolean;
   audible: boolean; // false si está en mute o si hay solos y ella no es uno
+  sceneMuted: { start: number; bars: number; scene: number }[]; // tramos que la ESCENA de la sección silencia (mute/solo)
 }
 
 export interface DawSection {
@@ -91,10 +92,14 @@ export function toggleBlockCode(code: string, arm: number): string | null {
   return spliceArm(code, a, isMutedArm(a.code) ? unmuteArm(a.code) : muteArm(a.code));
 }
 
+// Estado de mezcla de una escena (mute/solo por nodo) para marcar los tramos que silencia.
+export type SceneMix = Record<string, { mute?: boolean; solo?: boolean }> | undefined;
+
 export function buildDawModel(
   sources: DawSourceLike[],
   steps: DawStepLike[],
   sceneName: (scene: number) => string = (n) => `escena ${n}`,
+  sceneMix: (scene: number) => SceneMix = () => undefined,
 ): DawModel {
   const parsed = sources.map((s) => ({ s, arms: splitArrange(s.code ?? '') }));
 
@@ -125,6 +130,20 @@ export function buildDawModel(
   const total = sections.reduce((m, s) => Math.max(m, s.start + s.bars), 0) || DAW_DEFAULT_BARS;
 
   const anySolo = sources.some((s) => !!s.solo);
+  // tramos silenciados por la escena de cada sección (las escenas son la MEZCLA; los bloques, QUÉ suena)
+  const ids = new Set(sources.map((s) => s.id));
+  const mutedBy = (id: string) => {
+    if (!fromSong) return [];
+    const out: { start: number; bars: number; scene: number }[] = [];
+    for (const sec of sections) {
+      const mix = sec.scene == null ? undefined : sceneMix(sec.scene);
+      if (!mix) continue;
+      const solos = Object.entries(mix).some(([k, v]) => ids.has(k) && v?.solo);
+      const me = mix[id];
+      if (me?.mute || (solos && !me?.solo)) out.push({ start: sec.start, bars: sec.bars, scene: sec.scene as number });
+    }
+    return out;
+  };
   const tracks: DawTrack[] = parsed.map(({ s, arms }) => {
     const name = (s.name ?? '').trim() || s.id;
     const mute = !!s.mute;
@@ -132,7 +151,7 @@ export function buildDawModel(
     const audible = !mute && (!anySolo || solo);
     if (!arms || !arms.length) {
       return {
-        id: s.id, name, plain: true, bars: 0, seed: -1, mismatch: false, mute, solo, audible,
+        id: s.id, name, plain: true, bars: 0, seed: -1, mismatch: false, mute, solo, audible, sceneMuted: mutedBy(s.id),
         blocks: [{ arm: -1, start: 0, bars: total, state: 'on', ghost: false, code: (s.code ?? '').trim() }],
       };
     }
@@ -151,7 +170,7 @@ export function buildDawModel(
         pos += bars;
       }
     }
-    return { id: s.id, name, plain: false, bars: own, seed: seedArm(arms), blocks, mismatch: sections.length > 0 && Math.abs(own - total) > 1e-9, mute, solo, audible };
+    return { id: s.id, name, plain: false, bars: own, seed: seedArm(arms), blocks, mismatch: sections.length > 0 && Math.abs(own - total) > 1e-9, mute, solo, audible, sceneMuted: mutedBy(s.id) };
   });
 
   return { sections, total, tracks, fromSong };

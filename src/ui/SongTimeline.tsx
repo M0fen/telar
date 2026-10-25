@@ -77,6 +77,7 @@ export function SongTimeline() {
             </button>
             <button className={`song-loop${loop ? ' on' : ''}`} onClick={() => setLoop(!loop)} title="repetir la canción al terminar">⟳</button>
             <button className="song-add" onClick={addStep} title="añadir sección">+ sección</button>
+            <button className="song-add" onClick={() => useGraphStore.getState().setMode('daw')} title="abrir la canción en la vista DAW (pistas × compases: editar secciones, encender y apagar bloques, automatizar, exportar)">DAW ↗</button>
             <button className="song-add" onClick={() => void alignInstruments()} title="alinear los INSTRUMENTOS a esta estructura: cada source queda arreglado (arrange) con estas secciones y compases — los planos suenan igual y luego editas cada sección en el secuenciador">⇋ instrumentos</button>
             {total > 0 && <span className="song-total" title="compases de la canción (1 compás = 1 ciclo)">{total} c.</span>}
             {mismatches.length > 0 && (
@@ -100,7 +101,7 @@ export function SongTimeline() {
                   </select>
                   <button className="song-step-x" onClick={() => removeStep(st.id)} title="quitar sección">×</button>
                 </div>
-                <span className="song-step-name">{sc?.name ?? `escena ${st.scene}`}</span>
+                <span className="song-step-name" title={st.name ? `${st.name} · escena ${st.scene}${sc ? ` (${sc.name})` : ''}` : undefined}>{st.name || (sc?.name ?? `escena ${st.scene}`)}</span>
                 <div className="song-step-bars">
                   <button onClick={() => updateStep(st.id, { bars: Math.max(1, st.bars - 1) })}>−</button>
                   <b>{st.bars}</b>

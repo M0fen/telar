@@ -122,3 +122,53 @@
   border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid var(--accent, #3df0d0);
 }
 .daw-sec.now { background: rgba(61, 240, 208, 0.32); border-color: var(--accent, #3df0d0); color: #eafffb; }
+
+/* Fase 2.2 · sección seleccionada y su barra de edición */
+.daw-sec.sel { border-color: var(--text, #d4dee6); box-shadow: inset 0 0 0 1px var(--text, #d4dee6); color: var(--text, #d4dee6); }
+.daw-secbar {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 14px 6px 160px; border-bottom: 1px solid var(--line, #202c38);
+  background: rgba(61, 240, 208, 0.04);
+}
+.daw-secbar-n { font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim, #6b7a88); }
+.daw-secbar-name {
+  width: 130px; background: transparent; color: var(--text, #d4dee6); font-family: inherit; font-size: 11px;
+  border: 1px solid var(--line, #202c38); border-radius: 2px; padding: 4px 7px;
+}
+.daw-secbar-name:focus { outline: none; border-color: var(--accent, #3df0d0); }
+.daw-secbar-sc { display: inline-flex; align-items: center; gap: 4px; color: var(--dim, #6b7a88); }
+.daw-secbar-sc select {
+  background: var(--bg, #040506); color: var(--text, #d4dee6); border: 1px solid var(--line, #202c38);
+  border-radius: 2px; font-family: inherit; font-size: 11px; padding: 3px 4px; max-width: 170px;
+}
+.daw-secbar-bars { display: inline-flex; align-items: center; gap: 4px; }
+.daw-secbar-bars b { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
+.daw-btn.danger:hover:not(:disabled) { border-color: var(--warn, #e0633a); color: var(--warn, #e0633a); }
+.daw-btn.warn { border-color: var(--warn, #e0633a); color: var(--warn, #e0633a); }
+.daw-btn.ghost { border-color: transparent; }
+
+/* crear estructura: menú de plantillas */
+.daw-create { position: relative; }
+.daw-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 300px;
+  display: flex; flex-direction: column; padding: 4px;
+  background: var(--bg, #040506); border: 1px solid var(--line, #202c38); border-radius: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.daw-menu button {
+  text-align: left; background: transparent; border: none; color: var(--text, #d4dee6);
+  font-family: inherit; font-size: 11px; padding: 7px 9px; cursor: pointer; border-radius: 2px;
+}
+.daw-menu button:hover, .daw-menu button:focus-visible { background: rgba(61, 240, 208, 0.12); color: var(--accent, #3df0d0); outline: none; }
+
+/* tramo que la ESCENA de la sección silencia (encima de los bloques, sin robar clics) */
+.daw-scmute {
+  position: absolute; top: 2px; bottom: 2px; z-index: 1; pointer-events: none; border-radius: 2px;
+  background: repeating-linear-gradient(45deg, rgba(224, 99, 58, 0.22) 0 3px, transparent 3px 7px);
+  border: 1px solid rgba(224, 99, 58, 0.45);
+}
+
+@media (max-width: 560px) {
+  .daw-secbar { padding-left: 14px; }
+  .daw-menu { min-width: 240px; }
+}
