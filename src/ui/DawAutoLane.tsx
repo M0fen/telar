@@ -8,31 +8,44 @@ import { AUTO_RANGE, addPoint, movePoint, removePoint, snapBar, sortPoints, type
 const H = 56;
 const PAD = 5;
 
+// rango de un carril: un parámetro conocido (AUTO_RANGE) o el de una perilla de FX (7.2), con
+// escala exponencial para las frecuencias
+export interface LaneRange { min: number; max: number; neutral: number; label: string; scale?: 'exp'; unit?: string }
+
 export function DawAutoLane({
-  points, param, total, px, onChange,
+  points, param, range, total, px, onChange,
 }: {
   points: AutoPoint[];
-  param: AutoParam;
+  param?: AutoParam;
+  range?: LaneRange;
   total: number;
   px: number;
   onChange: (pts: AutoPoint[]) => void;
 }) {
-  const rg = AUTO_RANGE[param];
+  const rg: LaneRange = range ?? (param ? AUTO_RANGE[param] : { min: 0, max: 1, neutral: 0, label: '' });
+  const bounds = { min: rg.min, max: rg.max };
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<number | null>(null);
   const width = Math.max(1, total * px);
-  const y = (v: number) => PAD + (1 - (v - rg.min) / (rg.max - rg.min)) * (H - 2 * PAD);
-  const v = (yy: number) => rg.min + (1 - (yy - PAD) / (H - 2 * PAD)) * (rg.max - rg.min);
+  // valor ↔ 0..1 (lineal o logarítmico)
+  const exp = rg.scale === 'exp' && rg.min > 0;
+  const norm = (v: number) => (exp ? Math.log(v / rg.min) / Math.log(rg.max / rg.min) : (v - rg.min) / (rg.max - rg.min));
+  const denorm = (u: number) => (exp ? rg.min * Math.pow(rg.max / rg.min, u) : rg.min + u * (rg.max - rg.min));
+  const y = (v: number) => PAD + (1 - Math.max(0, Math.min(1, norm(v)))) * (H - 2 * PAD);
+  const v = (yy: number) => denorm(Math.max(0, Math.min(1, 1 - (yy - PAD) / (H - 2 * PAD))));
   const pts = sortPoints(points);
   const at = (e: { clientX: number; clientY: number }) => {
     const r = svgRef.current!.getBoundingClientRect();
-    return { bar: Math.min(total, snapBar((e.clientX - r.left) / px)), val: v(e.clientY - r.top) };
+    const raw = v(e.clientY - r.top);
+    return { bar: Math.min(total, snapBar((e.clientX - r.left) / px)), val: exp || Math.abs(rg.max - rg.min) > 50 ? Math.round(raw) : raw };
   };
   const line = pts.length
     ? [`0,${y(pts[0][1])}`, ...pts.map(([b, val]) => `${b * px},${y(val)}`), `${width},${y(pts[pts.length - 1][1])}`].join(' ')
     : '';
-  const step = (rg.max - rg.min) / 20;
+  // ↑ ↓: un 5 % del recorrido (en la escala del carril)
+  const nudge = (val: number, dir: 1 | -1) => denorm(Math.max(0, Math.min(1, norm(val) + dir * 0.05)));
   const fmt = (val: number) => {
+    if (range) return rg.unit === 'Hz' ? (val >= 1000 ? `${(val / 1000).toFixed(1)} kHz` : `${Math.round(val)} Hz`) : `${Math.round(val * 100) / 100}${rg.unit ? ' ' + rg.unit : ''}`;
     if (param === 'filt' || param === 'mfilt') return val < -0.02 ? `paso-bajo ${Math.round(-val * 100)}%` : val > 0.02 ? `paso-alto ${Math.round(val * 100)}%` : 'abierto';
     if (param === 'pan') return val < 0.48 ? `izquierda ${Math.round((0.5 - val) * 200)}%` : val > 0.52 ? `derecha ${Math.round((val - 0.5) * 200)}%` : 'centro';
     if (param === 'rv' || param === 'dl') return `${val >= 0 ? '+' : ''}${val.toFixed(1)} dB`;
@@ -50,7 +63,7 @@ export function DawAutoLane({
       onPointerDown={(e) => {
         if (e.button !== 0 || (e.target as Element).tagName === 'circle') return;
         const { bar, val } = at(e);
-        const next = addPoint(pts, param, bar, val);
+        const next = addPoint(pts, bounds, bar, val);
         onChange(next);
         setDrag(next.findIndex((p) => Math.abs(p[0] - bar) < 1e-6));
         (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -58,7 +71,7 @@ export function DawAutoLane({
       onPointerMove={(e) => {
         if (drag == null) return;
         const { bar, val } = at(e);
-        const next = movePoint(pts, drag, param, bar, val);
+        const next = movePoint(pts, drag, bounds, bar, val);
         onChange(next);
         setDrag(next.findIndex((p) => Math.abs(p[0] - bar) < 1e-6));
       }}
@@ -80,10 +93,10 @@ export function DawAutoLane({
           onKeyDown={(e) => {
             let next: AutoPoint[] | null = null;
             if (e.key === 'Delete' || e.key === 'Backspace') next = removePoint(pts, i);
-            else if (e.key === 'ArrowUp') next = movePoint(pts, i, param, b, val + step);
-            else if (e.key === 'ArrowDown') next = movePoint(pts, i, param, b, val - step);
-            else if (e.key === 'ArrowLeft') next = movePoint(pts, i, param, Math.max(0, b - 0.25), val);
-            else if (e.key === 'ArrowRight') next = movePoint(pts, i, param, Math.min(total, b + 0.25), val);
+            else if (e.key === 'ArrowUp') next = movePoint(pts, i, bounds, b, nudge(val, 1));
+            else if (e.key === 'ArrowDown') next = movePoint(pts, i, bounds, b, nudge(val, -1));
+            else if (e.key === 'ArrowLeft') next = movePoint(pts, i, bounds, Math.max(0, b - 0.25), val);
+            else if (e.key === 'ArrowRight') next = movePoint(pts, i, bounds, Math.min(total, b + 0.25), val);
             if (next) { e.preventDefault(); e.stopPropagation(); onChange(next); }
           }}
         >

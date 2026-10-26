@@ -12,7 +12,8 @@
 // para resaltar qué se está tocando, como en strudel.cc.
 import { cleanSends, sendsActive, RETURN_RANGES, DEFAULT_RETURNS } from '../lib/returns';
 import type { Edge, Node } from '@xyflow/react';
-import { automationSuffix, masterAutomationSuffix, cleanAuto, isActive } from '../lib/automation';
+import { automationSuffix, masterAutomationSuffix, cleanAuto, isActive, curveSignal } from '../lib/automation';
+import { fxCurve } from '../lib/fxAutomation';
 import type { NodeData, SynthParams, VoiceParams } from './types';
 import { channelEqActive, channelCompActive, DEFAULT_CHANNEL_COMP, SYNTH_WAVES, type ChannelComp } from './types';
 import { OPS_BY_ID } from './ops';
@@ -1041,6 +1042,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           if (op.rawArg) args.push(op.rawArg);
           for (const p of op.params) {
             const val = node.data.params?.[p.key] ?? p.default;
+            // perilla de FX AUTOMATIZADA (7.2): su argumento es una señal por compás de la canción
+            const curve = p.kind === 'number' ? fxCurve(node.data, p.key) : [];
+            if (curve.length) { args.push(curveSignal(curve, opts.songBars ?? 0)); continue; }
             args.push(p.kind === 'number' ? emitNumeric(val) : `"${String(val)}"`);
           }
           expr = { text: `${base.text}.${op.method}(${args.join(', ')})`, spans: base.spans };

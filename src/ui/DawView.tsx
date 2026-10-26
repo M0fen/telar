@@ -10,6 +10,7 @@ import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
+import { fxParamsDownstream, fxCurve } from '../lib/fxAutomation';
 import { DawExport } from './DawExport';
 import { useKeepInView } from './useKeepInView';
 import { AUTO_RANGE, isActive, cleanAuto, TRACK_PARAMS, MASTER_PARAMS, type AutoParam, type AutoPoint } from '../lib/automation';
@@ -65,6 +66,7 @@ const MASTER_ROW = '__master__'; // clave del carril de automatización del más
 
 export function DawView() {
   const nodes = useGraphStore((s) => s.nodes);
+  const edges = useGraphStore((s) => s.edges);
   const update = useGraphStore((s) => s.updateNodeData);
   const stop = useGraphStore((s) => s.stop);
   const steps = useSongStore((s) => s.steps);
@@ -77,7 +79,7 @@ export function DawView() {
   const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
   const [sel, setSel] = useState(-1); // sección seleccionada (Fase 2.2: su barra de edición)
   // carriles de automatización abiertos (Fase 3.1): pista → parámetro que se edita
-  const [autoOpen, setAutoOpen] = useState<Record<string, AutoParam>>({});
+  const [autoOpen, setAutoOpen] = useState<Record<string, string>>({});
   const jamRec = useJamStore((s) => s.recording);
   const jamBars = useJamStore((s) => s.bars);
   const [createOpen, setCreateOpen] = useState(false);
@@ -419,7 +421,7 @@ export function DawView() {
                   <TrackMeter id={t.id} className="tmeter-daw" />
                   {fromSong && (() => {
                     const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
-                    const has = TRACK_PARAMS.some((p) => isActive(au?.[p], p));
+                    const has = TRACK_PARAMS.some((p) => isActive(au?.[p], p)) || fxParamsDownstream(t.id, nodes, edges).some((f) => { const fn = nodes.find((n) => n.id === f.nodeId); return !!fn && fxCurve(fn.data, f.key).length > 0; });
                     const open = !!autoOpen[t.id];
                     return (
                       <button
@@ -461,20 +463,47 @@ export function DawView() {
                 </div>
               </div>
               {autoOpen[t.id] && (() => {
-                const param = autoOpen[t.id];
+                const sel = autoOpen[t.id];
                 const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
-                const pts: AutoPoint[] = au[param] ?? [];
-                const setPts = (next: AutoPoint[]) => update(t.id, { auto: { ...au, [param]: next } });
+                // perillas de los FX por los que pasa la pista (7.2): «fx:<nodo>:<perilla>»
+                const fxs = fxParamsDownstream(t.id, nodes, edges);
+                const fx = sel.startsWith('fx:') ? fxs.find((f) => `fx:${f.nodeId}:${f.key}` === sel) : undefined;
+                const param = (fx ? 'vol' : sel) as AutoParam;
+                let pts: AutoPoint[];
+                let setPts: (next: AutoPoint[]) => void;
+                let label: string;
+                if (fx) {
+                  const fn = nodes.find((n) => n.id === fx.nodeId);
+                  pts = fn ? fxCurve(fn.data, fx.key) : [];
+                  setPts = (next) => update(fx.nodeId, { auto: { ...(fn?.data.auto ?? {}), [fx.key]: next } });
+                  label = fx.label;
+                } else {
+                  pts = au[param] ?? [];
+                  setPts = (next) => update(t.id, { auto: { ...au, [param]: next } });
+                  label = AUTO_RANGE[param].label;
+                }
                 return (
                   <div className="daw-row auto" key={`${t.id}-auto`}>
                     <div className="daw-tname daw-autoname">
-                      <select value={param} onChange={(e) => setAutoOpen((o) => ({ ...o, [t.id]: e.target.value as AutoParam }))} aria-label="parámetro automatizado">
+                      <select value={fx ? sel : param} onChange={(e) => setAutoOpen((o) => ({ ...o, [t.id]: e.target.value }))} aria-label="parámetro automatizado">
                         {TRACK_PARAMS.map((p) => <option key={p} value={p}>{AUTO_RANGE[p].label}{isActive(au[p], p) ? ' ●' : ''}</option>)}
+                        {fxs.length > 0 && (
+                          <optgroup label="FX de la pista">
+                            {fxs.map((f) => {
+                              const fn = nodes.find((n) => n.id === f.nodeId);
+                              return <option key={`${f.nodeId}:${f.key}`} value={`fx:${f.nodeId}:${f.key}`}>{f.label}{fn && fxCurve(fn.data, f.key).length ? ' ●' : ''}</option>;
+                            })}
+                          </optgroup>
+                        )}
                       </select>
-                      <button className="daw-ms" onClick={() => setPts([])} disabled={!pts.length} title={`borrar la curva de ${AUTO_RANGE[param].label}`}>✕</button>
+                      <button className="daw-ms" onClick={() => setPts([])} disabled={!pts.length} title={`borrar la curva de ${label}`}>✕</button>
                     </div>
                     <div className="daw-lane" style={{ width, ...gridBg }}>
-                      <DawAutoLane points={pts} param={param} total={total} px={px} onChange={setPts} />
+                      {fx ? (
+                        <DawAutoLane points={pts} range={{ min: fx.min, max: fx.max, neutral: fx.value, label: fx.label, scale: fx.scale, unit: fx.key === 'cutoff' ? 'Hz' : undefined }} total={total} px={px} onChange={setPts} />
+                      ) : (
+                        <DawAutoLane points={pts} param={param} total={total} px={px} onChange={setPts} />
+                      )}
                     </div>
                   </div>
                 );

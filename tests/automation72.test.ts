@@ -96,3 +96,30 @@ test('7.2 jam: las perillas del máster y los envíos que moviste quedan como cu
   assert.ok(b.patches.a.auto?.rev);
   assert.equal(b.patches.a.auto?.del, undefined);
 });
+
+test('7.2 perillas de FX: las de la cadena de la pista y su curva como señal (Strudel real)', async () => {
+  const { fxParamsDownstream, fxCurve } = await import('../src/lib/fxAutomation.ts');
+  const nodes = [
+    src('a'),
+    { id: 'f', type: 'fx', position: { x: 0, y: 0 }, data: { kind: 'fx', opId: 'lpf', params: { cutoff: 800 }, auto: { cutoff: [[0, 200], [8, 8000]] } } },
+    { id: 'r', type: 'fx', position: { x: 0, y: 0 }, data: { kind: 'fx', opId: 'room', params: { amt: 0.3 } } },
+    { id: 'x', type: 'fx', position: { x: 0, y: 0 }, data: { kind: 'fx', opId: 'hpf', params: { cutoff: 400 } } }, // fuera de la cadena
+    out(),
+  ];
+  const edges = [{ id: '1', source: 'a', target: 'f' }, { id: '2', source: 'f', target: 'r' }, { id: '3', source: 'r', target: 'out_1' }];
+  const ps = fxParamsDownstream('a', nodes as never[], edges);
+  assert.deepEqual(ps.map((p) => `${p.nodeId}:${p.key}`), ['f:cutoff', 'r:amt']);
+  assert.equal(ps[0].scale, 'exp');
+  assert.deepEqual(fxCurve({ opId: 'lpf', auto: { cutoff: [[0, 5], [8, 99999]] } }, 'cutoff'), [[0, 20], [8, 18000]]);
+  assert.deepEqual(fxCurve({ opId: 'stut', auto: { fb: [[0, 0.5]] } }, 'fb'), []); // no automatizable
+  const r = compileGraph(nodes as never[], edges as never[], { songBars: 16 });
+  assert.match(r.code!, /\.lpf\(signal\(/);
+  assert.match(r.code!, /\.room\(0\.3\)/);
+  const core = await strudelCore();
+  const expr = r.code!.replace(/\.analyze\("[^"]+"\)/, '');
+  const pat = new Function('s', 'signal', 'return ' + expr)((core as any).s, (core as any).signal);
+  const at = (c: number) => pat.queryArc(c, c + 0.01).filter((h: any) => h.hasOnset())[0].value;
+  assert.equal(at(0).cutoff, 200);
+  assert.equal(at(4).cutoff, 4100);
+  assert.equal(at(16 + 4).cutoff, 4100); // se repite con la canción
+});

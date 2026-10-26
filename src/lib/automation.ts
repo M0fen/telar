@@ -44,7 +44,10 @@ export const MASTER_PARAMS: MasterParam[] = ['mfilt', 'mdrive', 'mroom', 'mdelay
 const ALL_PARAMS = [...TRACK_PARAMS, ...MASTER_PARAMS] as AutoParam[];
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
-const clampV = (p: AutoParam, v: number) => Math.max(AUTO_RANGE[p].min, Math.min(AUTO_RANGE[p].max, Number(v) || 0));
+// rango de una curva: un parámetro conocido o el de una perilla de FX ({min, max}, 7.2)
+export type RangeLike = AutoParam | { min: number; max: number };
+const rangeOf = (p: RangeLike) => (typeof p === 'string' ? AUTO_RANGE[p] : p);
+const clampV = (p: RangeLike, v: number) => Math.max(rangeOf(p).min, Math.min(rangeOf(p).max, Number(v) || 0));
 export const snapBar = (bar: number, grid = 0.25) => Math.max(0, Math.round(bar / grid) * grid);
 
 export function sortPoints(pts: AutoPoint[]): AutoPoint[] {
@@ -52,13 +55,13 @@ export function sortPoints(pts: AutoPoint[]): AutoPoint[] {
 }
 
 // Añade (o reemplaza, si ya hay uno en ese compás) un punto.
-export function addPoint(pts: AutoPoint[] | undefined, p: AutoParam, bar: number, val: number): AutoPoint[] {
+export function addPoint(pts: AutoPoint[] | undefined, p: RangeLike, bar: number, val: number): AutoPoint[] {
   const b = r3(Math.max(0, bar));
   const out = (pts ?? []).filter((x) => Math.abs(x[0] - b) > 1e-6);
   out.push([b, r3(clampV(p, val))]);
   return sortPoints(out);
 }
-export function movePoint(pts: AutoPoint[], i: number, p: AutoParam, bar: number, val: number): AutoPoint[] {
+export function movePoint(pts: AutoPoint[], i: number, p: RangeLike, bar: number, val: number): AutoPoint[] {
   if (i < 0 || i >= pts.length) return pts;
   const rest = pts.filter((_, k) => k !== i);
   return addPoint(rest, p, bar, val);
@@ -85,7 +88,7 @@ export function valueAt(pts: AutoPoint[], x: number): number {
 // cualquier cosa en `auto`. Pares [compás ≥ 0, valor] numéricos, valor dentro del rango,
 // ordenados y sin compases repetidos; máximo 512. Nunca lanza.
 const MAX_POINTS = 512;
-export function cleanPoints(pts: unknown, p: AutoParam): AutoPoint[] {
+export function cleanPoints(pts: unknown, p: RangeLike): AutoPoint[] {
   if (!Array.isArray(pts)) return [];
   const out: AutoPoint[] = [];
   for (const x of pts) {
@@ -122,6 +125,12 @@ export function isActive(pts: unknown, p: AutoParam): boolean {
 export function curveAt(pts: AutoPoint[], bar: number, L: number): number {
   const x = L > 0 ? ((bar % L) + L) % L : bar;
   return valueAt(pts, x);
+}
+
+// La curva como SEÑAL de Strudel (`signal(t => …)`): el argumento de una perilla de FX (`.lpf(…)`)
+// que se mueve por compás (7.2). Se muestrea al principio de cada evento.
+export function curveSignal(pts: AutoPoint[], L: number): string {
+  return `signal(${curveFn(pts, L)})`;
 }
 
 // Función JS (texto) de la curva con repetición cada L compases (L ≤ 0: sin repetir).
