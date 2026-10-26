@@ -12,6 +12,7 @@ import { DRUM_MACHINES } from '../docs/catalog';
 import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 import { importMidiIntoSource, useMidiImportPrefs } from '../lib/midiActions';
+import { splitVariation, joinVariation, setVariation, fillFor, VARIATION_EVERY } from '../lib/variation';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -562,7 +563,55 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
   // editor de un código dado: toggle rejilla/piano roll cuando es melódico. SIN key
   // por sección: cambiar de pestaña NO remonta el editor → el ▶ (audición de sección)
   // sigue activo y salta a oír la sección elegida al instante.
+  // VARIACIÓN cada N compases (7.3): pestañas «patrón» / «fill» sobre el mismo brazo
+  const [varPart, setVarPart] = useState<'base' | 'fill'>('base');
   const editorFor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, previewCode?: string, headOff?: boolean) => {
+    const v = splitVariation(c);
+    const out = (x: string) => (wrapFn ? wrapFn(x) : x);
+    const emitVar = (x: string) => useGraphStore.getState().updateNodeData(id, { code: out(x) });
+    if (!v) {
+      const plainCode = c.trim();
+      return (
+        <>
+          {plainCode && plainCode !== 'silence' && (
+            <div className="seqs-sectabs seqs-vartabs">
+              <span className="seqs-sectag" title="el ÚLTIMO compás de cada N toca otro patrón (el fill): el redoble antes del drop, el hat que se abre, el corte del bombo">variación</span>
+              {VARIATION_EVERY.map((n) => (
+                <button key={n} onClick={() => { emitVar(setVariation(c, n, 'copy')); setVarPart('fill'); }} title={`el último compás de cada ${n} toca un fill (empieza como copia del patrón: edítala)`}>＋ cada {n}</button>
+              ))}
+            </div>
+          )}
+          {plainEditor(c, wrapFn, seedFrom, previewCode, headOff)}
+        </>
+      );
+    }
+    const part = varPart === 'fill' ? v.fill : v.base;
+    const wrapPart = (x: string) => out(joinVariation(varPart === 'fill' ? { ...v, fill: x } : { ...v, base: x }));
+    return (
+      <>
+        <div className="seqs-sectabs seqs-vartabs">
+          <span className="seqs-sectag" title={`el último compás de cada ${v.every}${v.half ? ' (su segunda mitad)' : ''} toca el fill`}>variación</span>
+          <button className={varPart === 'base' ? 'on' : ''} onClick={() => setVarPart('base')} title="el patrón de siempre">patrón</button>
+          <button className={varPart === 'fill' ? 'on fill' : 'fill'} onClick={() => setVarPart('fill')} title="lo que suena en el último compás de cada N">fill</button>
+          <span className="seqs-secops">
+            cada
+            <select value={v.every} onChange={(e) => emitVar(setVariation(c, Number(e.target.value), 'copy', v.half))} aria-label="cada cuántos compases">
+              {VARIATION_EVERY.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button className={v.half ? 'on' : ''} onClick={() => emitVar(setVariation(c, v.every, 'copy', !v.half))} title={v.half ? 'el fill dura medio compás (la 2ª mitad): clic para el compás entero' : 'el fill dura el compás entero: clic para solo la 2ª mitad'}>{v.half ? '½' : '1'}</button>
+            <button onClick={() => emitVar(joinVariation({ ...v, fill: fillFor(v.base, 'copy') }))} title="el fill vuelve a ser una copia del patrón">copia</button>
+            <button onClick={() => emitVar(joinVariation({ ...v, fill: fillFor(v.base, 'cut') }))} title="corte: la pista calla en el fill">corte</button>
+            <button onClick={() => emitVar(joinVariation({ ...v, fill: fillFor(v.base, 'roll') }))} title="roll: cada golpe del patrón ×2">roll</button>
+            <button onClick={() => { emitVar(v.base); setVarPart('base'); }} title="quitar la variación (queda el patrón)">×</button>
+          </span>
+        </div>
+        {varPart === 'fill' && v.fill.trim() === 'silence'
+          ? <p className="seqs-seedline">fill = <b>corte</b>: la pista calla en el último compás de cada {v.every}. «copia» para editarlo como patrón.</p>
+          : plainEditor(part, wrapPart, varPart === 'fill' ? undefined : seedFrom, part, headOff)}
+      </>
+    );
+  };
+  const plainEditor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, previewCode?: string, headOff?: boolean) => {
     const melodic = isMelodicCode(c);
     return (
       <>

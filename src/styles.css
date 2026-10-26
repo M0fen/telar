@@ -336,6 +336,11 @@ body {
 .perf-lufs-nums .over b { color: #e8d16a; }
 .perf-lufs-nums .clip b { color: #e46a6a; }
 .perf-lufs-nums .gr b { color: #6ab0e8; }
+/* VARIACIÓN cada N compases (7.3): pestañas patrón / fill del secuenciador */
+.seqs-vartabs button.fill { border-color: rgba(232, 163, 61, 0.6); }
+.seqs-vartabs button.on.fill { background: #e8a33d; border-color: #e8a33d; color: #140b02; }
+.seqs-vartabs .seqs-secops { font-size: 10px; color: var(--dim); }
+.seqs-vartabs select { background: #04070a; border: 1px solid var(--line); color: var(--text); font: inherit; font-size: 10px; padding: 1px 2px; border-radius: 2px; }
 /* RETORNOS COMPARTIDOS (Fase 6.4): reverb y eco con su EQ */
 .perf-ret { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 6px; }
 .perf-ret-head { display: flex; align-items: baseline; gap: 8px; }

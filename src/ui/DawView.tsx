@@ -14,7 +14,7 @@ import { fxParamsDownstream, fxCurve } from '../lib/fxAutomation';
 import { DawExport } from './DawExport';
 import { useKeepInView } from './useKeepInView';
 import { AUTO_RANGE, isActive, cleanAuto, TRACK_PARAMS, MASTER_PARAMS, type AutoParam, type AutoPoint } from '../lib/automation';
-import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
+import { dawSection, dawBlock, blockVariation, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
 import { TrackMeter } from './TrackMeter';
@@ -455,6 +455,16 @@ export function DawView() {
                       {b.bars * px >= 30 && (
                         <span className="daw-blk-l">{t.plain ? 'suena siempre' : b.state === 'empty' ? 'vacía' : b.state === 'off' ? 'apagada' : `${b.arm + 1}`}</span>
                       )}
+                      {/* fills de la variación (7.3): el último compás de cada N */}
+                      {(() => {
+                        const v = b.code ? blockVariation(b.code) : null;
+                        if (!v) return null;
+                        const marks: number[] = [];
+                        for (let k = v.every - 1; k < b.bars && marks.length < 64; k += v.every) marks.push(k);
+                        return marks.map((k) => (
+                          <span key={k} className="daw-fillmk" style={{ left: (k + (v.half ? 0.5 : 0)) * px, width: Math.max(2, (v.half ? 0.5 : 1) * px - 1) }} title={`fill cada ${v.every} compases${v.half ? ' (media)' : ''}`} />
+                        ));
+                      })()}
                     </div>
                   ))}
                   {t.sceneMuted.map((m, i) => (

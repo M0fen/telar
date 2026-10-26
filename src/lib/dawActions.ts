@@ -11,6 +11,8 @@ import { blockPattern } from './dawModel';
 import { startJam, finishJam, isJamRecording, buildFromTake, type JamHooks, type JamTake } from './jamRecorder';
 import { getScheduler } from '../audio/engine';
 import { cleanAuto } from './automation';
+import { setVariation, splitVariation, type FillKind } from './variation';
+import { splitArrange, spliceArm, isMutedArm, unmuteArm, muteArm, isSilenceArm } from '../nodes/stepseqCode';
 
 export function arrangeState(): E.ArrangeState {
   const codes: Record<string, string> = {};
@@ -113,7 +115,25 @@ export const dawBlock = {
     useUiFocusStore.getState().request(id, arm);
     useGraphStore.getState().setMode('standard');
   },
+  // VARIACIÓN CADA N COMPASES (Fase 7.3): el último compás de cada N toca un fill (copia para
+  // editar, corte o roll); every 0 la quita. Una sección apagada sigue apagada.
+  variation(id: string, arm: number, every: number, kind: FillKind = 'copy', half = false): boolean {
+    const code = codeOf(id);
+    const apply = (pat: string): string | null => {
+      if (isSilenceArm(pat)) return null;
+      const muted = isMutedArm(pat);
+      const next = setVariation(muted ? unmuteArm(pat) : pat, every, kind, half);
+      return muted ? muteArm(next) : next;
+    };
+    const arms = splitArrange(code);
+    if (!arms) return setCode(id, apply(code), 'esta pista no tiene patrón');
+    const a = arms[arm];
+    if (!a) return false;
+    const next = apply(a.code);
+    return setCode(id, next == null ? null : spliceArm(code, a, next), 'esa sección está en silencio: no hay patrón que variar');
+  },
 };
+export const blockVariation = (blockCode: string) => splitVariation(isMutedArm(blockCode) ? unmuteArm(blockCode) : blockCode);
 
 // --- GRABAR EL JAM EN LA CANCIÓN (Fase 2.5) ----------------------------------------------
 function jamHooks(): JamHooks {
