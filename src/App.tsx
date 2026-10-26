@@ -48,6 +48,7 @@ import { useDownloadsStore } from './store/useDownloadsStore';
 import { loadSamplePack, registerSample } from './audio/engine';
 import { hydrateUserSounds } from './lib/userPacks';
 import { addLoopToCanvas } from './lib/warpActions';
+import { addMidiToCanvas, isMidiFile } from './lib/midiActions';
 import { initWarpSync } from './audio/warpLoops';
 import { setVoiceUrl } from './lib/voiceUrls';
 import { tokens } from './theme/tokens';
@@ -388,7 +389,9 @@ export default function App() {
   // y crea un Source `s("local_…")` por cada uno, en el punto del drop.
   const onDropFiles = useCallback(
     (files: FileList, at: XYPosition) => {
-      const audio = Array.from(files).filter((f) => f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aac|m4a|webm)$/i.test(f.name));
+      // MIDI (.mid de Splice, Fase 5.5): un Source por pista, con el synth, en el punto del drop
+      for (const f of Array.from(files).filter(isMidiFile)) void addMidiToCanvas(f, { x: at.x - 60, y: at.y - 30 });
+      const audio = Array.from(files).filter((f) => !isMidiFile(f) && (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aac|m4a|webm)$/i.test(f.name)));
       audio.forEach((f, i) => {
         const base = f.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'sample';
         const name = `local_${base}`.slice(0, 40);

@@ -11,6 +11,7 @@ import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
 import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
+import { importMidiIntoSource, useMidiImportPrefs } from '../lib/midiActions';
 
 // SECUENCIADOR por source (unificado): edita el patrón como una rejilla multi-sonido,
 // tipo drum-machine/LFO. Permite AÑADIR golpes y AÑADIR OTROS SONIDOS (el "tu" y el
@@ -588,6 +589,7 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
       <div className="seqs-sectabs seqs-viewtabs">
         <span className="seqs-sectag" title="arregla este instrumento por SECCIONES (intro/verso/drop): se crean 2 secciones de 4 compases con el patrón actual — suena igual — y editas cada una en su pestaña.">secciones</span>
         <button onClick={() => { emitFull(wrapAsArrange(code, [4, 4])); setSec(1); }} title="crear 2 secciones de 4 compases con este patrón (suena igual; edita la 2ª como variación)">＋ crear</button>
+        <MidiImportButton id={id} />
       </div>
     );
     return (
@@ -658,5 +660,23 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
         editorFor(arm.code, wrap, undefined, arm.code, headOff)
       )}
     </div>
+  );
+}
+
+// IMPORTAR MIDI (Fase 5.5): un .mid (Splice) → las notas de ESTE Source, con su sonido.
+// «cuantizar» (por defecto) = a semicorcheas, editable aquí; sin cuantizar = tiempo exacto.
+function MidiImportButton({ id }: { id: string }) {
+  const quantize = useMidiImportPrefs((s) => s.quantize);
+  const setQuantize = useMidiImportPrefs((s) => s.setQuantize);
+  return (
+    <span className="seqs-midi">
+      <label className="seqs-midi-btn" title="importar un .mid (los de Splice: bajos, acordes, melodías, baterías) como las notas de este instrumento">
+        ⤓ .mid
+        <input type="file" accept=".mid,.midi,audio/midi" style={{ display: 'none' }} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void importMidiIntoSource(id, f); }} />
+      </label>
+      <button className={quantize ? 'on' : ''} onClick={() => setQuantize(!quantize)} title={quantize ? 'cuantizar a semicorcheas (editable en la rejilla). Clic = importar con el tiempo exacto' : 'sin cuantizar: el tiempo exacto del MIDI (se edita en el código). Clic = cuantizar'}>
+        {quantize ? '1/16' : 'exacto'}
+      </button>
+    </span>
   );
 }

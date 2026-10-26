@@ -50,7 +50,19 @@ function extractScalar(code: string, method: string): { code: string; val: numbe
   return { code: code.slice(0, m.index) + code.slice(m.index + m[0].length), val: isFinite(val) ? val : 0 };
 }
 
-interface MelParsed { pre: string; post: string; sName: string | null; bank: string; wave: string | null; tokens: string[]; vels: number[] | null; gates: number[] | null; slide: number }
+interface MelParsed { pre: string; post: string; sName: string | null; bank: string; wave: string | null; tokens: string[]; vels: number[] | null; gates: number[] | null; slide: number; cycles: number }
+
+// ACORDES (Fase 5.5: los .mid de Splice): un paso puede ser «[c3,eb3,g3]» → sus notas MIDI
+function chordMidis(tok: string): number[] {
+  const t = (tok || '').trim();
+  if (!t || t === '~' || t === '-') return [];
+  const inner = t.startsWith('[') && t.endsWith(']') ? t.slice(1, -1) : t;
+  return inner.split(',').map((x) => noteToMidi(x.trim())).filter((m): m is number => m != null);
+}
+const chordTok = (midis: number[]) => {
+  const u = [...new Set(midis)].sort((a, b) => a - b);
+  return !u.length ? '~' : u.length === 1 ? midiToName(u[0]) : `[${u.map(midiToName).join(',')}]`;
+};
 
 function parseMel(code: string): MelParsed | null {
   // primero retira nuestros patrones de vel/dur (van al final); luego parsea la nota.
@@ -69,14 +81,19 @@ function parseMel(code: string): MelParsed | null {
   if (ce < 0) return null;
   const content = base.slice(cs, ce);
   const pre = base.slice(0, cs);
-  const post = base.slice(ce);
+  let post = base.slice(ce);
+  // VARIOS COMPASES (5.5): un `.slow(N)` detrás de las notas → los pasos ocupan N ciclos. Se
+  // retira y se vuelve a poner AL FINAL (después de .gain/.clip, que así quedan alineados).
+  let cycles = 1;
+  const sm = /\.slow\(\s*([0-9.]+)\s*\)/.exec(post);
+  if (sm && Number(sm[1]) > 0) { cycles = Number(sm[1]); post = post.slice(0, sm.index) + post.slice(sm.index + sm[0].length); }
   const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]+)/.exec(base);
   const sName = sM ? (sM[1].match(/[A-Za-z0-9_]+/)?.[0] ?? null) : null;
   const bankM = /\.bank\(\s*["'`]([^"'`]+)/.exec(base);
   const bank = bankM ? bankM[1] : '';
   const wave = sName && ['sawtooth', 'square', 'triangle', 'sine', 'supersaw'].includes(sName) ? sName : null;
   const tokens = content.trim() ? content.trim().split(/\s+/) : [];
-  return { pre, post, sName, bank, wave, tokens, vels: g.toks, gates: c.toks, slide: Math.max(0, Math.min(1, pe.val / SLIDE_MAX)) };
+  return { pre, post, sName, bank, wave, tokens, vels: g.toks, gates: c.toks, slide: Math.max(0, Math.min(1, pe.val / SLIDE_MAX)), cycles };
 }
 function buildMel(p: MelParsed, cells: string[], vels: number[], gates: number[], slide: number): string {
   const body = cells.some((c) => c !== '~') ? cells.join(' ') : '~';
@@ -85,6 +102,7 @@ function buildMel(p: MelParsed, cells: string[], vels: number[], gates: number[]
   if (gates.some((g) => Math.abs(g - 1) > 0.001)) out += `.clip("${gates.map(fmt).join(' ')}")`;
   // 808 slide: pitch-env que desliza cada nota hasta su tono (penv semitonos + pdecay s).
   if (slide > 0.02) out += `.penv(${(slide * SLIDE_MAX).toFixed(2)}).pdecay(${(0.05 + slide * 0.11).toFixed(3)})`;
+  if (Math.abs(p.cycles - 1) > 1e-9) out += `.slow(${fmt(p.cycles)})`;
   return out;
 }
 
@@ -97,8 +115,20 @@ interface Row { val: string; midi: number; acc: boolean; root: boolean }
 export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: string; code: string; wrap?: (c: string) => string; previewCode?: string; headOff?: boolean }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const parsed = useMemo(() => parseMel(code), [code]);
-  const [oct, setOct] = useState(3);
-  const [steps, setSteps] = useState(() => Math.max(1, Math.min(32, parsed?.tokens.length || 8)));
+  // la octava de partida: la de la nota más grave (un .mid de bajo arranca en su octava)
+  const [oct, setOct] = useState(() => {
+    const lows = (parsed?.tokens ?? []).flatMap(chordMidis);
+    return lows.length ? Math.max(0, Math.min(7, Math.floor(Math.min(...lows) / 12) - 1)) : 3;
+  });
+  const cycles = parsed?.cycles ?? 1;
+  const multi = cycles > 1 && Number.isInteger(cycles);
+  // con varios compases, todos los pasos del código (y se ven por compás); si no, hasta 32
+  const [stepsState, setSteps] = useState(() => Math.max(1, Math.min(32, parsed?.tokens.length || 8)));
+  const steps = multi ? Math.max(1, parsed?.tokens.length ?? 1) : stepsState;
+  const perPage = multi ? Math.max(1, Math.round(steps / cycles)) : steps;
+  const [page, setPage] = useState(0);
+  const pg = multi ? Math.min(page, cycles - 1) : 0;
+  const off = pg * perPage; // primer paso de la página visible
   const [head, setHead] = useState(-1);
   const [preview, setPreview] = useState(false);
   const [showAuto, setShowAuto] = useState(false);
@@ -111,14 +141,15 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
   useEffect(() => { if (parsed?.tokens.length) setSteps((s) => Math.max(s, Math.min(32, parsed.tokens.length))); }, [parsed?.tokens.length]);
   useEffect(() => {
     let raf = 0;
+    const cyc = multi ? cycles : 1;
     const tick = () => {
       const now = getScheduler()?.now?.();
-      setHead(typeof now === 'number' && !(headOff && !preview) ? Math.floor((((now % 1) + 1) % 1) * steps) % steps : -1);
+      setHead(typeof now === 'number' && !(headOff && !preview) ? Math.floor((((now % cyc) + cyc) % cyc) / cyc * steps) % steps : -1);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [steps, headOff, preview]);
+  }, [steps, headOff, preview, multi, cycles]);
   useEffect(() => {
     const up = () => { drawing.current = null; dragLane.current = null; };
     window.addEventListener('pointerup', up);
@@ -161,15 +192,18 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
 
   const slide = parsed?.slide ?? 0; // 808 slide (pitch-env de cada nota)
   const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) { const c = buildMel(parsed, nc, nv, ng, sl); update(id, { code: wrap ? wrap(c) : c }); pulseSaved(); } };
-  const place = (col: number, row: Row) => {
+  // clic = poner esa nota (o quitarla si ya estaba); con Mayús = sumarla al ACORDE del paso
+  const place = (col: number, row: Row, add = false) => {
     const next = cells.slice();
-    const on = noteToMidi(next[col]) === row.midi;
-    next[col] = on ? '~' : row.val;
+    const cur = chordMidis(next[col]);
+    const on = cur.includes(row.midi);
+    next[col] = on ? chordTok(cur.filter((m) => m !== row.midi)) : add ? chordTok([...cur, row.midi]) : row.val;
     if (!on) audit(row, vels[col] ?? 0.9);
     commit(next, vels, gates);
   };
   const paintTo = (col: number, row: Row) => { const next = cells.slice(); next[col] = row.val; commit(next, vels, gates); };
   const setStepCount = (n: number) => {
+    if (multi) return; // con varios compases, los pasos los fija el código
     const c = Math.max(2, Math.min(32, n));
     const nc = cells.slice(0, c).concat(Array(Math.max(0, c - cells.length)).fill('~'));
     commit(nc, alignNums(vels, c, 1), alignNums(gates, c, 1));
@@ -203,11 +237,19 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
           <b>C{oct}<i>8va</i></b>
           <button onClick={() => setOct((o) => Math.min(7, o + 1))}>+</button>
         </div>
-        <div className="seqs-steps">
-          <button onClick={() => setStepCount(steps - 1)}>−</button>
-          <b>{steps}<i>pasos</i></b>
-          <button onClick={() => setStepCount(steps + 1)}>+</button>
-        </div>
+        {multi ? (
+          <div className="seqs-steps" title="compás que ves (las notas ocupan varios compases)">
+            <button onClick={() => setPage(Math.max(0, pg - 1))} disabled={pg <= 0}>◀</button>
+            <b>{pg + 1}/{cycles}<i>compás</i></b>
+            <button onClick={() => setPage(Math.min(cycles - 1, pg + 1))} disabled={pg >= cycles - 1}>▶</button>
+          </div>
+        ) : (
+          <div className="seqs-steps">
+            <button onClick={() => setStepCount(steps - 1)}>−</button>
+            <b>{steps}<i>pasos</i></b>
+            <button onClick={() => setStepCount(steps + 1)}>+</button>
+          </div>
+        )}
         <div className="seqs-slide" title="slide de 808: cada nota ENTRA deslizando el pitch hasta su tono (trap/drift-phonk). Mueve el pitch-env del sonido. 0 = sin slide.">
           <MiniSlider label="slide" value={slide} min={0} max={1} step={0.02} onChange={(v) => commit(cells, vels, gates, v)} />
         </div>
@@ -221,16 +263,20 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
         {rows.map((row) => (
           <div className={`mel-row${row.root ? ' root' : ''}${row.acc ? ' acc' : ''}`} key={row.midi}>
             <button className="mel-key" onClick={() => audit(row)} title={`probar ${row.val}`}>{row.val}</button>
-            <div className="mel-cells" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-              {cells.map((c, col) => (
-                <button
-                  key={col}
-                  className={`mel-cell${noteToMidi(c) === row.midi ? ' on' : ''}${col === head ? ' play' : ''}${col % 4 === 0 ? ' beat' : ''}`}
-                  onPointerDown={() => { drawing.current = { note: row.val }; place(col, row); }}
-                  onPointerEnter={() => { if (drawing.current) paintTo(col, row); }}
-                  title={`${row.val} · paso ${col + 1}`}
-                />
-              ))}
+            <div className="mel-cells" style={{ gridTemplateColumns: `repeat(${perPage}, 1fr)` }}>
+              {cells.slice(off, off + perPage).map((c, k) => {
+                const col = off + k;
+                const notes = chordMidis(c);
+                return (
+                  <button
+                    key={col}
+                    className={`mel-cell${notes.includes(row.midi) ? ' on' : ''}${notes.length > 1 && notes.includes(row.midi) ? ' chord' : ''}${col === head ? ' play' : ''}${k % 4 === 0 ? ' beat' : ''}`}
+                    onPointerDown={(e) => { drawing.current = e.shiftKey ? null : { note: row.val }; place(col, row, e.shiftKey); }}
+                    onPointerEnter={() => { if (drawing.current) paintTo(col, row); }}
+                    title={`${row.val} · paso ${col + 1}${notes.length > 1 ? ' · acorde' : ''} · Mayús+clic = sumar al acorde`}
+                  />
+                );
+              })}
             </div>
           </div>
         ))}
@@ -241,14 +287,15 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
           {(['vel', 'gate'] as const).map((lane) => (
             <div className="seq-auto-lane" key={lane}>
               <span className="seq-auto-tag">{lane === 'vel' ? 'vel' : 'dur'}</span>
-              <div className="seq-auto-bars" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-                {(lane === 'vel' ? vels : gates).map((v, col) => {
+              <div className="seq-auto-bars" style={{ gridTemplateColumns: `repeat(${perPage}, 1fr)` }}>
+                {(lane === 'vel' ? vels : gates).slice(off, off + perPage).map((v, k) => {
+                  const col = off + k;
                   const h = lane === 'vel' ? v : v / 2; // gate 0..2 → 0..1 de alto (1 = medio)
                   const active = cells[col] !== '~';
                   return (
                     <div
                       key={col}
-                      className={`seq-auto-bar${col === head ? ' play' : ''}${active ? '' : ' rest'}${col % 4 === 0 ? ' beat' : ''}`}
+                      className={`seq-auto-bar${col === head ? ' play' : ''}${active ? '' : ' rest'}${k % 4 === 0 ? ' beat' : ''}`}
                       onPointerDown={(e) => { dragLane.current = lane; setAuto(lane, col, e.clientY, e.currentTarget); }}
                       onPointerEnter={(e) => { if (dragLane.current === lane) setAuto(lane, col, e.clientY, e.currentTarget); }}
                       title={`${lane === 'vel' ? 'volumen' : 'duración'} · paso ${col + 1}: ${fmt(v)}`}
