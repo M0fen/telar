@@ -19,11 +19,16 @@ export interface WarpInfo {
   name: string; // sample en el código (wl_…): se re-registra con la copia del BPM actual
   orig: string; // id del audio original (IndexedDB «telar-warp»)
   file?: string; // archivo original (para mostrar)
-  srcBpm: number; // tempo del loop original
-  beats: number; // duración en tiempos (negras): 16 = 4 compases de 4/4
-  semis?: number; // transposición en semitonos (Fase 5.3)
-  formant?: boolean; // conservar formantes al transponer (voces)
+  srcBpm: number; // tempo del loop original (0 en un one-shot)
+  beats: number; // duración en tiempos (negras): 16 = 4 compases de 4/4 (0 en un one-shot)
+  shot?: boolean; // ONE-SHOT tonal (Fase 5.3): solo se transpone, sin estirar ni repetir en vueltas
   key?: { root: number; minor: boolean | null }; // tonalidad del original (nombre de Splice)
+  follow?: boolean; // sigue la tonalidad del tema (por defecto sí, si se conoce la suya)
+  oct?: number; // octavas de más/menos (−2…+2)
+  formant?: boolean; // conservar formantes al transponer (voces)
+  // semitonos que se APLICAN: no se guarda en el nodo, sale de key/follow/oct y la tonalidad del
+  // tema al sincronizar (effectiveSemis); entra en la clave del caché
+  semis?: number;
 }
 
 export const WARP_PREFIX = 'wl_';
@@ -112,7 +117,7 @@ export function varispeedLoop(chans: Float32Array[], srcLoopFrames: number, rati
 // cómo se estira: las copias viejas del caché dejan de usarse solas.
 export const WARP_ALGO = 1;
 export const warpKey = (w: WarpInfo, songBpm: number) =>
-  `${w.orig}|${round2(w.srcBpm)}|${round2(songBpm)}|${w.semis ?? 0}|${w.formant ? 'f' : ''}|a${WARP_ALGO}`;
+  `${w.orig}|${round2(w.srcBpm)}|${round2(w.shot ? 0 : songBpm)}|${w.semis ?? 0}|${w.formant ? 'f' : ''}|a${WARP_ALGO}`;
 
 // nombre de sample nuevo (corto, legible en el código, único)
 export function warpName(clean: string, rand: () => number = Math.random): string {
@@ -198,10 +203,38 @@ export function replaceWarpInCode(code: string, oldName: string, newName: string
 // Nombre visible a partir del nombre del sample (wl_top_loop_ab12 → top_loop)
 export const warpClean = (name: string) => name.replace(/^wl_/, '').replace(/_[a-z0-9]{4}$/, '') || 'loop';
 
-// Texto corto del estado (chip del Source)
-export function warpLabel(w: WarpInfo, songBpm: number): string {
-  const bars = w.beats / 4;
-  const len = Number.isInteger(bars) ? `${bars} comp.` : `${w.beats} t.`;
-  const same = Math.abs(w.srcBpm - songBpm) < 0.05;
-  return `${same ? '' : `${round2(w.srcBpm)}→`}${round2(songBpm)} bpm · ${len}`;
+// --- A LA TONALIDAD DEL TEMA (Fase 5.3) ---
+// Semitonos para llevar un sample de su tonalidad a la que SUENA en el tema (tonalidad + tono). Si
+// los modos difieren se va a la relativa (un loop en A menor en un tema en C mayor no se mueve: son
+// las mismas notas). Siempre el camino más corto (−6…+5): estirar menos suena mejor.
+export function keySemis(from: { root: number; minor: boolean | null }, to: { root: number; minor: boolean }, transpose = 0): number {
+  let target = to.root + transpose;
+  if (from.minor != null && from.minor !== to.minor) target += from.minor ? -3 : 3;
+  let d = (((target - from.root) % 12) + 12) % 12;
+  if (d > 5) d -= 12;
+  return d;
+}
+export function effectiveSemis(w: WarpInfo, song: { root: number; minor: boolean } | null, transpose = 0): number {
+  const base = w.key && w.follow !== false && song ? keySemis(w.key, song, transpose) : 0;
+  return base + 12 * Math.max(-2, Math.min(2, Math.round(w.oct ?? 0)));
+}
+// ¿Es una voz? (por el nombre) → al transponer, Rubber Band conserva los formantes
+export const isVoiceName = (name: string) => /(vox|vocal|voice|voz|acapella|acappella|chant|choir|adlib|phrase|singer|sung)/i.test(name || '');
+
+const NOTE = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const kname = (k: { root: number; minor: boolean | null }, plus = 0) => `${NOTE[(((k.root + plus) % 12) + 12) % 12]}${k.minor ? 'm' : ''}`;
+
+// Texto corto del estado (chip del Source): tempo y largo (loops) y tono (si se transpone)
+export function warpLabel(w: WarpInfo, songBpm: number, semis = 0): string {
+  const parts: string[] = [];
+  if (!w.shot) {
+    const bars = w.beats / 4;
+    const len = Number.isInteger(bars) ? `${bars} comp.` : `${w.beats} t.`;
+    const same = Math.abs(w.srcBpm - songBpm) < 0.05;
+    parts.push(`${same ? '' : `${round2(w.srcBpm)}→`}${round2(songBpm)} bpm · ${len}`);
+  }
+  const oct = semis !== 0 && semis % 12 === 0 ? `${semis > 0 ? '+' : ''}${semis / 12} 8va` : '';
+  if (w.key) parts.push(!semis ? kname(w.key) : oct ? `${kname(w.key)} ${oct}` : `${kname(w.key)}→${kname(w.key, semis)} (${semis > 0 ? '+' : ''}${semis})`);
+  else if (semis) parts.push(oct || `${semis > 0 ? '+' : ''}${semis} st`);
+  return parts.join(' · ') || 'one-shot';
 }

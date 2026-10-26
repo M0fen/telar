@@ -31,6 +31,8 @@ import {
   circularPad,
   beatKeyFrames,
   seamLoop,
+  extractLoop,
+  effectiveSemis,
   type WarpInfo,
 } from '../lib/loopWarp';
 
@@ -154,9 +156,22 @@ const wavUrl = (chans: Float32Array[], sr: number) => URL.createObjectURL(new Bl
 const chansOf = (b: AudioBuffer) => Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c));
 const short = (x: number) => Math.round(x * 100) / 100;
 
+// el original tal cual (one-shots sin transponer, y su copia rápida)
+async function rawUrl(w: WarpInfo): Promise<string | null> {
+  const key = `raw|${w.orig}`;
+  const have = urlOf.get(key);
+  if (have) return have;
+  const rec = await getOrig(w.orig);
+  if (!rec) return null;
+  const url = URL.createObjectURL(rec.blob);
+  urlOf.set(key, url);
+  return url;
+}
+
 // Copia RÁPIDA (varispeed, milisegundos): en la rejilla desde ya, con el tono corrido hasta que
-// llegue la de Rubber Band. null = falta el original.
+// llegue la de Rubber Band (un one-shot: el original). null = falta el original.
 async function quickUrl(w: WarpInfo, songBpm: number): Promise<string | null> {
+  if (w.shot) return rawUrl(w);
   const key = `q|${warpKey(w, songBpm)}`;
   const have = urlOf.get(key);
   if (have) return have;
@@ -179,9 +194,23 @@ function stretchedUrl(w: WarpInfo, songBpm: number): Promise<string | null> {
   let job = jobs.get(key);
   if (job) return job;
   job = (async () => {
+    // one-shot en su tono: el original tal cual
+    if (w.shot && Math.abs(w.semis ?? 0) < 1e-3) return rawUrl(w);
     const hit = await idb<StrRec>('str', 'readonly', (s) => s.get(key) as IDBRequest<StrRec>);
     let chans = hit?.chans;
     let sr = hit?.sr ?? 0;
+    if ((!chans || sr !== getAudioContext().sampleRate) && w.shot) {
+      // ONE-SHOT TONAL (5.3): solo transponer, mismo largo (formantes si es voz)
+      const buf = await decodeOrig(w.orig);
+      if (!buf) return null;
+      sr = buf.sampleRate;
+      const t0 = performance.now();
+      const out = await warpChannels(chansOf(buf), sr, { semitones: w.semis ?? 0, formant: !!w.formant });
+      if (!out) return null;
+      chans = extractLoop(out, 0, buf.length);
+      console.info(`[warp] ${w.file ?? w.name}: ${(w.semis ?? 0) > 0 ? '+' : ''}${w.semis} st en ${Math.round(performance.now() - t0)} ms`);
+      void putStr({ key, orig: w.orig, sr, chans, at: Date.now() });
+    }
     if (!chans || sr !== getAudioContext().sampleRate) {
       const buf = await decodeOrig(w.orig);
       if (!buf) return null;
@@ -278,8 +307,13 @@ const warpsIn = (nodes: WarpNode[]): WarpInfo[] => {
 
 // Todos los loops del proyecto al BPM del tema. `wait` = esperar las copias (exportar);
 // sin él, registra lo que haya al instante y estira en segundo plano (▶, cambio de BPM).
-export async function syncWarpedLoops(nodes: WarpNode[], songBpm: number, o: { wait?: boolean } = {}): Promise<void> {
-  const list = warpsIn(nodes);
+export async function syncWarpedLoops(
+  nodes: WarpNode[],
+  songBpm: number,
+  o: { wait?: boolean; key?: { root: number; minor: boolean } | null; transpose?: number } = {},
+): Promise<void> {
+  // cada sample con los semitonos que le tocan con la tonalidad actual del tema (5.3)
+  const list = warpsIn(nodes).map((w) => ({ ...w, semis: effectiveSemis(w, o.key ?? null, o.transpose ?? 0) }));
   if (!list.length || !(songBpm > 0)) return;
   try {
     await ensureEngine();
@@ -292,7 +326,7 @@ export async function syncWarpedLoops(nodes: WarpNode[], songBpm: number, o: { w
 }
 
 // firma de los loops de un proyecto (para saber si hay que sincronizar al cambiar los nodos)
-export const warpSignature = (nodes: WarpNode[]) => warpsIn(nodes).map((w) => warpKey(w, 0) + w.name).join(',');
+export const warpSignature = (nodes: WarpNode[]) => warpsIn(nodes).map((w) => `${warpKey(w, 0)}${w.name}|${w.follow !== false}|${w.oct ?? 0}`).join(',');
 
 // Un archivo como loop al tempo del tema. null = no es un loop limpio (sin BPM en el nombre ni
 // un pulso que encaje con su duración) → el llamador lo deja a su tempo natural.
@@ -302,6 +336,7 @@ export async function importLoop(o: {
   clean: string; // nombre visible (sin artista, BPM ni tonalidad)
   hintBpm?: number; // BPM del nombre (Splice)
   key?: { root: number; minor: boolean | null }; // tonalidad del nombre (Splice)
+  formant?: boolean; // es una voz: al transponer conserva los formantes
   detect?: boolean; // probar la detección de pulso si no hay BPM en el nombre (def. true)
   songBpm: number;
   beatsPerCycle: number;
@@ -320,10 +355,28 @@ export async function importLoop(o: {
     const orig = await contentId(bytes);
     await putOrig({ id: orig, blob: o.blob, file: o.fileName, at: Date.now() });
     decoded.set(orig, Promise.resolve(buf));
-    const warp: WarpInfo = { name: warpName(o.clean), orig, file: o.fileName, srcBpm: grid.bpm, beats: grid.beats, ...(o.key ? { key: o.key } : {}) };
+    const warp: WarpInfo = { name: warpName(o.clean), orig, file: o.fileName, srcBpm: grid.bpm, beats: grid.beats, ...(o.key ? { key: o.key } : {}), ...(o.formant ? { formant: true } : {}) };
     return { code: warpCode(warp.name, warpCycles(grid.beats, o.beatsPerCycle)), warp };
   } catch (e) {
     console.warn('[warp] no pude preparar el loop', o.fileName, e);
+    return null;
+  }
+}
+
+// Un ONE-SHOT tonal (nombre con tonalidad: «stab_F», «vox_Gmin») → se transpone a la tonalidad del
+// tema sin estirar (Fase 5.3). null = no se pudo decodificar.
+export async function importShot(o: { blob: Blob; fileName: string; clean: string; key: { root: number; minor: boolean | null }; formant?: boolean }): Promise<{ code: string; warp: WarpInfo } | null> {
+  try {
+    await ensureEngine();
+    const bytes = await o.blob.arrayBuffer();
+    const buf = await getAudioContext().decodeAudioData(bytes.slice(0));
+    const orig = await contentId(bytes);
+    await putOrig({ id: orig, blob: o.blob, file: o.fileName, at: Date.now() });
+    decoded.set(orig, Promise.resolve(buf));
+    const warp: WarpInfo = { name: warpName(o.clean), orig, file: o.fileName, srcBpm: 0, beats: 0, shot: true, key: o.key, ...(o.formant ? { formant: true } : {}) };
+    return { code: `s("${warp.name}")`, warp };
+  } catch (e) {
+    console.warn('[warp] no pude preparar el one-shot', o.fileName, e);
     return null;
   }
 }
@@ -343,21 +396,26 @@ export async function warpOriginalSeconds(w: WarpInfo): Promise<number> {
 // Re-sincronizar al cambiar el BPM (con espera: el knob del BPM manda muchos cambios seguidos)
 // o al cambiar los loops del proyecto (cargar, deshacer, pegar). Solo con el motor andando: al
 // darle ▶ se sincroniza todo igualmente.
-export function initWarpSync(api: {
-  getState: () => { nodes: WarpNode[]; cps: number; beatsPerCycle: number; playing: boolean };
-  subscribe: (fn: (s: { nodes: WarpNode[]; cps: number; beatsPerCycle: number; playing: boolean }, p: { nodes: WarpNode[]; cps: number; beatsPerCycle: number }) => void) => () => void;
-}): () => void {
+interface SyncState {
+  nodes: WarpNode[];
+  cps: number;
+  beatsPerCycle: number;
+  playing: boolean;
+  songKey: { root: number; minor: boolean } | null;
+  transpose: number;
+}
+export function initWarpSync(api: { getState: () => SyncState; subscribe: (fn: (s: SyncState, p: SyncState) => void) => () => void }): () => void {
   let timer = 0;
   const kick = (ms: number) => {
     clearTimeout(timer);
     timer = window.setTimeout(() => {
       const s = api.getState();
-      if (s.playing) void syncWarpedLoops(s.nodes, (s.cps || 0.5) * 60 * (s.beatsPerCycle || 4));
+      if (s.playing) void syncWarpedLoops(s.nodes, (s.cps || 0.5) * 60 * (s.beatsPerCycle || 4), { key: s.songKey, transpose: s.transpose });
     }, ms);
   };
   const unsub = api.subscribe((s, p) => {
     if (!s.playing) return;
-    if (s.cps !== p.cps || s.beatsPerCycle !== p.beatsPerCycle) kick(600);
+    if (s.cps !== p.cps || s.beatsPerCycle !== p.beatsPerCycle || s.songKey !== p.songKey || s.transpose !== p.transpose) kick(600);
     else if (s.nodes !== p.nodes && warpSignature(s.nodes) !== warpSignature(p.nodes)) kick(50);
   });
   return () => { clearTimeout(timer); unsub(); };

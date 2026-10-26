@@ -48,8 +48,8 @@ import { getEditor } from './highlight';
 import { registerFlowNode, unregisterFlowNode } from './signalFlow';
 import { Vu } from './Vu';
 import { useWarpStore } from '../audio/warpLoops';
-import { retuneWarp, warpExistingSource } from '../lib/warpActions';
-import { songBpmOf, warpLabel, type WarpInfo } from '../lib/loopWarp';
+import { retuneWarp, warpExistingSource, setWarpKeyOpts } from '../lib/warpActions';
+import { songBpmOf, warpLabel, effectiveSemis, type WarpInfo } from '../lib/loopWarp';
 import { bareSampleName } from '../lib/sampleFit';
 
 // V1a — "el grafo como señal viva": registra el DOM de este nodo para que signalFlow le
@@ -482,45 +482,75 @@ function SourcePerfRow({ id, perf }: { id: string; perf: NodeData['perf'] }) {
   );
 }
 
-// LOOP AL TEMPO (Fase 5.2): de qué tempo viene, a cuál suena y cuánto dura. Clic → corregir el
-// tempo original (la detección o el nombre pueden equivocarse por ×2 / ÷2).
+// LOOP AL TEMPO (Fase 5.2) Y A LA TONALIDAD (5.3): de qué tempo viene, a cuál suena, cuánto dura y
+// cuántos semitonos se movió. Clic → corregir el tempo original (la detección o el nombre pueden
+// equivocarse por ×2 / ÷2), seguir o no la tonalidad del tema y la octava.
 function WarpChip({ id, warp }: { id: string; warp: WarpInfo }) {
   const cps = useGraphStore((s) => s.cps);
   const bpc = useGraphStore((s) => s.beatsPerCycle);
+  const songKey = useGraphStore((s) => s.songKey);
+  const transpose = useGraphStore((s) => s.transpose);
   const busy = useWarpStore((s) => !!s.busy[warp.name]);
   const missing = useWarpStore((s) => !!s.missing[warp.name]);
   const [open, setOpen] = useState(false);
   const [val, setVal] = useState(String(warp.srcBpm));
   useEffect(() => setVal(String(warp.srcBpm)), [warp.srcBpm]);
   const song = songBpmOf(cps, bpc);
+  const semis = effectiveSemis(warp, songKey, transpose);
+  const oct = warp.oct ?? 0;
+  const follow = warp.follow !== false;
   const apply = (b: number) => { if (b >= 40 && b <= 300) void retuneWarp(id, b); };
-  const text = missing ? 'falta el audio original' : busy ? `estirando… ${warpLabel(warp, song)}` : warpLabel(warp, song);
+  const label = warpLabel(warp, song, semis);
+  const text = missing ? 'falta el audio original' : busy ? `estirando… ${label}` : label;
+  const what = warp.shot
+    ? `One-shot a la tonalidad del tema: ${warp.file ?? warp.name}${semis ? `, movido ${semis > 0 ? '+' : ''}${semis} semitonos con Rubber Band (mismo largo${warp.formant ? ', voz con sus formantes' : ''})` : ''}.`
+    : `Loop al tempo del tema: ${warp.file ?? warp.name} va a ${warp.srcBpm} bpm y suena a ${Math.round(song * 100) / 100}, estirado con Rubber Band sin cambiar el tono${semis ? ` y movido ${semis > 0 ? '+' : ''}${semis} semitonos a la tonalidad del tema` : ''}. Siempre cae en la rejilla.`;
   return (
     <div className="tn-warp nodrag" onMouseDown={(e) => e.stopPropagation()}>
       <button
         className={`tn-warp-chip${busy ? ' busy' : ''}${missing ? ' miss' : ''}`}
         onClick={() => setOpen(!open)}
-        title={missing
-          ? `El audio original de este loop (${warp.file ?? warp.name}) no está guardado en este navegador: vuelve a arrastrarlo.`
-          : `Loop al tempo del tema: ${warp.file ?? warp.name} va a ${warp.srcBpm} bpm y suena a ${Math.round(song * 100) / 100}, estirado con Rubber Band sin cambiar el tono. Siempre cae en la rejilla. Clic = corregir su tempo original.`}
+        title={missing ? `El audio original (${warp.file ?? warp.name}) no está guardado en este navegador: vuelve a arrastrarlo.` : `${what} Clic = ajustes.`}
       >
-        ⇆ {text}
+        {warp.shot ? '♪' : '⇆'} {text}
       </button>
       {open && (
-        <div className="tn-warp-pop">
-          <span>tempo original</span>
-          <button onClick={() => apply(warp.srcBpm / 2)} title="la mitad (si suena al doble de rápido)">÷2</button>
-          <input
-            type="number"
-            min={40}
-            max={300}
-            step={0.01}
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') apply(Number(val)); }}
-            onBlur={() => { const b = Number(val); if (Math.abs(b - warp.srcBpm) > 0.004) apply(b); }}
-          />
-          <button onClick={() => apply(warp.srcBpm * 2)} title="el doble (si suena a la mitad de rápido)">×2</button>
+        <div className="tn-warp-pops">
+          {!warp.shot && (
+            <div className="tn-warp-pop">
+              <span>tempo original</span>
+              <button onClick={() => apply(warp.srcBpm / 2)} title="la mitad (si suena al doble de rápido)">÷2</button>
+              <input
+                type="number"
+                min={40}
+                max={300}
+                step={0.01}
+                value={val}
+                onChange={(e) => setVal(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') apply(Number(val)); }}
+                onBlur={() => { const b = Number(val); if (Math.abs(b - warp.srcBpm) > 0.004) apply(b); }}
+              />
+              <button onClick={() => apply(warp.srcBpm * 2)} title="el doble (si suena a la mitad de rápido)">×2</button>
+            </div>
+          )}
+          {warp.key && (
+            <div className="tn-warp-pop">
+              <span>tonalidad</span>
+              <button
+                className={follow ? 'on' : ''}
+                onClick={() => void setWarpKeyOpts(id, { follow: !follow })}
+                title={songKey ? 'seguir la tonalidad del tema (y el tono): se transpone sola si la cambias' : 'elige la tonalidad del tema en la barra para que la siga'}
+              >
+                {follow ? 'sigue al tema' : 'fija'}
+              </button>
+            </div>
+          )}
+          <div className="tn-warp-pop">
+            <span>octava</span>
+            <button onClick={() => void setWarpKeyOpts(id, { oct: oct - 1 })} disabled={oct <= -2} title="una octava abajo">−</button>
+            <b className="tn-warp-oct">{oct > 0 ? `+${oct}` : oct}</b>
+            <button onClick={() => void setWarpKeyOpts(id, { oct: oct + 1 })} disabled={oct >= 2} title="una octava arriba">+</button>
+          </div>
         </div>
       )}
     </div>

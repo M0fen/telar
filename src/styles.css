@@ -1995,6 +1995,11 @@ button.pal-item { width: 100%; }
 .tn-warp-pop { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 9px; color: var(--dim); }
 .tn-warp-pop button { font-family: inherit; font-size: 9px; padding: 2px 6px; border-radius: 4px; border: 1px solid var(--line-soft); background: transparent; color: var(--text); cursor: pointer; }
 .tn-warp-pop button:hover { border-color: var(--accent-dim); color: var(--accent); }
+.tn-warp-pops { display: flex; flex-direction: column; gap: 4px; }
+.tn-warp-pop > span { min-width: 74px; }
+.tn-warp-pop button.on { border-color: var(--accent-dim); color: var(--accent); }
+.tn-warp-pop button:disabled { opacity: 0.35; cursor: default; }
+.tn-warp-oct { min-width: 18px; text-align: center; color: var(--text); font-weight: 600; }
 .tn-warp-pop input { width: 58px; font-family: inherit; font-size: 10px; padding: 2px 4px; border-radius: 4px; border: 1px solid var(--line-soft); background: var(--panel-solid); color: var(--text); }
 
 .tn-perf { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 5px 8px; border-bottom: 1px solid var(--line-soft); }

@@ -906,7 +906,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       await registerCloudBank(); // banco propio en la nube (R2) → s("…") vía proxy
       // loops al tempo del tema (Fase 5.2): al ▶ suenan ya y se estiran en segundo plano; al
       // exportar se esperan las copias exactas
-      await syncWarpedLoops(get().nodes, songBpmOf(get().cps, get().beatsPerCycle), { wait: !!o?.waitWarp });
+      await syncWarpedLoops(get().nodes, songBpmOf(get().cps, get().beatsPerCycle), { wait: !!o?.waitWarp, key: get().songKey, transpose: get().transpose });
       await get().autoFitLongSamples(); // repara samples largos pelados (evita el solape)
     },
 

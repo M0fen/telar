@@ -21,6 +21,10 @@ import {
   varispeedLoop,
   beatKeyFrames,
   seamLoop,
+  keySemis,
+  effectiveSemis,
+  isVoiceName,
+  warpLabel,
   type WarpInfo,
 } from '../src/lib/loopWarp.ts';
 import { strudelCore } from './helpers/strudelNode.ts';
@@ -143,4 +147,34 @@ test('5.2 cuadros clave por tiempo y vuelta periódica (unión continua)', () =>
   assert.deepEqual([...o.subarray(L)], [...o.subarray(0, 4)]);
   // el principio no se toca
   assert.equal(o[0], y[s]);
+});
+
+test('5.3 a la tonalidad del tema: camino más corto, relativas, tono y octava', () => {
+  const am = { root: 9, minor: true };
+  // loop en F menor → tema en A menor: +4 (no −8)
+  assert.equal(keySemis({ root: 5, minor: true }, am), 4);
+  // loop en D menor → A menor: −5 (no +7)
+  assert.equal(keySemis({ root: 2, minor: true }, am), -5);
+  // el tono del tema (+2) también cuenta: suena en B menor
+  assert.equal(keySemis({ root: 9, minor: true }, am, 2), 2);
+  // modos distintos → a la relativa: un loop en C mayor en un tema en A menor no se mueve
+  assert.equal(keySemis({ root: 0, minor: false }, am), 0);
+  assert.equal(keySemis({ root: 9, minor: true }, { root: 0, minor: false }), 0);
+  // sin modo en el nombre: solo la raíz
+  assert.equal(keySemis({ root: 7, minor: null }, am), 2);
+  const w: WarpInfo = { name: 'wl_x_ab12', orig: 'o', srcBpm: 126, beats: 16, key: { root: 5, minor: true } };
+  assert.equal(effectiveSemis(w, am), 4);
+  assert.equal(effectiveSemis({ ...w, oct: -1 }, am), -8);
+  assert.equal(effectiveSemis({ ...w, follow: false }, am), 0); // fijo
+  assert.equal(effectiveSemis({ ...w, follow: false, oct: 1 }, am), 12);
+  assert.equal(effectiveSemis(w, null), 0); // tema sin tonalidad
+  assert.equal(effectiveSemis({ ...w, key: undefined }, am), 0); // sin tonalidad propia (batería)
+  assert.equal(isVoiceName('PL_126_Amin_vocal_chop.wav'), true);
+  assert.equal(isVoiceName('VOX_phrase_Gmin.wav'), true);
+  assert.equal(isVoiceName('PL_126_Amin_top_loop.wav'), false);
+  assert.equal(warpLabel(w, 132, 4), '126→132 bpm · 4 comp. · Fm→Am (+4)');
+  assert.equal(warpLabel({ ...w, shot: true, srcBpm: 0, beats: 0 }, 132, -3), 'Fm→Dm (-3)');
+  assert.equal(warpLabel({ ...w, key: undefined }, 126, 0), '126 bpm · 4 comp.');
+  assert.equal(warpLabel({ ...w, shot: true, srcBpm: 0, beats: 0 }, 132, -12), 'Fm -1 8va');
+  assert.equal(warpLabel({ ...w, key: undefined, shot: true }, 132, 12), '+1 8va');
 });

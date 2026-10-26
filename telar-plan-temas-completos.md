@@ -1,6 +1,6 @@
 # Telar — Temas completos a calidad máster (Fases 4–7)
 
-**Aprobada por Carlos el 2026-10-26** («adelante con todo»). **Hecho:** 4.1 (`1edd2b8`) · 4.2 (`0138a65`) · 4.3 (`0b7703b`) · 4.4 (`81a6be8`) · 4.5 (`9232792`). **Fase 4 hecha.** Fase 5: 5.2 (`a2aa2cd`) · 5.1. Mismo protocolo de `CLAUDE.md`: una tarea por commit → `npm run build` + `npm test` → verificación medida (Node + Chromium sin pantalla) → lo que hay que oír va a `escuchas-pendientes.md`. Tamaño: S (chica), M (media), L (grande).
+**Aprobada por Carlos el 2026-10-26** («adelante con todo»). **Hecho:** 4.1 (`1edd2b8`) · 4.2 (`0138a65`) · 4.3 (`0b7703b`) · 4.4 (`81a6be8`) · 4.5 (`9232792`). **Fase 4 hecha.** Fase 5: 5.2 (`a2aa2cd`) · 5.1 (`bb2acb0`) · 5.3. Mismo protocolo de `CLAUDE.md`: una tarea por commit → `npm run build` + `npm test` → verificación medida (Node + Chromium sin pantalla) → lo que hay que oír va a `escuchas-pendientes.md`. Tamaño: S (chica), M (media), L (grande).
 
 **Objetivo:** hacer en Telar un tema completo, desde los loops de Splice hasta el máster, y sacarlo listo para LabelGrid, para Reaper y para el celular, sin perder calidad en ningún paso.
 

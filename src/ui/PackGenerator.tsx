@@ -46,10 +46,11 @@ export function PackGenerator({ open, onClose }: { open: boolean; onClose: () =>
   const addToCanvas = async (r: PackFile) => {
     const st = useGraphStore.getState();
     const name = (r.soundName || 'sample').replace(/[^a-z0-9_]/gi, '_');
-    if (r.loop || r.bpm) {
+    // loops (BPM) al tempo del tema; loops y one-shots con tonalidad, a la del tema (5.3)
+    if (r.loop || r.bpm || parseSpliceName(r.fileName).key) {
       const id = await addLoopToCanvas(r.blob, r.fileName, { hintBpm: r.bpm, clean: name }).catch(() => null);
       if (id) {
-        flash(`«${name}» al lienzo · loop al tempo del tema`);
+        flash(`«${name}» al lienzo · ${r.loop || r.bpm ? 'loop al tempo del tema' : 'a la tonalidad del tema'}`);
         if (!useGraphStore.getState().playing) void useGraphStore.getState().play();
         return;
       }
