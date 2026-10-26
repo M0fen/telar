@@ -19,6 +19,9 @@ import { encodeAudio } from './exportEncode';
 import { exportFileName, type ExportFormat } from './audioFormats';
 import { measureLoudness, reportText, type LoudnessReport } from './loudness';
 import type { BakedSection } from './songBake';
+import { hapsToNotes, buildMidi, type MidiTrack } from './midiExport';
+import { ensureEngine } from '../audio/engine';
+import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 
 export const EXPORT_TAIL_S = 2.5;
 
@@ -273,6 +276,57 @@ async function encodeFile(buf: AudioBuffer, format: ExportFormat, progress?: (f:
   return { blob: enc.blob, frames: enc.frames, channels: 2, bits, float: bits === 32, sampleRate: enc.sampleRate, ext: enc.ext };
 }
 
+// MIDI (Fase 4.5): las notas de cada pista (con sus secciones, mutes y escenas) en un .mid tipo
+// 1. Se compila la canción UNA vez con la etiqueta de pista en cada evento y se reparten.
+export async function buildSongMidi(start: number, bars: number): Promise<Uint8Array> {
+  const g = useGraphStore.getState();
+  const song = useSongStore.getState();
+  const baked = bakeSong({ nodes: g.nodes, edges: g.edges, steps: song.steps, scenes: useScenesStore.getState().scenes, master: g.master, transpose: g.transpose, xfader: g.xfader, analyze: true });
+  if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
+  const cps = OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5;
+  const repl = await ensureEngine();
+  const pat = (await repl.evaluate(baked.code, false)) as { queryArc: (a: number, b: number, o?: object) => { value: unknown; whole?: { begin: { valueOf(): number }; end: { valueOf(): number } } | null; hasOnset?: () => boolean }[] } | undefined;
+  if (!pat) throw new Error('el patrón no compiló');
+  const haps = pat.queryArc(start, start + bars, { _cps: cps });
+  const byTrack = new Map<string, typeof haps>();
+  for (const h of haps) {
+    const tag = (h.value as { analyze?: unknown } | null)?.analyze;
+    const id = typeof tag === 'string' && tag.startsWith(SRC_ANALYSER_PREFIX) ? tag.slice(SRC_ANALYSER_PREFIX.length) : '';
+    if (!id) continue;
+    const list = byTrack.get(id) ?? [];
+    list.push(h);
+    byTrack.set(id, list);
+  }
+  const bpc = g.beatsPerCycle || 4;
+  const tracks: MidiTrack[] = [];
+  for (const n of g.nodes) {
+    if (n.data.kind !== 'source') continue;
+    const hs = byTrack.get(n.id);
+    if (!hs?.length) continue;
+    const { notes, drum } = hapsToNotes(hs, start, bpc);
+    if (notes.length) tracks.push({ name: String(n.data.name || n.id), drum, notes });
+  }
+  return buildMidi({ title: g.title || 'Telar', bpm: cps * 60 * bpc, beatsPerBar: bpc, tracks });
+}
+
+export async function exportMidi(start: number, bars: number, part: string): Promise<boolean> {
+  if (useExportStore.getState().busy) return false;
+  useExportStore.setState({ busy: true, frac: 0.2, label: 'MIDI' });
+  try {
+    await useGraphStore.getState().stop();
+    const bytes = await buildSongMidi(start, bars);
+    downloadBlob(new Blob([bytes as BlobPart], { type: 'audio/midi' }), exportName(part, 'mid'));
+    toast.ok('MIDI exportado: una pista por instrumento, con el tempo del tema (arrástralo a Reaper).');
+    return true;
+  } catch (e) {
+    console.warn('[export] MIDI', e);
+    toast.warn(`No pude exportar el MIDI: ${String((e as Error)?.message ?? e)}`);
+    return false;
+  } finally {
+    useExportStore.setState({ busy: false, frac: 0, label: '' });
+  }
+}
+
 // alarga un WAV con silencio hasta `frames` (los stems salen todos del mismo largo)
 function padWav(f: WavFile, frames: number): Blob {
   if (frames <= f.frames) return f.blob;
@@ -386,6 +440,11 @@ export async function exportStems(tracks: { id: string; name: string }[], bars: 
       useExportStore.setState({ label: 'armando el ZIP', frac: 1 });
       const files: ZipEntry[] = done.map((d) => ({ name: d.name, data: padWav(d.f, frames) }));
       if (informe) files.push({ name: 'informe.txt', data: new TextEncoder().encode(informe + '\n') });
+      try {
+        files.push({ name: exportName('', 'mid'), data: await buildSongMidi(0, bars) });
+      } catch (e) {
+        console.warn('[export] MIDI en el ZIP', e);
+      }
       downloadBlob(await makeZip(files), exportName('stems', 'zip'));
       return true;
     } catch (e) {

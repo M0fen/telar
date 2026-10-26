@@ -39,6 +39,7 @@ export interface BakeInput {
   transpose?: number;
   xfader?: number;
   only?: string | null; // stem: solo esta pista
+  analyze?: boolean; // true = cada evento lleva la etiqueta de su pista (MIDI); por defecto no
 }
 
 export interface BakedSection {
@@ -81,7 +82,7 @@ export function bakeSong(input: BakeInput): BakeResult {
   const startMaster = releaseMomentary(input.master);
   const steps = input.steps.filter((s) => s.bars >= 1);
   const total = songTotal(steps);
-  const base = { transpose: input.transpose, xfader: input.xfader, songBars: total, only: input.only ?? null, analyze: false };
+  const base = { transpose: input.transpose, xfader: input.xfader, songBars: total, only: input.only ?? null, analyze: !!input.analyze };
 
   // estados por sección: la escena de la sección SOBRE lo que venía (lo que no guarda, sigue)
   const states: { start: number; bars: number; nodes: N[]; master: MasterFx }[] = [];

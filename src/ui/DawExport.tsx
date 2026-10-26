@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useKeepInView } from './useKeepInView';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
-import { useExportStore, exportWav, exportStems, cancelExport, setExportPrefs, reportSummary, EXPORT_TAIL_S, type ExportRate, type ExportTarget } from '../lib/songExport';
+import { useExportStore, exportWav, exportStems, exportMidi, cancelExport, setExportPrefs, reportSummary, EXPORT_TAIL_S, type ExportRate, type ExportTarget } from '../lib/songExport';
 import { FORMAT_LABEL, type ExportFormat } from '../lib/audioFormats';
 import { liveSampleRate } from '../audio/engine';
 
@@ -88,6 +88,9 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
               región {region.start + 1}–{region.start + region.bars} · {region.bars} c. · {dur(region.bars)}
             </button>
           )}
+          <button role="menuitem" onClick={() => { setOpen(false); void exportMidi(0, total, fromSong ? 'midi' : 'bucle midi'); }} title="las notas de cada pista (con secciones y escenas) en un .mid: una pista por instrumento, batería en el canal 10, con el tempo del tema">
+            MIDI de la canción (.mid)
+          </button>
           <button role="menuitem" aria-expanded={stemsOpen} onClick={() => setStemsOpen((o) => !o)}>stems por pista (ZIP) {stemsOpen ? '▴' : '▾'}</button>
           {stemsOpen && (() => {
             const chosen = tracks.filter((t) => !isOff(t));
@@ -103,7 +106,7 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
                   ))}
                 </span>
                 <label className="daw-stems-mix"><input type="checkbox" checked={withMix} onChange={(e) => setWithMix(e.target.checked)} /> incluir la mezcla (con máster)</label>
-                <span className="daw-stems-note">cada pista sola, sin el máster (EQ, glue, limitador) · siempre WAV 32 float: juntas no se recortan aunque pasen de 0 dB</span>
+                <span className="daw-stems-note">cada pista sola, sin el máster (EQ, glue, limitador) · siempre WAV 32 float: juntas no se recortan aunque pasen de 0 dB · incluye el MIDI y el informe</span>
                 <span className="daw-stems-est">{passes} pasada{passes === 1 ? '' : 's'} de {dur(total)} · más rápido que el tiempo real</span>
                 <button
                   className="daw-btn on"
