@@ -332,7 +332,13 @@ export function DawView() {
             ⚠ {mism.length} no cuadra{mism.length > 1 ? 'n' : ''}
           </span>
         )}
-        {tracks.length > 0 && <DawExport total={total} fromSong={fromSong} tracks={tracks.filter((t) => t.blocks.some((b) => b.code)).map((t) => ({ id: t.id, name: t.name }))} />}
+        {tracks.length > 0 && (() => {
+          // pista en mute (o fuera de los solos) y ninguna escena de la canción cambia la mezcla →
+          // su stem sería silencio: se ofrece desmarcada
+          const scenesMix = steps.some((st) => { const m = scenes[st.scene]?.state; return !!m && Object.keys(m).length > 0; });
+          const stemTracks = tracks.filter((t) => t.blocks.some((b) => b.code)).map((t) => ({ id: t.id, name: t.name, muted: !t.audible, silent: !t.audible && !scenesMix }));
+          return <DawExport total={total} fromSong={fromSong} tracks={stemTracks} />;
+        })()}
         <span className="daw-zoom">
           <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar">−</button>
           <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>
