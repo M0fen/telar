@@ -57,7 +57,16 @@ Todo lo "funcional" se juzga contra: **Dancehall, Techno, EBM, Post-punk, Trap, 
 
 ## Próximo trabajo
 
-**Modo DAW, Fases 0 y 1 — hechas** (`telar-daw-fase0.md`, `telar-daw-fase1.md`): canción y escenas viajan en el `ProjectSnapshot`; la canción sigue el reloj del scheduler (`src/lib/songClock.ts`, ▶ canción reinicia el transporte); `splitArrange` es el único parser de `arrange`; ○ apaga una sección con `.mask(0)` (`muteArm`/`unmuteArm`). Vista **DAW** (`src/ui/DawView.tsx` + `src/lib/dawModel.ts`): pistas × compases sobre los arrange, línea de reproducción, clic en un bloque = ○/● de ese brazo (`toggleBlockCode`), clic en la regla = tocar desde ese compás (`playFrom` → `useSongStore.from` → `applyStartBar` pone `.early(from)` por DENTRO del máster; ■ lo vuelve a 0 y suelta el ½ tiempo; quien convierta el reloj en compás de canción suma `from`). **Siguiente: Fase 2 (editar la estructura: alargar/insertar/borrar secciones, partir pistas planas, loop de región)** — falta escribir el plan y **esperar el OK de Carlos antes de tocar código**. Escuchas pendientes: secciones 11 (panel MIDI), 12 (Fase 0) y 13 (vista DAW) de `escuchas-pendientes.md`.
+**Modo DAW, Fases 0–3 — hechas** (planes y commits en `telar-daw-fase0.md` … `telar-daw-fase3.md`). Lo que hay que saber antes de tocarlo:
+- **La verdad es el código**: cada sección es un brazo de `arrange([n, pat], …)` en cada pista y un paso de `useSongStore.steps` (`{id, scene, bars, name?}`). `splitArrange` (`src/nodes/stepseqCode.ts`) es el único parser. Apagado = `.mask(0)` (conserva el patrón); vacío = `silence`. Las escenas son la MEZCLA de cada sección; los bloques, QUÉ suena.
+- **Editar la estructura** = funciones puras de `src/lib/arrangeEdit.ts` (alinean siempre canción y pistas) → `src/lib/dawActions.ts` → `useGraphStore.applyArrangement(codes, steps, patches)`: UN paso deshacible y UN recompile; el historial con `live` deshace sin cortar la canción que suena.
+- **Tiempo**: `from` (tocar desde, `.early`), región (`.ribbon` + `regionOn`), `stopAt` (exportar: `filterHaps`) y `exportOnly` (stem: compila una sola pista) viven en `useSongStore` y entran por `applyTimeline` en `compile.ts`, por DENTRO del máster. Quien convierta el reloj en compás de canción usa `timelinePos` (`src/lib/songClock.ts`).
+- **Automatización** (`src/lib/automation.ts`): `data.auto {vol, filt}` en compases de canción → sufijo `.withHap` por Source (después de la mezcla del canal). Siempre leerla con `cleanAuto`.
+- **Jam → canción** (`src/lib/jamRecorder.ts`): muestrea escenas, mutes y perillas por compás; al parar arma secciones, brazos y curvas (las pistas con secciones propias no se tocan).
+- **Exportar** (`src/lib/songExport.ts`): en tiempo real (no hay render offline con el bus de Telar). Recorte con precisión de muestra desde el ciclo 0 del Cyclist; la mezcla (tap post) se recorta con `getMasterPostLatency()` (lookahead del limitador TP + bus medido) para quedar alineada con los stems (tap pre). ZIP sin dependencias en `src/lib/zip.ts`.
+- **Transporte**: `swapPattern` evalúa SIN autostart y solo arranca el reloj si no hubo ■ desde que empezó (época en `engine.ts`); nunca vuelvas a `evaluate(code, true)`.
+
+**Siguiente: pulir con Carlos** según lo que oiga (secciones 11–13 de `escuchas-pendientes.md`). Pendiente de su OK: que el panel MIDI arranque minimizado en la vista DAW (hoy tapa la izquierda hasta que se minimiza con ▾). Cualquier fase nueva: plan primero y **esperar su OK antes de tocar código**.
 
 ---
 
