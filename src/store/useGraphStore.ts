@@ -541,6 +541,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         'synthNote' in patch ||
         'voice' in patch ||
         'eq' in patch || // EQ por canal: enruta a un orbit + setChannelEqs (antes NO recompilaba → EQ inerte)
+        'comp' in patch || // compresor de canal (6.1): igual que el EQ (sin esto, tocarlo no hacía nada hasta otro cambio)
         'auto' in patch || // curvas de automatización del DAW (Fase 3.1) → sufijo .withHap
         'perf' in patch || // FX de deck momentáneos (DJ): roll/gate/echo
         'xfa' in patch // asignación de crossfader
