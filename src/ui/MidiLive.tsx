@@ -100,6 +100,20 @@ const AVES: { name: string; code: string }[] = [
   },
 ];
 
+// minimizado por vista: la DAW tiene el suyo y arranca MINIMIZADO (abierto tapa la izquierda
+// de la línea de tiempo); standard y DJ comparten el de siempre (abierto si nunca se tocó).
+const COLLAPSED_KEY = { std: 'telar.midilive.collapsed', daw: 'telar.midilive.collapsed.daw' } as const;
+type PanelView = keyof typeof COLLAPSED_KEY;
+function readCollapsed(view: PanelView): boolean {
+  const dflt = view === 'daw';
+  try {
+    const v = localStorage.getItem(COLLAPSED_KEY[view]);
+    return v == null ? dflt : v === '1';
+  } catch {
+    return dflt;
+  }
+}
+
 const gs = () => useGraphStore.getState();
 const setM = (patch: Partial<MasterFx>) => gs().setMaster(patch);
 const srcGain = (id: string) => (gs().nodes.find((n) => n.id === id)?.data.gain ?? 1) as number;
@@ -174,14 +188,15 @@ export function MidiLive() {
   const sources = nodes.filter((n) => n.data.kind === 'source');
   const srcSig = sources.map((s) => s.id).join('|');
 
-  // minimizar: persiste en localStorage para que el panel recuerde su estado.
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    try { return localStorage.getItem('telar.midilive.collapsed') === '1'; } catch { return false; }
-  });
-  const toggleCollapsed = () => setCollapsed((c) => {
-    const v = !c;
-    try { localStorage.setItem('telar.midilive.collapsed', v ? '1' : '0'); } catch { /* */ }
-    return v;
+  // minimizar: persiste en localStorage, uno por vista (el panel puede seguir montado al pasar
+  // de DJ a DAW, por eso se guardan los dos y se elige por la vista actual).
+  const view: PanelView = useGraphStore((s) => s.mode) === 'daw' ? 'daw' : 'std';
+  const [collapsedBy, setCollapsedBy] = useState<Record<PanelView, boolean>>(() => ({ std: readCollapsed('std'), daw: readCollapsed('daw') }));
+  const collapsed = collapsedBy[view];
+  const toggleCollapsed = () => setCollapsedBy((c) => {
+    const v = !c[view];
+    try { localStorage.setItem(COLLAPSED_KEY[view], v ? '1' : '0'); } catch { /* */ }
+    return { ...c, [view]: v };
   });
 
   useEffect(() => {

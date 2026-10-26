@@ -66,7 +66,7 @@ Todo lo "funcional" se juzga contra: **Dancehall, Techno, EBM, Post-punk, Trap, 
 - **Exportar** (`src/lib/songExport.ts`): en tiempo real (no hay render offline con el bus de Telar). Recorte con precisión de muestra desde el ciclo 0 del Cyclist; la mezcla (tap post) se recorta con `getMasterPostLatency()` (lookahead del limitador TP + bus medido) para quedar alineada con los stems (tap pre). ZIP sin dependencias en `src/lib/zip.ts`.
 - **Transporte**: `swapPattern` evalúa SIN autostart y solo arranca el reloj si no hubo ■ desde que empezó (época en `engine.ts`); nunca vuelvas a `evaluate(code, true)`.
 
-**Siguiente: pulir con Carlos** según lo que oiga (secciones 11–13 de `escuchas-pendientes.md`). Pendiente de su OK: que el panel MIDI arranque minimizado en la vista DAW (hoy tapa la izquierda hasta que se minimiza con ▾). Cualquier fase nueva: plan primero y **esperar su OK antes de tocar código**.
+**Siguiente: pulir con Carlos** según lo que oiga (secciones 11–13 de `escuchas-pendientes.md`). El panel MIDI guarda su minimizado por vista (`COLLAPSED_KEY` en `MidiLive.tsx`): en la DAW arranca minimizado. Cualquier fase nueva: plan primero y **esperar su OK antes de tocar código**.
 
 ---
 
