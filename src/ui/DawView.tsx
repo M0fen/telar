@@ -327,7 +327,7 @@ export function DawView() {
         {mism.length > 0 && (
           <span
             className="daw-warn"
-            title={`no duran lo que la línea de tiempo (${total} compases): ${mism.map((t) => `${t.name} ${t.bars}`).join(' · ')}. Sus bloques se repiten desfasados (los ves en la fila). ⇋ instrumentos, en la canción, los alinea.`}
+            title={`no duran lo que la línea de tiempo (${total} compases): ${mism.map((t) => `${t.name} ${t.bars}`).join(' · ')}. Sus bloques se repiten desfasados (los ves en la fila). ${fromSong ? '«⇋ alinear pistas» los alinea.' : '«crear estructura ▾» arma la canción y los alinea.'}`}
           >
             ⚠ {mism.length} no cuadra{mism.length > 1 ? 'n' : ''}
           </span>
@@ -491,7 +491,7 @@ export function DawView() {
             />
           )}
           {sections.length === 0 && (
-            <div className="daw-hint">Sin secciones: los instrumentos suenan en bucle. Crea la canción en la vista standard (máster › canción) y usa «⇋ instrumentos».</div>
+            <div className="daw-hint">Sin secciones: los instrumentos suenan en bucle. Arma la canción aquí arriba: «crear estructura ▾» (todo suena igual y luego apagas bloques) o «● grabar jam» (se arma con lo que toques).</div>
           )}
         </div>
       )}
