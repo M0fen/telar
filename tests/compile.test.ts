@@ -197,8 +197,8 @@ test('channel EQ routes the source to its own orbit', () => {
 
 test('crossfader: deck A quiet, deck B loud at pos=1', () => {
   const r = C([src('a', 's("bd")', { xfa: 'a' }), src('b', 's("hh")', { xfa: 'b' }), out()], [E('a', 'o'), E('b', 'o')], { xfader: 1 });
-  // A = cos(pi/2) ≈ 0 → mul(gain(0.00)); B = sin(pi/2) = 1 → sin side loud
-  assert.match(code(r), /\.mul\(gain\(0\.00\)\)/);
+  // A = cos(pi/2) ≈ 0 → mul(velocity(0)); B = sin(pi/2) = 1 → sin side loud
+  assert.match(code(r), /\.mul\(velocity\(0\)\)/);
 });
 
 // --- P0.1 (auditoría dancehall): la ganancia de MEZCLA compone, no pisa ---------
@@ -206,9 +206,9 @@ test('crossfader: deck A quiet, deck B loud at pos=1', () => {
 // el fader/humanize/gate deben emitirse con `.mul(gain|velocity)` para multiplicar
 // los acentos/velocity internos en vez de borrarlos. (verificado contra @strudel/core)
 
-test('P0.1a fader de canal: .mul(gain) — los acentos del patrón sobreviven', () => {
+test('P0.1a fader de canal: .mul(velocity) — los acentos del patrón sobreviven', () => {
   const r = C([src('s', 's("bd sd").gain("1 1.4")', { gain: 0.5 }), out()], [E('s', 'o')]);
-  assert.match(code(r), /\.mul\(gain\(0\.50\)\)/);
+  assert.match(code(r), /\.mul\(velocity\(0\.5\)\)/);
   assert.match(code(r), /\.gain\("1 1\.4"\)/); // los acentos siguen intactos
 });
 
@@ -218,9 +218,28 @@ test('P0.1b humanize del máster: .mul(velocity(rand…)) — no borra el balanc
   assert.doesNotMatch(m, /\.gain\(rand/);
 });
 
-test('P0.1c gain del máster: .mul(gain(x)) multiplicativo', () => {
+test('P0.1c gain del máster: .mul(velocity(x)) multiplicativo', () => {
   const m = applyMaster('s("bd")', { gain: 1.3, filter: 0, room: 0 });
-  assert.match(m, /\.mul\(gain\(1\.30\)\)/);
+  assert.match(m, /\.mul\(velocity\(1\.3\)\)/);
+});
+
+// el fader va sobre VELOCITY: superdough suena a gain (0,8 por defecto) × velocity (1). Un
+// `.mul(gain(x))` fijaba gain = x en eventos sin gain → el fader saltaba +1,9 dB al dejar 1,00
+// y un kit perdía su balance interno. Nunca más `.mul(gain(` para el fader.
+test('nivel de la voz: también por velocity (continuo en 1)', () => {
+  const v = { position: 0, grain: 8, speed: 1, shape: 0, spread: 0, gain: 0.5, vowel: '', loop: 1, granular: false, tempo: false, tempoCycles: 1, pitchShift: 0, melody: '', scale: '', room: 0, delay: 0 };
+  const c = code(C([src('s', 's("voz")', { voice: v }), out()], [E('s', 'o')]));
+  assert.match(c, /\.mul\(velocity\(0\.5\)\)/);
+  assert.doesNotMatch(c, /\.gain\(0\.50\)/);
+});
+
+test('fader continuo: nunca fija gain; 3 decimales; 1,00 no emite nada', () => {
+  const kit = 'stack(s("bd*4"), s("~ sd").gain(0.85))';
+  const a = applyMaster(kit, { gain: 0.99, filter: 0, room: 0 });
+  assert.match(a, /\.mul\(velocity\(0\.99\)\)$/);
+  assert.doesNotMatch(a, /\.mul\(gain\(/);
+  assert.equal(applyMaster(kit, { gain: 1, filter: 0, room: 0 }), kit);
+  assert.match(applyMaster(kit, { gain: 0.257, filter: 0, room: 0 }), /\.mul\(velocity\(0\.257\)\)$/);
 });
 
 // --- CLAMP DEFENSIVO del máster (proyectos importados de otra IA / JSON a mano) -----
@@ -326,8 +345,8 @@ test('máster fuera de rango se CLAMPEA: crush:2 no emite crush(-8) (inválido) 
 
 test('fuera de rango: room/gain/filtro acotados (no rompen ni silencian)', () => {
   const bad = applyMaster('s("bd*4")', { gain: 99, filter: 5, room: 9 });
-  assert.doesNotMatch(bad, /\.mul\(gain\(99/);  // gain clampeado a 4
-  assert.match(bad, /\.mul\(gain\(4\.00\)\)/);
+  assert.doesNotMatch(bad, /\.mul\(velocity\(99/);  // gain clampeado a 4
+  assert.match(bad, /\.mul\(velocity\(4\)\)/);
   assert.match(bad, /\.room\(0\.95\)/);          // room clampeado a 0.95
   assert.match(bad, /hcutoff:Math\.max\(\+v\.hcutoff\|\|0,5000\)/); // filter 5 → 1 → paso-alto 5000
 });
@@ -427,15 +446,15 @@ test('P0.2 swing del máster: semicorcheas (n=8) — el tumbao del dembow', () =
 
 test('P0.1 gate del máster: corte multiplicativo (mantiene el balance mientras corta)', () => {
   const m = applyMaster('s("bd")', { gain: 1, filter: 0, room: 0, gate: 4 });
-  assert.match(m, /\.mul\(gain\(square\.range\(0, 1\)\.fast\(4\)\)\)/);
+  assert.match(m, /\.mul\(velocity\(square\.range\(0, 1\)\.fast\(4\)\)\)/);
 });
 
 test('U · perf por source: roll/rev/gate(mul, P0.1)/echo/wash emitidos por ESTE source', () => {
   const r = C([src('s', 's("bd*4")', { perf: { roll: 4, rev: true, gate: 8, echo: 0.55, wash: 0.7 } }), out()], [E('s', 'o')]);
   const c = code(r);
-  // gate: JAMÁS `.gain(square` (pisaría los acentos del patrón) → SIEMPRE `.mul(gain(square`
+  // gate: JAMÁS `.gain(square` (pisaría los acentos del patrón) → SIEMPRE `.mul(velocity(square`
   assert.ok(!/\.gain\(square/.test(c), 'el gate por-source no debe usar .gain(square (PISA los acentos)');
-  assert.match(c, /\.mul\(gain\(square\.range\(0, 1\)\.fast\(8\)\)\)/);
+  assert.match(c, /\.mul\(velocity\(square\.range\(0, 1\)\.fast\(8\)\)\)/);
   assert.match(c, /\.ply\(4\)/); // roll (patrón)
   assert.match(c, /\.rev\(\)/); // reverse (patrón)
   assert.match(c, /\.delay\(0\.55\)/); // echo (audio)

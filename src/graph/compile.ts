@@ -463,8 +463,9 @@ function applyVoice(code: string, v: VoiceParams): string {
   const spread = c01(num(v.spread, 0));
   if (spread > 0.001)
     out += `.pan(sine.range(${(0.5 - spread / 2).toFixed(2)}, ${(0.5 + spread / 2).toFixed(2)}).slow(4))`;
+  // nivel de la voz: como el fader, multiplica la velocity (continuo en 1 y no pisa un gain propio)
   const gain = num(v.gain, 1);
-  if (Math.abs(gain - 1) > 0.001) out += `.gain(${gain.toFixed(2)})`;
+  if (Math.abs(gain - 1) > 0.001) out += `.mul(velocity(${+gain.toFixed(3)}))`;
   return out;
 }
 
@@ -556,12 +557,13 @@ export function applyMaster(code: string, m: MasterFx, opts: { composeSends?: bo
   //
   // OJO semántica de controles (verificado en @strudel/core): dos `.gain()` (o dos
   // `.velocity()`) encadenados NO se multiplican — el 2º PISA al 1º (controls.mjs
-  // combina con `set`). Por eso aquí toda ganancia de MEZCLA se emite con
-  // `.mul(gain(x))` / `.mul(velocity(x))`: multiplica la clave si el evento ya la
-  // trae (acentos del secuenciador, velocity de lane, fader de canal) y la fija si
-  // no existe (idéntico al comportamiento anterior para eventos sin gain). Antes,
-  // mover el fader de un canal borraba los acentos, y el humanize/gain del máster
-  // aplanaba el balance de TODOS los canales.
+  // combina con `set`). Por eso aquí toda ganancia de MEZCLA se emite con `.mul(…)`:
+  // multiplica la clave si el evento ya la trae y la fija si no existe.
+  // Y va sobre VELOCITY, no sobre gain: superdough suena a `gain × velocity` con gain
+  // 0,8 y velocity 1 por defecto. `.mul(gain(x))` sobre un evento SIN gain lo fijaba en x
+  // (no 0,8·x): el fader saltaba +1,9 dB al pasar de 1,00 a 0,99 y desequilibraba un kit
+  // (el bombo sin gain subía; la caja con `.gain(0.85)` no). `.mul(velocity(x))` escala
+  // TODO el canal por x, tenga o no gain: fader continuo y balance interno intacto.
   // P0.2: swingBy(x, n) = n rebanadas por ciclo, retrasa la 2ª mitad de cada una.
   // n=8 → swing de SEMICORCHEAS con el compás estándar de 16 pasos (el tumbao del
   // dembow/dancehall). El n=4 anterior swingueaba corcheas (subdivisión equivocada).
@@ -577,7 +579,7 @@ export function applyMaster(code: string, m: MasterFx, opts: { composeSends?: bo
   // multiplicativa para no pisar el balance mientras corta).
   if (m.rev) out = `${out}.rev()`;
   if (m.roll && m.roll > 1) out = `${out}.ply(${Math.round(m.roll)})`;
-  if (m.gate && m.gate > 0) out = `${out}.mul(gain(square.range(0, 1).fast(${Math.round(m.gate)})))`;
+  if (m.gate && m.gate > 0) out = `${out}.mul(velocity(square.range(0, 1).fast(${Math.round(m.gate)})))`;
   // macros creativos (saturación → lo-fi → eco), antes del filtro/room/gain.
   // CLAMP DEFENSIVO a rango válido: un proyecto IMPORTADO (otra IA, JSON a mano) puede
   // traer valores que la UI jamás produce y que ROMPEN/silencian la salida — p.ej.
@@ -620,9 +622,10 @@ export function applyMaster(code: string, m: MasterFx, opts: { composeSends?: bo
     // muestra ausente (p.ej. IR de usuario no recargado) → cae a reverb algorítmico.
     if (m.space && knownIr(m.space)) out = `${out}.ir("${m.space}").roomsize(${irRoomsize(m.space)})`;
   }
-  // fader (de canal o del máster): multiplicativo — respeta acentos/velocity internos.
+  // fader (de canal o del máster): multiplica la velocity (ver arriba) — respeta acentos,
+  // velocity internos y el gain por defecto de superdough. Hasta 3 decimales («dejar margen»).
   const mGain = Math.max(0, Math.min(4, m.gain ?? 1));
-  if (Math.abs(mGain - 1) > 0.001) out = `${out}.mul(gain(${mGain.toFixed(2)}))`;
+  if (Math.abs(mGain - 1) > 0.001) out = `${out}.mul(velocity(${+mGain.toFixed(3)}))`;
   return out;
 }
 
@@ -914,13 +917,13 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           // FX de performance por SOURCE (momentáneos): roll (.ply), reverse (.rev),
           // gate rítmico, echo throw (.delay) y reverb wash (.room). Se aplican solo a ESTE
           // source. PATRÓN (roll/rev, caen en frontera de ciclo) primero; AUDIO después.
-          // gate = `.mul(gain(square…))` MULTIPLICATIVO (P0.1: `.gain(square)` PISABA los
+          // gate = `.mul(velocity(square…))` MULTIPLICATIVO (P0.1: `.gain(square)` PISABA los
           // acentos del patrón — igual que el gate del máster ya corregido).
           const perf = node.data.perf as { roll?: number; gate?: number; echo?: number; rev?: boolean; wash?: number } | undefined;
           if (perf) {
             if (perf.roll && perf.roll > 1) inner += `.ply(${Math.round(perf.roll)})`;
             if (perf.rev) inner += `.rev()`;
-            if (perf.gate && perf.gate > 0) inner += `.mul(gain(square.range(0, 1).fast(${Math.round(perf.gate)})))`;
+            if (perf.gate && perf.gate > 0) inner += `.mul(velocity(square.range(0, 1).fast(${Math.round(perf.gate)})))`;
             if (perf.echo && perf.echo > 0.02) inner += `.delay(${Math.min(0.9, perf.echo).toFixed(2)})`;
             // el reverb `wash` NO se emite aquí: se unifica con chRoom en UN solo `.room()`
             // (dos `.room()` en la misma voz se pisan) — ver la llamada a applyMaster abajo.

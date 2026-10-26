@@ -143,7 +143,8 @@ function installMidiRuntime(): void {
         else if (typeof v.note === 'string') note = nameToMidi(v.note);
         else if (typeof v.n === 'number') note = 60 + Math.round(v.n);
         const ch = Math.max(1, Math.min(16, Math.round((v.midichan as number) ?? channel))) - 1;
-        const vel = Math.max(1, Math.min(127, Math.round(((v.gain as number) ?? 0.9) * 127)));
+        // el fader de canal llega como velocity (multiplica al gain del evento)
+        const vel = Math.max(1, Math.min(127, Math.round(((v.gain as number) ?? 0.9) * ((v.velocity as number) ?? 1) * 127)));
         const span = hap.whole ?? hap.part;
         const durMs = Math.max(20, ((span ? span.end - span.begin : 0.25) / cps) * 1000);
         const tOn = performance.now() + Math.max(0, deadline - getAudioContext().currentTime) * 1000;

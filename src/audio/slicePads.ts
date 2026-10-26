@@ -40,9 +40,11 @@ export async function playSlice(nodeId: string, i: number, vel = 0.9): Promise<v
   const [begin, end] = sliceBounds(st.cuts, i);
   try {
     await ensureAudioReady();
-    const gain = Math.max(0.05, Math.min(1, vel)) * Math.min(1.5, Number(n?.data.gain ?? 1));
+    // fuerza del pad × fader de la pista, como VELOCITY (igual que el patrón: el gain por defecto
+    // de superdough queda, así el golpe del pad suena al nivel de la rebanada en el patrón)
+    const velocity = Math.max(0.05, Math.min(1, vel)) * Math.min(1.5, Number(n?.data.gain ?? 1));
     // la duración real la pone superdough (lo que dura la rebanada en el buffer)
-    await superdough({ s: name, begin, end, gain }, getAudioContext().currentTime + 0.01, 1, 0.5, 0.5);
+    await superdough({ s: name, begin, end, velocity }, getAudioContext().currentTime + 0.01, 1, 0.5, 0.5);
     useSlicePadsStore.setState({ hit: { slice: i, at: performance.now() } });
   } catch (e) {
     console.warn('[rebanador] no pude tocar la rebanada', e);
