@@ -14,16 +14,52 @@ import { toast } from '../store/useNotifyStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { bakeSong } from './songBake';
 import { renderOffline } from '../audio/offlineRender';
-import { audioBufferToWav, wavHeader } from './wavEncode';
+import { wavHeader } from './wavEncode';
+import { encodeAudio } from './exportEncode';
+import { exportFileName, type ExportFormat } from './audioFormats';
 
 export const EXPORT_TAIL_S = 2.5;
+
+// Preferencias de entrega (Fase 4.3), por usuario: formato y frecuencia ('live' = la del audio
+// en vivo, sin conversión).
+export type ExportRate = 'live' | 44100 | 48000;
+const FORMATS: ExportFormat[] = ['wav24', 'wav16', 'wav32f', 'mp3'];
+function readPref<T>(key: string, ok: (v: unknown) => v is T, dflt: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return dflt;
+    const v = JSON.parse(raw) as unknown;
+    return ok(v) ? v : dflt;
+  } catch {
+    return dflt;
+  }
+}
+const isFormat = (v: unknown): v is ExportFormat => FORMATS.includes(v as ExportFormat);
+const isRate = (v: unknown): v is ExportRate => v === 'live' || v === 44100 || v === 48000;
 
 export interface ExportUi {
   busy: boolean;
   frac: number; // 0–1
   label: string;
+  format: ExportFormat;
+  rate: ExportRate;
 }
-export const useExportStore = create<ExportUi>(() => ({ busy: false, frac: 0, label: '' }));
+export const useExportStore = create<ExportUi>(() => ({
+  busy: false,
+  frac: 0,
+  label: '',
+  format: readPref('telar.export.format', isFormat, 'wav24'),
+  rate: readPref('telar.export.rate', isRate, 'live'),
+}));
+export function setExportPrefs(p: { format?: ExportFormat; rate?: ExportRate }): void {
+  useExportStore.setState(p);
+  try {
+    if (p.format) localStorage.setItem('telar.export.format', JSON.stringify(p.format));
+    if (p.rate) localStorage.setItem('telar.export.rate', JSON.stringify(p.rate));
+  } catch {
+    /* preferencia de comodidad */
+  }
+}
 let cancelFlag = false;
 export function cancelExport(): void {
   cancelFlag = true;
@@ -127,7 +163,20 @@ interface WavFile {
   sampleRate: number;
 }
 
-async function offlinePass(o: { start: number; bars: number; bus: boolean; only?: string | null; progress?: (f: number) => void }): Promise<WavFile | null> {
+// frecuencia de salida según la preferencia (la del audio en vivo si no se pidió otra)
+const outRate = (sr: number): number => {
+  const r = useExportStore.getState().rate;
+  return r === 'live' ? sr : r;
+};
+
+// BPM del proyecto (para el nombre del archivo)
+const projectBpm = (): number => {
+  const g = useGraphStore.getState();
+  return (g.cps || 0.5) * 60 * (g.beatsPerCycle || 4);
+};
+export const exportName = (part: string, ext: string): string => exportFileName({ title: useGraphStore.getState().title, bpm: projectBpm(), part, ext });
+
+async function offlineBuffer(o: { start: number; bars: number; bus: boolean; only?: string | null; progress?: (f: number) => void }): Promise<AudioBuffer | null> {
   const g = useGraphStore.getState();
   const song = useSongStore.getState();
   const baked = bakeSong({
@@ -143,8 +192,18 @@ async function offlinePass(o: { start: number; bars: number; bus: boolean; only?
   if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
   const cps = OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5;
   const r = await renderOffline({ code: baked.code, cps, start: o.start, bars: o.bars, sections: baked.sections, bus: o.bus, onProgress: o.progress, isCancelled: () => cancelFlag });
-  if (!r) return null;
-  return { blob: audioBufferToWav(r.buffer), frames: r.buffer.length, channels: r.buffer.numberOfChannels, bits: 32, float: true, sampleRate: r.buffer.sampleRate };
+  return r ? r.buffer : null;
+}
+
+// render offline + codificación (en el worker). Stems: siempre WAV 32 float (sumados pueden
+// pasar de 0 dB sin recortarse), a la misma frecuencia que la mezcla.
+async function offlinePass(o: { start: number; bars: number; bus: boolean; only?: string | null; format?: ExportFormat; progress?: (f: number) => void }): Promise<(WavFile & { ext: string }) | null> {
+  const buf = await offlineBuffer({ ...o, progress: (x) => o.progress?.(x * 0.8) });
+  if (!buf) return null;
+  const format = o.format ?? 'wav32f';
+  const enc = await encodeAudio(buf, format, outRate(buf.sampleRate), (x) => o.progress?.(0.8 + x * 0.2));
+  const bits = format === 'wav16' ? 16 : format === 'wav24' ? 24 : 32;
+  return { blob: enc.blob, frames: enc.frames, channels: 2, bits, float: bits === 32, sampleRate: enc.sampleRate, ext: enc.ext };
 }
 
 // alarga un WAV con silencio hasta `frames` (los stems salen todos del mismo largo)
@@ -167,8 +226,9 @@ export function downloadBlob(blob: Blob, filename: string): void {
 
 export const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
-// Canción completa o región → WAV descargado. Devuelve true si terminó.
-export async function exportWav(start: number, bars: number, filename: string): Promise<boolean> {
+// Canción completa o región → archivo en el formato elegido (WAV 24/16/32f o MP3). `part` va
+// en el nombre ('master', 'region 9-16', 'bucle'). Devuelve true si terminó.
+export async function exportWav(start: number, bars: number, part: string): Promise<boolean> {
   if (useExportStore.getState().busy) return false;
   cancelFlag = false;
   const loop = useSongStore.getState().loop;
@@ -178,18 +238,20 @@ export async function exportWav(start: number, bars: number, filename: string): 
     await useGraphStore.getState().stop();
     useSongStore.getState().setLoop(false);
     let blob: Blob | null = null;
+    let ext = 'wav';
     try {
-      const f = await offlinePass({ start, bars, bus: true, progress: (x) => useExportStore.setState({ frac: x }) });
-      blob = f?.blob ?? null;
+      const f = await offlinePass({ start, bars, bus: true, format: useExportStore.getState().format, progress: (x) => useExportStore.setState({ frac: x }) });
       if (!f) return false; // cancelado
+      blob = f.blob;
+      ext = f.ext;
     } catch (e) {
       console.warn('[export] render offline falló → tiempo real', e);
-      toast.warn('El render rápido falló: exporto en tiempo real (tarda lo que dura el tema).');
+      toast.warn('El render rápido falló: exporto en tiempo real (tarda lo que dura el tema; sale en WAV 32 float).');
       useExportStore.setState({ frac: 0, label: 'exportando en tiempo real' });
       blob = await renderPass({ start, bars, progress: (f) => useExportStore.setState({ frac: f }) });
     }
     if (!blob) return false;
-    downloadBlob(blob, filename);
+    downloadBlob(blob, exportName(part, ext));
     return true;
   } finally {
     useSongStore.getState().setLoop(loop);
@@ -201,7 +263,7 @@ export async function exportWav(start: number, bars: number, filename: string): 
 // STEMS POR PISTA (Fase 3.4): una pasada por pista (offline; en tiempo real de respaldo), cada una SOLA (compile
 // `only`: con sus FX, sus secciones y lo que las escenas le hacen, como en la mezcla), por el
 // tap PRE-bus (sin limitador/EQ del máster, para mezclar en otro lado), todas del mismo largo
-// exacto → `telar-stems-….zip` con un WAV por pista (+ la mezcla, opcional).
+// exacto → `tema_BPM_stems.zip` con un WAV por pista (+ la mezcla, opcional).
 const safeName = (s: string, fallback: string) => s.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 60) || fallback;
 
 export async function exportStems(tracks: { id: string; name: string }[], bars: number, includeMix: boolean): Promise<boolean> {
@@ -237,7 +299,7 @@ export async function exportStems(tracks: { id: string; name: string }[], bars: 
       }
       const frames = Math.max(...done.map((d) => d.f.frames));
       useExportStore.setState({ label: 'armando el ZIP', frac: 1 });
-      downloadBlob(await makeZip(done.map((d) => ({ name: d.name, data: padWav(d.f, frames) }))), `telar-stems-${stamp()}.zip`);
+      downloadBlob(await makeZip(done.map((d) => ({ name: d.name, data: padWav(d.f, frames) }))), exportName('stems', 'zip'));
       return true;
     } catch (e) {
       if (cancelFlag) return false;
@@ -264,7 +326,7 @@ export async function exportStems(tracks: { id: string; name: string }[], bars: 
       files.push({ name: '00-mezcla.wav', data: blob });
     }
     useExportStore.setState({ label: 'armando el ZIP', frac: 1 });
-    downloadBlob(await makeZip(files), `telar-stems-${stamp()}.zip`);
+    downloadBlob(await makeZip(files), exportName('stems', 'zip'));
     return true;
   } finally {
     useSongStore.getState().setExportOnly(null);

@@ -957,6 +957,15 @@ export function setChannelEqs(routes: ChannelEqRouteRT[]): void {
   window.setTimeout(applyChannelEqs, 700);
 }
 
+// Frecuencia de muestreo del audio en vivo (0 si el motor aún no arrancó: no crea contexto).
+export function liveSampleRate(): number {
+  try {
+    return repl ? getAudioContext().sampleRate : 0;
+  } catch {
+    return 0;
+  }
+}
+
 // AudioContext de Strudel (lo usa butterchurn/MilkDrop para su análisis).
 export function getAudioCtx(): AudioContext {
   return getAudioContext() as AudioContext;

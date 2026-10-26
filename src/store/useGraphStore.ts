@@ -149,6 +149,9 @@ interface GraphState {
   vizVisible: boolean;
   vizHeadless: boolean;
   vizMilkStyle: 'free' | 'telar';
+  // nombre del tema (Fase 4.3): va en los nombres de los archivos exportados
+  title: string;
+  setTitle: (t: string) => void;
   setVizVisible: (v: boolean) => void;
   setVizHeadless: (v: boolean) => void;
   setVizMilkStyle: (s: 'free' | 'telar') => void;
@@ -312,6 +315,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     vizVisible: saved?.vizVisible ?? true,
     vizHeadless: saved?.vizHeadless ?? false,
     vizMilkStyle: saved?.vizMilkStyle ?? 'telar',
+    title: typeof saved?.title === 'string' ? saved.title.slice(0, 60) : '',
     loadNonce: 0,
 
     onNodesChange: (changes) => {
@@ -689,6 +693,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     setVizVisible: (vizVisible) => set({ vizVisible }),
     setVizHeadless: (vizHeadless) => set({ vizHeadless }),
     setVizMilkStyle: (vizMilkStyle) => set({ vizMilkStyle }),
+    setTitle: (t) => set({ title: String(t ?? '').slice(0, 60) }),
 
     addPattern: (code, name, extra, pos, opts) => {
       pushPast(true);
@@ -961,6 +966,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         vizVisible: snap.vizVisible ?? get().vizVisible,
         vizHeadless: snap.vizHeadless ?? get().vizHeadless,
         vizMilkStyle: snap.vizMilkStyle ?? get().vizMilkStyle,
+        title: typeof snap.title === 'string' ? snap.title.slice(0, 60) : '',
         compileError: null,
         runtimeError: null,
         loadNonce: get().loadNonce + 1,
@@ -1016,6 +1022,7 @@ export function projectSnapshotNow(): ProjectSnapshot {
     vizVisible: s.vizVisible,
     vizHeadless: s.vizHeadless,
     vizMilkStyle: s.vizMilkStyle,
+    title: s.title,
     ...currentExtras(),
   };
 }

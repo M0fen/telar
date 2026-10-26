@@ -2,7 +2,9 @@ import { useRef, useState } from 'react';
 import { useKeepInView } from './useKeepInView';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
-import { useExportStore, exportWav, exportStems, cancelExport, stamp, EXPORT_TAIL_S } from '../lib/songExport';
+import { useExportStore, exportWav, exportStems, cancelExport, setExportPrefs, EXPORT_TAIL_S, type ExportRate } from '../lib/songExport';
+import { FORMAT_LABEL, type ExportFormat } from '../lib/audioFormats';
+import { liveSampleRate } from '../audio/engine';
 
 // EXPORTAR desde el DAW (Fases 3.3 y 3.4): la canción entera o la región marcada a WAV (32-bit
 // float, lo que suena tras el máster) y los STEMS por pista en un ZIP (cada pista sola, sin el
@@ -22,6 +24,13 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
   const frac = useExportStore((s) => s.frac);
   const label = useExportStore((s) => s.label);
   const region = useSongStore((s) => s.region);
+  const format = useExportStore((s) => s.format);
+  const rate = useExportStore((s) => s.rate);
+  const title = useGraphStore((s) => s.title);
+  const setTitle = useGraphStore((s) => s.setTitle);
+  // frecuencia del audio en vivo (la del render): 'live' = sin convertir
+  const live = liveSampleRate();
+  const khz = (r: number) => `${(r / 1000).toLocaleString('es', { maximumFractionDigits: 1 })} kHz`;
   const cps = useGraphStore((s) => s.cps) || 0.5;
   const dur = (bars: number) => mmss(bars / cps + EXPORT_TAIL_S);
   const menuRef = useRef<HTMLSpanElement>(null);
@@ -41,11 +50,31 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
       <button className={`daw-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} title="exportar a WAV (lo que suena tras el máster, con sus escenas; más rápido que el tiempo real)">⤓ exportar ▾</button>
       {open && (
         <span className="daw-menu" role="menu" ref={menuRef}>
-          <button role="menuitem" onClick={() => { setOpen(false); void exportWav(0, total, `telar-${fromSong ? 'cancion' : 'bucle'}-${stamp()}.wav`); }}>
+          <span className="daw-exp-opts">
+            <label className="daw-exp-title">
+              nombre del tema
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="sin nombre" maxLength={60} aria-label="nombre del tema (va en el nombre de los archivos)" />
+            </label>
+            <span className="daw-exp-row" role="radiogroup" aria-label="formato">
+              {(Object.keys(FORMAT_LABEL) as ExportFormat[]).map((f) => (
+                <button key={f} role="radio" aria-checked={format === f} className={`daw-chip${format === f ? ' on' : ''}`} onClick={() => setExportPrefs({ format: f })} title={f === 'wav24' ? 'el estándar para distribuir (LabelGrid) y para mezclar' : f === 'wav16' ? 'calidad CD (con dither)' : f === 'wav32f' ? 'sin pérdida y sin límite de nivel (para seguir trabajando)' : 'para escuchar en el celular o mandar por WhatsApp'}>
+                  {FORMAT_LABEL[f]}
+                </button>
+              ))}
+            </span>
+            <span className="daw-exp-row" role="radiogroup" aria-label="frecuencia de muestreo">
+              {(['live', 44100, 48000] as ExportRate[]).filter((r) => r === 'live' || r !== live).map((r) => (
+                <button key={String(r)} role="radio" aria-checked={rate === r} className={`daw-chip${rate === r ? ' on' : ''}`} onClick={() => setExportPrefs({ rate: r })} title={r === 'live' ? 'la misma de tu audio: sin convertir' : 'convertida con un filtro de alta calidad'}>
+                  {r === 'live' ? (live ? `${khz(live)} (sin convertir)` : 'la de tu audio') : khz(r)}
+                </button>
+              ))}
+            </span>
+          </span>
+          <button role="menuitem" onClick={() => { setOpen(false); void exportWav(0, total, fromSong ? 'master' : 'bucle'); }}>
             {fromSong ? 'canción completa' : `bucle de ${total} compases`} · {total} c. · {dur(total)}
           </button>
           {region && (
-            <button role="menuitem" onClick={() => { setOpen(false); void exportWav(region.start, region.bars, `telar-region-${region.start + 1}-${region.start + region.bars}-${stamp()}.wav`); }}>
+            <button role="menuitem" onClick={() => { setOpen(false); void exportWav(region.start, region.bars, `region ${region.start + 1}-${region.start + region.bars}`); }}>
               región {region.start + 1}–{region.start + region.bars} · {region.bars} c. · {dur(region.bars)}
             </button>
           )}
@@ -64,7 +93,7 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
                   ))}
                 </span>
                 <label className="daw-stems-mix"><input type="checkbox" checked={withMix} onChange={(e) => setWithMix(e.target.checked)} /> incluir la mezcla (con máster)</label>
-                <span className="daw-stems-note">cada pista sola, sin el máster (EQ, glue, limitador) · WAV 32-bit float: juntas no se recortan aunque pasen de 0 dB</span>
+                <span className="daw-stems-note">cada pista sola, sin el máster (EQ, glue, limitador) · siempre WAV 32 float: juntas no se recortan aunque pasen de 0 dB</span>
                 <span className="daw-stems-est">{passes} pasada{passes === 1 ? '' : 's'} de {dur(total)} · más rápido que el tiempo real</span>
                 <button
                   className="daw-btn on"

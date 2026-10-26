@@ -32,6 +32,7 @@ export interface ProjectSnapshot {
   vizVisible: boolean; // contenedor del visualizador mostrado/oculto
   vizHeadless: boolean; // lienzo puro (sin bisel/HUD)
   vizMilkStyle: 'free' | 'telar'; // estilo de los presets milkdrop
+  title?: string; // nombre del tema (exportar)
   song?: ProjectSong; // canción; si falta al cargar, la canción queda vacía
   scenes?: Record<number, Scene>; // escenas 1–9; si faltan al cargar, quedan vacías
 }
