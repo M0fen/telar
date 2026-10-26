@@ -9,6 +9,7 @@ import { bareSampleName } from './sampleFit';
 import { resolveSampleUrl } from './sampleResolve';
 import { listPacks, getPack } from './userPacks';
 import { songBpmOf, warpCycles, warpName, warpClean, replaceWarpInCode, type WarpInfo } from './loopWarp';
+import { keyLong } from './songKey';
 
 const clock = () => {
   const g = useGraphStore.getState();
@@ -25,29 +26,35 @@ export async function addLoopToCanvas(
 ): Promise<string | null> {
   const meta = parseSpliceName(fileName, o.relPath ?? '');
   const { bpm, bpc } = clock();
-  const r = await importLoop({ blob: file, fileName, clean: o.clean || meta.clean, hintBpm: o.hintBpm ?? meta.bpm, songBpm: bpm, beatsPerCycle: bpc });
+  const r = await importLoop({ blob: file, fileName, clean: o.clean || meta.clean, hintBpm: o.hintBpm ?? meta.bpm, key: meta.key, songBpm: bpm, beatsPerCycle: bpc });
   if (!r) return null;
   if (!(await startWarp(r.warp, bpm))) return null;
-  const id = useGraphStore.getState().addPattern(r.code, o.clean || meta.clean, { warp: r.warp }, o.pos, { connectToOut: o.connectToOut ?? true });
+  const g = useGraphStore.getState();
+  const id = g.addPattern(r.code, o.clean || meta.clean, { warp: r.warp }, o.pos, { connectToOut: o.connectToOut ?? true });
   const same = Math.abs(r.warp.srcBpm - bpm) < 0.05;
-  toast.ok(
-    same
-      ? `«${o.clean || meta.clean}» en la rejilla (${r.warp.beats / 4} compases a ${r2(bpm)} bpm).`
-      : `«${o.clean || meta.clean}» al tempo del tema: ${r.warp.srcBpm} → ${r2(bpm)} bpm, sin cambiar el tono.`,
-  );
+  let msg = same
+    ? `«${o.clean || meta.clean}» en la rejilla (${r.warp.beats / 4} compases a ${r2(bpm)} bpm).`
+    : `«${o.clean || meta.clean}» al tempo del tema: ${r.warp.srcBpm} → ${r2(bpm)} bpm, sin cambiar el tono.`;
+  // tema sin tonalidad + loop que la trae (Splice) → esa es la del tema (5.1; se cambia en la barra)
+  const k = meta.key;
+  if (k && k.minor != null && !g.songKey) {
+    g.setSongKey({ root: k.root, minor: k.minor });
+    msg += ` Tonalidad del tema: ${keyLong({ root: k.root, minor: k.minor })} (la del loop; la cambias en la barra).`;
+  }
+  toast.ok(msg);
   return id;
 }
 
-// BPM guardado en tus packs para un sonido (los loops de Splice lo traen en el nombre)
-async function packBpm(sound: string): Promise<number | undefined> {
+// archivo original de un sonido de tus packs (su nombre de Splice trae BPM y tonalidad)
+async function packFile(sound: string): Promise<{ bpm?: number; fileName?: string }> {
   try {
     for (const m of await listPacks()) {
       if (!m.sounds.includes(sound)) continue;
-      const f = (await getPack(m.id))?.files.find((x) => x.soundName === sound && x.bpm);
-      if (f?.bpm) return f.bpm;
+      const f = (await getPack(m.id))?.files.find((x) => x.soundName === sound);
+      if (f) return { bpm: f.bpm, fileName: f.fileName };
     }
   } catch { /* sin packs */ }
-  return undefined;
+  return {};
 }
 
 // Un sample que ya está en el lienzo (s("nombre")) → loop al tempo del tema
@@ -69,8 +76,9 @@ export async function warpExistingSource(id: string): Promise<boolean> {
     return false;
   }
   const { bpm, bpc } = clock();
-  const hint = (await packBpm(name)) ?? parseSpliceName(name).bpm;
-  const r = await importLoop({ blob, fileName: name, clean: name, hintBpm: hint, songBpm: bpm, beatsPerCycle: bpc });
+  const pf = await packFile(name);
+  const meta = parseSpliceName(pf.fileName ?? name);
+  const r = await importLoop({ blob, fileName: pf.fileName ?? name, clean: name, hintBpm: pf.bpm ?? meta.bpm, key: meta.key, songBpm: bpm, beatsPerCycle: bpc });
   if (!r || !(await startWarp(r.warp, bpm))) {
     toast.warn(`«${name}» no parece un loop: no le encontré un tempo que encaje con su duración.`);
     return false;

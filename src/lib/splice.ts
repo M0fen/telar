@@ -5,11 +5,15 @@
 // - Nota raíz o tonalidad (Cmin, C#maj, F, A#) en los tonales.
 // - loop vs one-shot: por carpeta ("loop"/"one shot") y por tener BPM.
 // Ref: https://www.creators.splice.com/file-naming
-export interface SpliceMeta { clean: string; bpm?: number; note?: string; loop: boolean }
+import { KEY_TOKEN, keyFromFileName } from './songKey';
 
-// raíz en MAYÚSCULA (Splice capitaliza la tonalidad: C, F#, Cmin, C#maj) → evita
+// `key`: tonalidad con modo (null = sin modo en el nombre) → la del tema (5.1) y la transposición
+// de loops (5.3)
+export interface SpliceMeta { clean: string; bpm?: number; note?: string; loop: boolean; key?: { root: number; minor: boolean | null } }
+
+// raíz en MAYÚSCULA (Splice capitaliza la tonalidad: C, F#, Cmin, C#maj, Am) → evita
 // confundir artículos/palabras en minúscula ("a", "e") con notas.
-const KEY_TOK = /^([A-G])([#b]?)(maj|min|major|minor)?$/;
+const KEY_TOK = KEY_TOKEN;
 
 export function parseSpliceName(fileName: string, relPath = ''): SpliceMeta {
   const base = fileName.replace(/\.[^.]+$/, '');
@@ -41,5 +45,6 @@ export function parseSpliceName(fileName: string, relPath = ''): SpliceMeta {
   }
   let clean = out.join('_').replace(/[^a-z0-9_]/g, '').replace(/_+/g, '_').replace(/^_+|_+$/g, '');
   if (!clean) clean = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'sample';
-  return { clean, bpm, note, loop };
+  const key = keyFromFileName(fileName) ?? undefined;
+  return { clean, bpm, note, loop, key };
 }

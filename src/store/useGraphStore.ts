@@ -20,6 +20,7 @@ import { registerCloudBank } from '../lib/cloudBank';
 import { resolveSampleUrl } from '../lib/sampleResolve';
 import { sampleDuration } from '../lib/audioMeta';
 import { bareSampleName } from '../lib/sampleFit';
+import { cleanKey, keyScale, type SongKey } from '../lib/songKey';
 import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
@@ -154,6 +155,10 @@ interface GraphState {
   // nombre del tema (Fase 4.3): va en los nombres de los archivos exportados
   title: string;
   setTitle: (t: string) => void;
+  // TONALIDAD del tema (Fase 5.1): raíz + modo tal como se escribe; lo que suena es raíz + tono
+  // (transpose). La usan los secuenciadores, el autotune, los nombres de exportación y los loops.
+  songKey: SongKey | null;
+  setSongKey: (k: SongKey | null) => void;
   setVizVisible: (v: boolean) => void;
   setVizHeadless: (v: boolean) => void;
   setVizMilkStyle: (s: 'free' | 'telar') => void;
@@ -217,6 +222,14 @@ interface GraphState {
 // Campos del máster que viven SOLO en el bus Web Audio del motor (applyMasterBus): no
 // tocan el código del patrón → cambiarlos no necesita recompilar.
 const MASTER_BUS_KEYS = new Set(['limit', 'glue', 'sat', 'width', 'punch', 'eqLow', 'eqMid', 'eqHigh', 'filter', 'drive']);
+
+// parámetros por defecto de una operación; la ESCALA arranca en la tonalidad del tema (5.1)
+function opParams(opId: string): Record<string, number | string> {
+  const p = defaultParams(OPS_BY_ID[opId]);
+  const k = useGraphStore.getState().songKey;
+  if (opId === 'scale' && k) p.name = keyScale(k);
+  return p;
+}
 
 export const useGraphStore = create<GraphState>((set, get) => {
   // Los errores de evaluación de Strudel llegan por callback (no por throw).
@@ -321,6 +334,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     vizHeadless: saved?.vizHeadless ?? false,
     vizMilkStyle: saved?.vizMilkStyle ?? 'telar',
     title: typeof saved?.title === 'string' ? saved.title.slice(0, 60) : '',
+    songKey: cleanKey(saved?.songKey),
     loadNonce: 0,
 
     onNodesChange: (changes) => {
@@ -349,7 +363,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       if (kind === 'source') data.code = 's("hh*8")';
       if ((kind === 'fx' || kind === 'transform') && opId) {
         data.opId = opId;
-        data.params = defaultParams(OPS_BY_ID[opId]);
+        data.params = opParams(opId);
       }
       const node: GNode = {
         id,
@@ -553,7 +567,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       set({
         nodes: get().nodes.map((n) =>
           n.id === id
-            ? { ...n, data: { ...n.data, opId, params: defaultParams(OPS_BY_ID[opId]) } }
+            ? { ...n, data: { ...n.data, opId, params: opParams(opId) } }
             : n
         ),
       });
@@ -699,6 +713,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     setVizHeadless: (vizHeadless) => set({ vizHeadless }),
     setVizMilkStyle: (vizMilkStyle) => set({ vizMilkStyle }),
     setTitle: (t) => set({ title: String(t ?? '').slice(0, 60) }),
+    setSongKey: (k) => set({ songKey: cleanKey(k) }),
 
     addPattern: (code, name, extra, pos, opts) => {
       pushPast(true);
@@ -798,7 +813,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       if (!edge) return;
       pushPast(true);
       const id = nextId(kind);
-      const data: NodeData = { kind, opId, params: defaultParams(OPS_BY_ID[opId]) };
+      const data: NodeData = { kind, opId, params: opParams(opId) };
       const node: GNode = { id, type: kind, position, data };
       const newEdges = get().edges.filter((e) => e.id !== edgeId);
       newEdges.push({ id: `e_${id}_in`, source: edge.source, target: id });
@@ -981,6 +996,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         vizHeadless: snap.vizHeadless ?? get().vizHeadless,
         vizMilkStyle: snap.vizMilkStyle ?? get().vizMilkStyle,
         title: typeof snap.title === 'string' ? snap.title.slice(0, 60) : '',
+        songKey: cleanKey(snap.songKey),
         compileError: null,
         runtimeError: null,
         loadNonce: get().loadNonce + 1,
@@ -1037,6 +1053,7 @@ export function projectSnapshotNow(): ProjectSnapshot {
     vizHeadless: s.vizHeadless,
     vizMilkStyle: s.vizMilkStyle,
     title: s.title,
+    songKey: s.songKey,
     ...currentExtras(),
   };
 }

@@ -4,6 +4,17 @@ import type { NodeData, SynthParams } from '../graph/types';
 import { DEFAULT_SYNTH, VOICE_SCALES } from '../graph/types';
 import { playSynthNote } from '../audio/playNote';
 import { PC_FLAT, ACCIDENTAL, SCALE_STEPS, scaleName, midiToName, noteToMidi } from './pianoRollHelpers';
+import { ROOT_NAMES, keyScale, keyShort } from '../lib/songKey';
+
+// raíz de una escala de Strudel ('A:minor', 'F#3:major') → clase de altura (0 = C)
+const ROOT_PC: Record<string, number> = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 };
+function scaleRootPc(sc: string): number {
+  const m = /^([A-Ga-g])([#sb]?)/.exec(sc.trim());
+  if (!m) return 0;
+  return (ROOT_PC[m[1].toLowerCase()] + (m[2] === 'b' ? 11 : m[2] ? 1 : 0)) % 12;
+}
+// 'A3:minor' → 'A:minor' (el selector no lleva octava)
+const plainScale = (sc: string) => sc.replace(/^([A-Ga-g][#sb]?)-?\d+:/, '$1:');
 
 // Piano roll / CLIP general con DURACIÓN y VELOCITY. Edita el `code` de cualquier
 // Source como patrón de notas visual:
@@ -61,13 +72,21 @@ export function ClipStudio() {
 
   const code = (node?.data as NodeData | undefined)?.code ?? '';
   const parsed = useMemo(() => parseCode(code), [code]);
+  const songKey = useGraphStore((s) => s.songKey);
   const [oct, setOct] = useState(3);
-  const [scaleSel, setScaleSel] = useState(parsed.scale);
+  // clip nuevo (sin notas ni escala) con tonalidad del tema → arranca en su escala (Fase 5.1)
+  const hasNotes = parsed.tokens.some((t) => t !== '~' && t !== '_' && t !== '-');
+  const [scaleSel, setScaleSel] = useState(() => parsed.scale || (!hasNotes && songKey ? keyScale(songKey) : ''));
   const [steps, setSteps] = useState(() => Math.max(1, Math.min(32, parsed.tokens.length || 8)));
   const dragNote = useRef<{ start: number; val: string } | null>(null);
   const dragVel = useRef(false);
 
-  useEffect(() => { setScaleSel(parsed.scale); }, [parsed.scale]);
+  // el panel vive montado: al abrir OTRO clip se vuelve a decidir la escala de partida
+  useEffect(() => {
+    setScaleSel(parsed.scale || (!hasNotes && songKey ? keyScale(songKey) : ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipEditId]);
+  useEffect(() => { if (parsed.scale || hasNotes) setScaleSel(parsed.scale); }, [parsed.scale, hasNotes]);
   useEffect(() => { setSteps((s) => Math.max(s, Math.min(32, parsed.tokens.length))); }, [parsed.tokens.length]);
   useEffect(() => {
     const up = () => { dragNote.current = null; dragVel.current = false; };
@@ -105,10 +124,11 @@ export function ClipStudio() {
     if (scaleMode) {
       const st = SCALE_STEPS[scaleName(scaleSel)] ?? SCALE_STEPS.minor;
       const len = st.length;
+      const r0 = scaleRootPc(scaleSel); // la escala puede ir en cualquier raíz (la del tema)
       for (let d = len * 2; d >= 0; d--) {
-        const pc = st[d % len];
+        const pc = (r0 + st[d % len]) % 12;
         const semi = st[d % len] + 12 * Math.floor(d / len);
-        out.push({ val: String(d), label: String(d), sub: PC_FLAT[pc] + "'".repeat(Math.floor(d / len)), acc: ACCIDENTAL.has(pc), root: d % len === 0, midi: rootMidi + semi });
+        out.push({ val: String(d), label: String(d), sub: PC_FLAT[pc] + "'".repeat(Math.floor(d / len)), acc: ACCIDENTAL.has(pc), root: d % len === 0, midi: rootMidi + r0 + semi });
       }
     } else {
       for (let m = rootMidi + 23; m >= rootMidi; m--) {
@@ -190,9 +210,14 @@ export function ClipStudio() {
         <div className="vs-sec" style={{ borderTop: 'none', paddingTop: 4 }}>
           <div className="vs-roll">
             <div className="vs-roll-ctl">
-              <select className="vs-scale" value={scaleSel} onChange={(e) => changeScale(e.target.value)} title="escala (autotune por grados) o cromático">
+              <select className="vs-scale" value={plainScale(scaleSel)} onChange={(e) => changeScale(e.target.value)} title="escala (autotune por grados) o cromático · la raíz es la de la tonalidad del tema">
                 <option value="">cromático</option>
-                {VOICE_SCALES.map((s) => <option key={s} value={s}>{s.replace('C:', '')}</option>)}
+                {songKey && <option value={keyScale(songKey)}>tonalidad · {keyShort(songKey)}</option>}
+                {VOICE_SCALES.map((sc) => {
+                  const r = ROOT_NAMES[scaleSel ? scaleRootPc(scaleSel) : songKey?.root ?? 0];
+                  const v = sc.replace(/^C:/, `${r}:`);
+                  return songKey && v === keyScale(songKey) ? null : <option key={sc} value={v}>{r} {sc.replace('C:', '')}</option>;
+                })}
               </select>
               <div className="vs-stepper" title="nº de pasos">
                 <button onClick={() => { const n = Math.max(1, steps - 1); setSteps(n); commit(cells.slice(0, n), vels.slice(0, n)); }}>−</button>

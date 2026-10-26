@@ -76,7 +76,12 @@ export function VoiceStudio() {
   // granular, vibrato, recorte… todo lo que un disparo estático no puede mostrar).
   const [ctxPreview, setCtxPreview] = useState(false);
   // B2 — autotune real (corrección de tono): escala/raíz/velocidad de retune + B5 gate.
-  const [at, setAt] = useState<AtState>({ root: 0, scale: 'menor', speed: 0, gate: 0.4, deEss: 0.4 });
+  // la tonalidad que SUENA en el tema (raíz + tono, Fase 5.1) es la de partida del autotune
+  const [at, setAt] = useState<AtState>(() => {
+    const { songKey, transpose } = useGraphStore.getState();
+    const root = songKey ? (((songKey.root + transpose) % 12) + 12) % 12 : 0;
+    return { root, scale: songKey && !songKey.minor ? 'mayor' : 'menor', speed: 0, gate: 0.4, deEss: 0.4 };
+  });
   const [atBusy, setAtBusy] = useState(false);
   // B4 — comping: varias tomas + qué toma suena en cada tramo
   const [takes, setTakes] = useState<Take[]>([]);

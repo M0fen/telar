@@ -23,6 +23,7 @@ export interface WarpInfo {
   beats: number; // duración en tiempos (negras): 16 = 4 compases de 4/4
   semis?: number; // transposición en semitonos (Fase 5.3)
   formant?: boolean; // conservar formantes al transponer (voces)
+  key?: { root: number; minor: boolean | null }; // tonalidad del original (nombre de Splice)
 }
 
 export const WARP_PREFIX = 'wl_';

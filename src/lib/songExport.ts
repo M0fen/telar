@@ -11,6 +11,7 @@ import { getScheduler, getMasterPostNode, getAudioCtx, getMasterPostLatency } fr
 import { startAudioRecording, stopAudioRecording, isAudioRecording } from './audioRecorder';
 import { makeZip, type ZipEntry } from './zip';
 import { toast } from '../store/useNotifyStore';
+import { keyShort } from './songKey';
 import { useScenesStore } from '../store/useScenesStore';
 import { bakeSong } from './songBake';
 import { renderOffline, renderBusOver } from '../audio/offlineRender';
@@ -195,7 +196,11 @@ const projectBpm = (): number => {
   const g = useGraphStore.getState();
   return (g.cps || 0.5) * 60 * (g.beatsPerCycle || 4);
 };
-export const exportName = (part: string, ext: string): string => exportFileName({ title: useGraphStore.getState().title, bpm: projectBpm(), part, ext });
+export const exportName = (part: string, ext: string): string => {
+  const g = useGraphStore.getState();
+  // la tonalidad que SUENA (la del tema + el tono), como «Am» → pergolero_132bpm_Am_master.wav
+  return exportFileName({ title: g.title, bpm: projectBpm(), key: g.songKey ? keyShort(g.songKey, g.transpose) : undefined, part, ext });
+};
 
 interface Prepared {
   code: string;

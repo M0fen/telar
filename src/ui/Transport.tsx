@@ -1,11 +1,62 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { tapTempo } from '../lib/tapTempo';
+import { ROOT_NAMES, keyLong, keyShort, suggestKey } from '../lib/songKey';
+import type { WarpInfo } from '../lib/loopWarp';
 import { Knob } from './Knob';
 
 // Nombre de la nota (clave) para mostrar el "tono". 0 = C (sin transposición).
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const keyName = (t: number) => KEYS[(((t % 12) + 12) % 12)];
+
+// TONALIDAD DEL TEMA (Fase 5.1): raíz + modo, sin tonalidad, la sugerida por los loops de Splice
+// del proyecto y el tono (transposición) con su «volver a 0».
+function KeyPicker({ onClose }: { onClose: () => void }) {
+  const songKey = useGraphStore((s) => s.songKey);
+  const setSongKey = useGraphStore((s) => s.setSongKey);
+  const transpose = useGraphStore((s) => s.transpose);
+  const setTranspose = useGraphStore((s) => s.setTranspose);
+  const nodes = useGraphStore((s) => s.nodes);
+  const files = useMemo(() => nodes.map((n) => (n.data.warp as WarpInfo | undefined)?.file).filter((f): f is string => !!f), [nodes]);
+  const sug = useMemo(() => suggestKey(files), [files]);
+  const ref = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (ref.current && !ref.current.parentElement?.contains(e.target as Node)) onClose(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('mousedown', down);
+    window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('mousedown', down); window.removeEventListener('keydown', key); };
+  }, [onClose]);
+  const minor = songKey?.minor ?? true;
+  const showSug = sug && (!songKey || sug.key.root !== songKey.root || sug.key.minor !== songKey.minor);
+  return (
+    <div className="key-pop" ref={ref}>
+      <div className="key-pop-head">tonalidad del tema</div>
+      <div className="key-roots">
+        {ROOT_NAMES.map((r, i) => (
+          <button key={r} className={songKey?.root === i ? 'on' : ''} onClick={() => setSongKey({ root: i, minor })}>{r}</button>
+        ))}
+      </div>
+      <div className="key-modes">
+        <button className={songKey && songKey.minor ? 'on' : ''} onClick={() => setSongKey({ root: songKey?.root ?? 9, minor: true })}>menor</button>
+        <button className={songKey && !songKey.minor ? 'on' : ''} onClick={() => setSongKey({ root: songKey?.root ?? 0, minor: false })}>mayor</button>
+        <button className={!songKey ? 'on' : ''} onClick={() => setSongKey(null)} title="sin tonalidad: la escala vuelve a C y los loops no se transponen">sin tonalidad</button>
+      </div>
+      {showSug && sug && (
+        <button className="key-sug" onClick={() => setSongKey(sug.key)} title="la tonalidad que traen los loops de Splice del proyecto">
+          usar {keyLong(sug.key)} · la de {sug.votes} loop{sug.votes === 1 ? '' : 's'}
+        </button>
+      )}
+      {transpose !== 0 && (
+        <div className="key-tr">
+          tono {transpose > 0 ? '+' : ''}{transpose}{songKey ? <> → suena en <b>{keyLong(songKey, transpose)}</b></> : null}
+          <button onClick={() => setTranspose(0)}>volver a 0</button>
+        </div>
+      )}
+      <p className="key-hint">La usan los secuenciadores (escala), el autotune de la voz y el nombre de lo que exportas. Los − + de al lado transponen el tema.</p>
+    </div>
+  );
+}
 
 // Transporte: Play/Stop + tempo (perilla + BPM editable + tap) + tono. setcps
 // controla la velocidad del scheduler. BPM ≈ cps · 60 · tiempos_por_ciclo. El "/N"
@@ -18,6 +69,8 @@ export function Transport() {
   const setBeatsPerCycle = useGraphStore((s) => s.setBeatsPerCycle);
   const transpose = useGraphStore((s) => s.transpose);
   const setTranspose = useGraphStore((s) => s.setTranspose);
+  const songKey = useGraphStore((s) => s.songKey);
+  const [keyOpen, setKeyOpen] = useState(false);
   const compileError = useGraphStore((s) => s.compileError);
   const runtimeError = useGraphStore((s) => s.runtimeError);
   const play = useGraphStore((s) => s.play);
@@ -90,15 +143,18 @@ export function Transport() {
           tap
         </button>
       </div>
-      {/* Tono: transposición global en semitonos (solo afecta note(…)). El número
-          grande es la clave; los botones suben/bajan; clic en la clave = reset. */}
-      <div className="tono" title={`tono: ${transpose >= 0 ? '+' : ''}${transpose} semitonos`}>
-        <button className="tono-step" onClick={() => setTranspose(transpose - 1)} title="bajar semitono">−</button>
-        <button className="tono-key" onClick={() => setTranspose(0)} title="clic = volver a C (0)">
-          {keyName(transpose)}
-          <span className="tono-semi">{transpose === 0 ? 'tono' : `${transpose > 0 ? '+' : ''}${transpose}`}</span>
-        </button>
-        <button className="tono-step" onClick={() => setTranspose(transpose + 1)} title="subir semitono">+</button>
+      {/* Tonalidad + tono: con tonalidad (5.1) muestra la que SUENA (raíz + tono); − + transponen
+          en semitonos (note(…)); clic en el centro = elegir la tonalidad o volver el tono a 0. */}
+      <div className="tono-wrap">
+        <div className="tono" title={`${songKey ? `tonalidad ${keyLong(songKey)} · ` : ''}tono: ${transpose >= 0 ? '+' : ''}${transpose} semitonos`}>
+          <button className="tono-step" onClick={() => setTranspose(transpose - 1)} title="bajar semitono">−</button>
+          <button className={`tono-key${songKey ? ' has-key' : ''}`} onClick={() => setKeyOpen(!keyOpen)} title="tonalidad del tema (clic = elegir)">
+            {songKey ? keyShort(songKey, transpose) : keyName(transpose)}
+            <span className="tono-semi">{transpose === 0 ? (songKey ? 'tonalidad' : 'tono') : `${transpose > 0 ? '+' : ''}${transpose}`}</span>
+          </button>
+          <button className="tono-step" onClick={() => setTranspose(transpose + 1)} title="subir semitono">+</button>
+        </div>
+        {keyOpen && <KeyPicker onClose={() => setKeyOpen(false)} />}
       </div>
       <div className={`status ${error ? 'err' : 'ok'}`} title={error ?? undefined}>
         {error ? `⚠ ${error}` : initializing ? '◌ init audio…' : playing ? '● live' : '○ idle'}

@@ -301,6 +301,7 @@ export async function importLoop(o: {
   fileName: string;
   clean: string; // nombre visible (sin artista, BPM ni tonalidad)
   hintBpm?: number; // BPM del nombre (Splice)
+  key?: { root: number; minor: boolean | null }; // tonalidad del nombre (Splice)
   detect?: boolean; // probar la detección de pulso si no hay BPM en el nombre (def. true)
   songBpm: number;
   beatsPerCycle: number;
@@ -319,7 +320,7 @@ export async function importLoop(o: {
     const orig = await contentId(bytes);
     await putOrig({ id: orig, blob: o.blob, file: o.fileName, at: Date.now() });
     decoded.set(orig, Promise.resolve(buf));
-    const warp: WarpInfo = { name: warpName(o.clean), orig, file: o.fileName, srcBpm: grid.bpm, beats: grid.beats };
+    const warp: WarpInfo = { name: warpName(o.clean), orig, file: o.fileName, srcBpm: grid.bpm, beats: grid.beats, ...(o.key ? { key: o.key } : {}) };
     return { code: warpCode(warp.name, warpCycles(grid.beats, o.beatsPerCycle)), warp };
   } catch (e) {
     console.warn('[warp] no pude preparar el loop', o.fileName, e);

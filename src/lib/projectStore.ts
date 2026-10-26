@@ -1,5 +1,6 @@
 // Autoguardado del proyecto completo en localStorage (grafo + transporte +
 // máster + vista + canción + escenas). Misma idea que patternStore: cambiar el backend aquí.
+import type { SongKey } from './songKey';
 import type { Edge, Node } from '@xyflow/react';
 import type { NodeData } from '../graph/types';
 import { sanitizeMasterFx, type MasterFx } from '../graph/compile';
@@ -33,6 +34,7 @@ export interface ProjectSnapshot {
   vizHeadless: boolean; // lienzo puro (sin bisel/HUD)
   vizMilkStyle: 'free' | 'telar'; // estilo de los presets milkdrop
   title?: string; // nombre del tema (exportar)
+  songKey?: SongKey | null; // tonalidad del tema (Fase 5.1)
   song?: ProjectSong; // canción; si falta al cargar, la canción queda vacía
   scenes?: Record<number, Scene>; // escenas 1–9; si faltan al cargar, quedan vacías
 }
