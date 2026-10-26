@@ -51,6 +51,7 @@ import { wrapNumberAtCursor } from './sliderWidget';
 import { getEditor } from './highlight';
 import { registerFlowNode, unregisterFlowNode } from './signalFlow';
 import { Vu } from './Vu';
+import { TrackMeter } from '../ui/TrackMeter';
 import { useWarpStore } from '../audio/warpLoops';
 import { retuneWarp, warpExistingSource, setWarpKeyOpts } from '../lib/warpActions';
 import { songBpmOf, warpLabel, effectiveSemis, type WarpInfo } from '../lib/loopWarp';
@@ -624,6 +625,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
           {showMix && (
             // mini-mezclador del canal: gain y filtro DJ (bipolar) en vivo.
             <div className="tn-mix nodrag">
+              <TrackMeter id={id} db className="tmeter-mix" />
               <label>
                 <span>gain</span>
                 <Knob

@@ -16,6 +16,7 @@ import { AUTO_RANGE, isActive, cleanAuto, type AutoParam, type AutoPoint } from 
 import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
+import { TrackMeter } from './TrackMeter';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
 // La canción entera de un vistazo. Pistas en filas,
@@ -412,6 +413,7 @@ export function DawView() {
                   {t.mismatch && <span className="daw-tw" title={`su arrange dura ${t.bars} compases (la línea de tiempo ${total})`}>⚠{t.bars}</span>}
                   <button className={`daw-ms${t.mute ? ' on mute' : ''}`} onClick={() => update(t.id, { mute: !t.mute })} title="mute de la pista">M</button>
                   <button className={`daw-ms${t.solo ? ' on solo' : ''}`} onClick={() => update(t.id, { solo: !t.solo })} title="solo de la pista">S</button>
+                  <TrackMeter id={t.id} className="tmeter-daw" />
                   {fromSong && (() => {
                     const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
                     const has = isActive(au?.vol, 'vol') || isActive(au?.filt, 'filt');

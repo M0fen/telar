@@ -894,6 +894,20 @@ export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: Biquad
 let channelEqRoutes: ChannelEqRouteRT[] = [];
 const chanEqChains = new Map<number, ChanEqChain>();
 const sourceOrbit = new Map<string, number>(); // Source → orbit de su tira (medidor de compresión)
+const sourceStrip = new Map<string, number>(); // Source → orbit de su tira (EQ o compresor)
+
+// salida de la tira de canal de un Source (post EQ/compresor/makeup, con su reverb/eco de orbit):
+// lo que esa pista aporta a la suma. undefined si la pista no tiene tira (va directo al bus).
+export function getSourceStripOut(sourceId: string): AudioNode | undefined {
+  const o = sourceStrip.get(sourceId);
+  if (o == null) return undefined;
+  const st = chanEqChains.get(o);
+  try {
+    return st && st.ctx === getAudioContext() ? st.out : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 // reducción de ganancia del compresor de un Source ahora (dB ≤ 0; 0 = sin compresor o sin señal)
 export function getSourceCompGr(sourceId: string): number {
@@ -1001,7 +1015,11 @@ export function applyChannelEqs(): void {
 export function setChannelEqs(routes: ChannelEqRouteRT[]): void {
   channelEqRoutes = routes;
   sourceOrbit.clear();
-  for (const r of routes) if (r.source && r.comp) sourceOrbit.set(r.source, r.orbit);
+  sourceStrip.clear();
+  for (const r of routes) {
+    if (r.source && r.comp) sourceOrbit.set(r.source, r.orbit);
+    if (r.source) sourceStrip.set(r.source, r.orbit);
+  }
   applyChannelEqs();
   // reintentos: los orbits se crean perezosamente al primer evento de cada canal.
   window.setTimeout(applyChannelEqs, 220);

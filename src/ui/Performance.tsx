@@ -7,6 +7,7 @@ import { HoldFx } from './HoldFx';
 import { Scenes } from './Scenes';
 import { SongTimeline } from './SongTimeline';
 import { LufsMeter } from './LufsMeter';
+import { HeadroomMeter } from './HeadroomMeter';
 import { RefTrack } from './RefTrack';
 import { Vu } from '../nodes/Vu';
 import { IR_SPACES, registerIrFiles } from '../audio/irReverb';
@@ -181,6 +182,7 @@ export function Performance() {
             <span className="perf-cap">high</span>
           </div>
         </div>
+        <HeadroomMeter />
         <LufsMeter />
         <RefTrack />
       </section>

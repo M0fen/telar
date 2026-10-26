@@ -336,6 +336,53 @@ body {
 .perf-lufs-nums .over b { color: #e8d16a; }
 .perf-lufs-nums .clip b { color: #e46a6a; }
 .perf-lufs-nums .gr b { color: #6ab0e8; }
+/* MARGEN (Fase 6.2): la suma antes del máster. Escala −60…+6 dBFS; 0 dBFS al 90,9 %, −6 al 81,8 % */
+.perf-hr { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 5px; }
+.perf-hr-head { display: flex; align-items: center; gap: 8px; }
+.perf-hr-pk { margin-left: auto; font-size: 9px; color: var(--dim); letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
+.perf-hr-pk b { color: var(--fg); font-weight: 600; }
+.perf-hr.justo .perf-hr-pk b { color: #e8d16a; }
+.perf-hr.over .perf-hr-pk b { color: #e46a6a; }
+.perf-hr-bar {
+  position: relative; height: 8px; background: rgba(4,7,10,0.7); border: 1px solid var(--line); border-radius: 3px; overflow: hidden;
+  background-image: linear-gradient(90deg, transparent 81.8%, rgba(232,209,106,0.12) 81.8%, rgba(232,209,106,0.12) 90.9%, rgba(228,106,106,0.18) 90.9%);
+}
+.perf-hr-fill { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent); opacity: 0.6; }
+.perf-hr.justo .perf-hr-fill { background: #e8d16a; }
+.perf-hr.over .perf-hr-fill { background: #e46a6a; }
+.perf-hr-max { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--fg); }
+.perf-hr-msg { display: flex; align-items: center; gap: 8px; font-size: 9px; color: var(--dim); line-height: 1.35; }
+.perf-hr-msg span { flex: 1; min-width: 0; }
+.perf-hr.over .perf-hr-msg span { color: #e46a6a; }
+.perf-hr-fix {
+  flex: none; font-family: inherit; font-size: 9px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 2px;
+  background: transparent; color: var(--fg); cursor: pointer; white-space: nowrap;
+}
+.perf-hr-fix:hover { border-color: var(--accent); color: var(--accent); }
+.perf-hr.over .perf-hr-fix { background: #e46a6a; border-color: #e46a6a; color: #140505; font-weight: 600; }
+
+/* MEDIDOR DE PISTA en dBFS (Fase 6.2): RMS con zonas (−18 / −6 / 0 dBFS) y raya de pico */
+.tmeter { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tmeter-bar {
+  position: relative; flex: 1; min-width: 40px; height: 6px; background: #04070a;
+  border: 1px solid var(--line); border-radius: 1px; overflow: hidden;
+}
+.tmeter-bar::after { content: ''; position: absolute; top: 0; bottom: 0; left: 90.91%; width: 1px; background: rgba(228,106,106,0.5); }
+.tmeter-rms {
+  position: absolute; inset: 0;
+  background: linear-gradient(90deg, var(--accent-dim) 0%, var(--accent) 63.6%, #9be36a 63.6%, #9be36a 81.8%, #e8d16a 81.8%, #e8d16a 90.9%, #e46a6a 90.9%);
+  clip-path: inset(0 calc((1 - var(--rms, 0)) * 100%) 0 0);
+}
+.tmeter-pk {
+  position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; left: calc(var(--pk, 0) * 100%);
+  background: var(--fg); opacity: 0.85; transform: scaleY(min(1, calc(var(--pk, 0) * 1000)));
+}
+.tmeter.hot .tmeter-pk { background: #e46a6a; opacity: 1; box-shadow: 0 0 4px #e46a6a; }
+.tmeter-db { flex: none; width: 30px; text-align: right; font-size: 9px; font-variant-numeric: tabular-nums; color: var(--dim); }
+.tmeter.hot .tmeter-db { color: #e46a6a; }
+/* en el mini-mezclador del Source: fila propia a ancho completo */
+.tn-mix .tmeter-mix { flex-basis: 100%; }
+.tn-mix .tmeter-mix .tmeter-db { letter-spacing: 0; text-transform: none; font-size: 9px; }
 .edit-tools { display: inline-flex; gap: 3px; }
 .et-btn { display: flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; background: transparent; border: 1px solid var(--line); color: var(--dim); border-radius: 2px; cursor: pointer; }
 .et-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent-dim); }

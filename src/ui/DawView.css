@@ -81,6 +81,10 @@
 .daw-ms:hover { color: var(--text, #d4dee6); border-color: var(--dim, #6b7a88); }
 .daw-ms.on.mute { background: #e46a6a; border-color: #e46a6a; color: #140505; }
 .daw-ms.on.solo { background: #e3b23c; border-color: #e3b23c; color: #140f02; }
+/* medidor de la pista (Fase 6.2): una línea al pie del nombre */
+.daw-tname .tmeter-daw { position: absolute; left: 10px; right: 6px; bottom: 2px; pointer-events: none; }
+.tmeter-daw .tmeter-bar { height: 3px; min-width: 0; border: none; background: rgba(4, 7, 10, 0.85); }
+.tmeter-daw .tmeter-bar::after { display: none; }
 
 .daw-lane { flex: none; position: relative; }
 .daw-blk {

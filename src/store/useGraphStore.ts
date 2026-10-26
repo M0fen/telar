@@ -21,6 +21,7 @@ import { resolveSampleUrl } from '../lib/sampleResolve';
 import { sampleDuration } from '../lib/audioMeta';
 import { bareSampleName } from '../lib/sampleFit';
 import { cleanKey, keyScale, type SongKey } from '../lib/songKey';
+import { scaleGains, scaleStateGains } from '../lib/levels';
 import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
@@ -82,6 +83,9 @@ interface HistoryEntry {
   // edición del ARREGLO desde el DAW (Fase 2.1): al deshacer/rehacer, la canción cambia
   // sus secciones SIN detenerse (las cargas sí la detienen: sus secciones eran otras).
   live?: boolean;
+  // un paso de MEZCLA que también tocó las escenas (dejar margen, Fase 6.2): deshacer devuelve
+  // el banco de escenas de antes, sin parar nada
+  scenes?: ReturnType<typeof useScenesStore.getState>['scenes'];
 }
 
 interface GraphState {
@@ -182,6 +186,9 @@ interface GraphState {
   // EDICIÓN DEL ARREGLO (DAW, Fase 2.1): código nuevo de varias pistas + secciones de la
   // canción en UN paso deshacible y un solo recompile, sin detener lo que suena.
   applyArrangement: (codes: Record<string, string>, steps?: SongStep[], patches?: Record<string, Partial<NodeData>>) => void;
+  // DEJAR MARGEN (Fase 6.2): multiplica el gain de TODAS las pistas (y el que guardan las
+  // escenas) por `k`, en un paso deshacible. Devuelve cuántas pistas cambió.
+  scaleSourceGains: (k: number) => number;
 
   onNodesChange: (c: NodeChange[]) => void;
   onEdgesChange: (c: EdgeChange[]) => void;
@@ -582,8 +589,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const cur = snap();
       if (prev.extras) cur.extras = currentExtras(); // rehacer la carga devuelve sus extras
       if (prev.live) cur.live = true;
+      if (prev.scenes) cur.scenes = useScenesStore.getState().scenes;
       set({ nodes: prev.nodes, edges: prev.edges, past: past.slice(0, -1), future: [cur, ...get().future].slice(0, 50) });
       if (prev.extras) applyExtras(prev.extras, prev.live);
+      if (prev.scenes) useScenesStore.setState({ scenes: prev.scenes });
       get().recompile();
     },
     redo: () => {
@@ -593,8 +602,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const cur = snap();
       if (next.extras) cur.extras = currentExtras();
       if (next.live) cur.live = true;
+      if (next.scenes) cur.scenes = useScenesStore.getState().scenes;
       set({ nodes: next.nodes, edges: next.edges, future: future.slice(1), past: [...get().past, cur].slice(-50) });
       if (next.extras) applyExtras(next.extras, next.live);
+      if (next.scenes) useScenesStore.setState({ scenes: next.scenes });
       get().recompile();
     },
     canUndo: () => get().past.length > 0,
@@ -792,6 +803,25 @@ export const useGraphStore = create<GraphState>((set, get) => {
       }
       if (stepsChanged && steps) useSongStore.getState().setSteps(steps);
       if (changed) recompile();
+    },
+
+    scaleSourceGains: (k) => {
+      if (!(k > 0) || Math.abs(k - 1) < 1e-4) return 0;
+      const cur = get().nodes;
+      const ids = new Set(cur.filter((n) => n.data.kind === 'source').map((n) => n.id));
+      if (!ids.size) return 0;
+      const scenes = useScenesStore.getState().scenes;
+      pushPast(true);
+      const past = get().past;
+      past[past.length - 1].scenes = scenes;
+      set({
+        nodes: cur.map((n) => (ids.has(n.id) ? { ...n, data: { ...n.data, gain: scaleGains([n.data.gain ?? 1], k).gains[0] } } : n)),
+      });
+      const next: typeof scenes = {};
+      for (const [slot, sc] of Object.entries(scenes)) next[Number(slot)] = { ...sc, state: scaleStateGains(sc.state, ids, k) };
+      useScenesStore.setState({ scenes: next });
+      recompile();
+      return ids.size;
     },
 
     applyNodeStates: (states) => {
