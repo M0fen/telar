@@ -5,6 +5,8 @@ import { useScenesStore } from '../store/useScenesStore';
 import { useGalleryStore } from '../store/useGalleryStore';
 import type { ProjectSnapshot } from '../lib/projectStore';
 import { DEMOS } from '../lib/demos';
+import { TEMPLATES } from '../lib/templates';
+import { setExportPrefs } from '../lib/songExport';
 import { buildShareUrl, shortenUrl } from '../lib/share';
 import { askPrompt, askConfirm } from '../store/useNotifyStore';
 import { listBackups, type ProjectBackup } from '../lib/projectBackups';
@@ -142,6 +144,17 @@ export function ProjectMenu() {
     flash('copia recuperada');
   };
 
+  // PLANTILLA (7.5): un tema nuevo ya armado (pistas ruteadas, canción, máster); su objetivo de
+  // loudness queda puesto en ⤓ exportar
+  const loadTemplate = (id: string) => {
+    const t = TEMPLATES.find((x) => x.id === id);
+    if (!t) return;
+    loadSnapshot(t.build(), `plantilla · ${t.title}`);
+    if (t.exportTarget != null) setExportPrefs({ target: t.exportTarget });
+    setOpen(false);
+    flash(`plantilla · ${t.title}${t.exportTarget != null ? ` · exporta a ${t.exportTarget} LUFS` : ''}`);
+  };
+
   const loadDemo = (id: string) => {
     const demo = DEMOS.find((d) => d.id === id);
     if (!demo) return;
@@ -242,6 +255,16 @@ export function ProjectMenu() {
             <button onClick={openFile}>Abrir proyecto<span>.json</span></button>
             <button onClick={() => void shareUrl()}>Compartir por URL<span>enlace</span></button>
             <button onClick={copyCode}>Copiar código<span>strudel</span></button>
+            <div className="pm-sep" />
+            <div className="pm-section">tema nuevo desde plantilla</div>
+            <div className="pm-demos">
+              {TEMPLATES.map((t) => (
+                <button key={t.id} className="pm-demo" onClick={() => loadTemplate(t.id)} title={t.note}>
+                  <span className="pm-demo-title">{t.title}</span>
+                  <span className="pm-demo-note">{t.note}</span>
+                </button>
+              ))}
+            </div>
             <div className="pm-sep" />
             <div className="pm-section">ejemplos</div>
             <div className="pm-demos">

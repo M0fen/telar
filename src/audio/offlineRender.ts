@@ -180,6 +180,17 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
   const live = getAudioContext();
   const liveCtrl = getSuperdoughAudioController();
   const livePoly = maxPolyphony;
+  // el contexto en vivo se PAUSA durante el render: las voces que aún suenan tras ■ (un hat abierto,
+  // una cola) terminan después, con superdough ya de vuelta en vivo. Si terminaran durante el render,
+  // su limpieza crearía nodos en el contexto offline y fallaría (errores en consola, nodos sueltos).
+  let resumeLive = false;
+  try {
+    if ((live as AudioContext).state === 'running' && typeof (live as AudioContext).suspend === 'function') {
+      await (live as AudioContext).suspend();
+      resumeLive = true;
+      await new Promise((r) => window.setTimeout(r, 20)); // que salgan los avisos de fin ya encolados
+    }
+  } catch { /* sin pausa: igual se renderiza */ }
   beginOfflineRender();
   try {
     // el patrón: misma transpilación que en vivo (el reloj está parado: no suena nada)
@@ -378,5 +389,6 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
     setMaxPolyphony(livePoly);
     endOfflineRender();
     busy = false;
+    if (resumeLive) { try { await (live as AudioContext).resume(); } catch { /* el próximo ▶ lo reanuda */ } }
   }
 }
