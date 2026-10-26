@@ -11,7 +11,7 @@
 //     un patrón aplica .analyze(id) y suena por primera vez.
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
-import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames } from './masterLimiter';
+import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames, createLimiterFor } from './masterLimiter';
 
 export const MASTER_ANALYSER_ID = 'telar-master';
 
@@ -386,7 +386,7 @@ export function getMasterAnalyser(): AnalyserNode | undefined {
 // puede clippear al apilar sonidos). Insertamos un bus real en el motor:
 //   destinationGain → EQ(low-shelf, mid-peak, high-shelf) → limiter → makeup → dest
 // Todo con try/catch para no silenciar nunca la salida (peor caso: bypass directo).
-interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number; filter: number; drive: number }
+export interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number; filter: number; drive: number }
 let busSettings: MasterBusSettings = { limit: 0, glue: 0, sat: 0, width: 1, punch: 0, low: 0, mid: 0, high: 0, filter: 0, drive: 0 };
 interface MasterChain {
   ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
@@ -552,7 +552,7 @@ export function releaseAllLiveFx(): void {
   for (const k of Object.keys(liveFxOn) as LiveFxKey[]) if (liveFxOn[k]) setLiveFx(k, false);
 }
 
-function busActive(s: MasterBusSettings): boolean {
+export function busActive(s: MasterBusSettings): boolean {
   return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1 || Math.abs(s.filter) > 0.01 || s.drive > 0.01;
 }
 
@@ -580,102 +580,119 @@ function satCurve(amount: number): Float32Array<ArrayBuffer> {
 
 // Aplica el bus (idempotente): construye la cadena si hace falta, ajusta los valores y
 // (des)conecta destinationGain. Reasertar tras cada swap protege de un reset del motor.
+// Nodos del BUS DE MÁSTER para un contexto (en vivo u offline): MISMA cadena y mismos valores
+// en los dos caminos → la exportación offline suena igual que en vivo.
+export interface MasterChainNodes {
+  ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
+  low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; glue: DynamicsCompressorNode; lim: DynamicsCompressorNode; makeup: GainNode;
+  djHP: BiquadFilterNode; djLP: BiquadFilterNode; djDrive: WaveShaperNode; lastDrive: number;
+}
+function createMasterChainNodes(ctx: BaseAudioContext): MasterChainNodes {
+  // ANCHO ESTÉREO Mid-Side: mid=(L+R)/2, side=(L−R)/2; escala side por `width` (1=normal,
+  // 0=mono, >1 más ancho); decodifica L=mid+side, R=mid−side. Transparente en width=1.
+  // entry fuerza 2 canales (up-mix mono→L=R con interpretación de altavoces) para que
+  // el bloque M/S nunca mande una señal mono a un solo lado.
+  const entry = new GainNode(ctx, { gain: 1, channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
+  const splitter = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
+  entry.connect(splitter);
+  const midSum = new GainNode(ctx, { gain: 1 });
+  const gLm = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gLm, 0); gLm.connect(midSum);
+  const gRm = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gRm, 1); gRm.connect(midSum);
+  const sideSum = new GainNode(ctx, { gain: 1 });
+  const gLs = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gLs, 0); gLs.connect(sideSum);
+  const gRs = new GainNode(ctx, { gain: -0.5 }); splitter.connect(gRs, 1); gRs.connect(sideSum);
+  // MONO-BAJO (P1.1 auditoría dancehall): el canal side pasa por un highpass a
+  // 120 Hz — por debajo, la señal es SOLO mid (mono por construcción). Es la regla
+  // nº1 de la mezcla de sound-system: el sub pega idéntico en mono/club/teléfono y
+  // no se cancela; el width ensancha pads/hats sin des-monoizar jamás el bajo.
+  const sideHP = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 120, Q: 0.5 });
+  const sideW = new GainNode(ctx, { gain: 1 }); sideSum.connect(sideHP); sideHP.connect(sideW);
+  const Lout = new GainNode(ctx, { gain: 1 }); midSum.connect(Lout); sideW.connect(Lout);
+  const Rout = new GainNode(ctx, { gain: 1 }); midSum.connect(Rout);
+  const sideNeg = new GainNode(ctx, { gain: -1 }); sideW.connect(sideNeg); sideNeg.connect(Rout);
+  const merger = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
+  Lout.connect(merger, 0, 0); Rout.connect(merger, 0, 1);
+
+  // TRANSIENT SHAPER (punch): envelope-follower. gain = 1 + k·(envRápido − envLento).
+  // punch 0 = transparente (k=0); >0 realza el ATAQUE, <0 lo suaviza. La sidechain
+  // (abs → LP rápido/lento → ±k) modula la ganancia del camino principal (punchGain).
+  const punchGain = new GainNode(ctx, { gain: 1 });
+  const absShaper = new WaveShaperNode(ctx, { curve: absCurve() });
+  const fastLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 120, Q: 0.4 });
+  const slowLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 12, Q: 0.4 });
+  const fastK = new GainNode(ctx, { gain: 0 });
+  const slowK = new GainNode(ctx, { gain: 0 });
+  absShaper.connect(fastLP); fastLP.connect(fastK); fastK.connect(punchGain.gain);
+  absShaper.connect(slowLP); slowLP.connect(slowK); slowK.connect(punchGain.gain);
+
+  const low = new BiquadFilterNode(ctx, { type: 'lowshelf', frequency: 220 });
+  const mid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, Q: 0.8 });
+  const high = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: 4500 });
+  // SATURADOR (WaveShaper, oversample 4x → sin aliasing): calor analógico. Va tras el EQ.
+  const sat = new WaveShaperNode(ctx, { oversample: '4x' });
+  sat.curve = satCurve(0);
+  // GLUE-COMP (compresor de bus SSL-style): gentil, PEGA la mezcla. Ataque lento
+  // (deja pasar transientes) + release medio (bombeo suave). Va ANTES del limiter.
+  const glue = new DynamicsCompressorNode(ctx, { threshold: 0, knee: 6, ratio: 2, attack: 0.02, release: 0.18 });
+  // LIMITER (brickwall): rápido + ratio alto, atrapa picos y sube loudness. Va al final.
+  const lim = new DynamicsCompressorNode(ctx, { threshold: -3, knee: 0, ratio: 20, attack: 0.003, release: 0.12 });
+  const makeup = new GainNode(ctx, { gain: 1 });
+  // FILTRO DJ (lpf+hpf) y DRIVE del máster en el BUS (no como sufijo de código):
+  // así afectan TODA la mezcla sin que los pise el FX propio de cada voz (CLAUDE.md
+  // regla 2 — el FX por voz es de un solo uso). En reposo son transparentes.
+  const djHP = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 20, Q: 0.7 });
+  const djLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: 0.7 });
+  const djDrive = new WaveShaperNode(ctx, { oversample: '4x' });
+  djDrive.curve = satCurve(0);
+  // cadena: entry(M/S) → merger → punch → djHP → djLP → djDrive → EQ → sat → glue → lim → makeup
+  merger.connect(punchGain); merger.connect(absShaper); // main + sidechain del transient
+  punchGain.connect(djHP); djHP.connect(djLP); djLP.connect(djDrive); djDrive.connect(low);
+  low.connect(mid); mid.connect(high); high.connect(sat); sat.connect(glue); glue.connect(lim); lim.connect(makeup);
+  return { ctx, entry, sideW, sat, lastSat: 0, fastK, slowK, low, mid, high, glue, lim, makeup, djHP, djLP, djDrive, lastDrive: 0 };
+}
+
+// Ajusta la cadena a unos valores del bus (idempotente). `ctx.currentTime` = ahora.
+function setMasterChainParams(mc: MasterChainNodes, s: MasterBusSettings, ctx: BaseAudioContext): void {
+  mc.low.gain.value = s.low;   // dB
+  mc.mid.gain.value = s.mid;
+  mc.high.gain.value = s.high;
+  // FILTRO DJ del máster: filter<0 cierra el lpf (barre a grave), >0 sube el hpf
+  // (barre a agudo), 0 = abierto (transparente). Exponencial para que sea musical.
+  // CLAMP defensivo a [-1,1]: un filter fuera de rango daría un lpf sub-audible (mudo).
+  const f = Math.max(-1, Math.min(1, s.filter));
+  // rampa corta (~35 ms al 95 %): un barrido con la perilla MIDI llega en escalones de 1/127;
+  // fijar .value de golpe hace «zipper» (chasquidos) en la frecuencia del filtro.
+  const tNow = ctx.currentTime;
+  mc.djLP.frequency.setTargetAtTime(f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000, tNow, 0.012);
+  mc.djHP.frequency.setTargetAtTime(f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20, tNow, 0.012);
+  const dr = Math.max(0, Math.min(1, s.drive));
+  if (Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; } // DRIVE del máster
+  mc.sideW.gain.value = s.width; // 1 = normal · 0 = mono · >1 = más ancho
+  const kp = s.punch * 2; // profundidad del transient shaper (−2..2); 0 = transparente
+  mc.fastK.gain.value = kp;
+  mc.slowK.gain.value = -kp;
+  if (Math.abs(s.sat - mc.lastSat) > 0.001) { mc.sat.curve = satCurve(s.sat); mc.lastSat = s.sat; } // recalcula la curva solo si cambió
+  // glue-comp: 0 = transparente (ratio 1). Sube → baja el umbral (más pegamento, −6..−22 dB)
+  // y ratio 2→4. Ataque/release fijos, gentiles (glue, no limiting).
+  const gl = s.glue;
+  mc.glue.threshold.value = gl > 0.01 ? -(6 + gl * 16) : 0;
+  mc.glue.ratio.value = gl > 0.01 ? 2 + gl * 2 : 1;
+  mc.lim.threshold.value = -3 - s.limit * 9;      // más limit → umbral más bajo (-3..-12)
+  mc.makeup.gain.value = 1 + s.limit * 0.6 + gl * 0.35 - s.sat * 0.15; // compensa nivel (limiter + glue − saturación)
+}
+
 export function applyMasterBus(): void {
+  if (offlineDepth) return; // render offline en curso: se reaplica al terminar (endOfflineRender)
   try {
     const ctx = getAudioContext();
     const dg = getMasterOutputNode();
     if (!dg) return;
     if (!masterChain || masterChain.ctx !== ctx) {
-      // ANCHO ESTÉREO Mid-Side: mid=(L+R)/2, side=(L−R)/2; escala side por `width` (1=normal,
-      // 0=mono, >1 más ancho); decodifica L=mid+side, R=mid−side. Transparente en width=1.
-      // entry fuerza 2 canales (up-mix mono→L=R con interpretación de altavoces) para que
-      // el bloque M/S nunca mande una señal mono a un solo lado.
-      const entry = new GainNode(ctx, { gain: 1, channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' });
-      const splitter = new ChannelSplitterNode(ctx, { numberOfOutputs: 2 });
-      entry.connect(splitter);
-      const midSum = new GainNode(ctx, { gain: 1 });
-      const gLm = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gLm, 0); gLm.connect(midSum);
-      const gRm = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gRm, 1); gRm.connect(midSum);
-      const sideSum = new GainNode(ctx, { gain: 1 });
-      const gLs = new GainNode(ctx, { gain: 0.5 }); splitter.connect(gLs, 0); gLs.connect(sideSum);
-      const gRs = new GainNode(ctx, { gain: -0.5 }); splitter.connect(gRs, 1); gRs.connect(sideSum);
-      // MONO-BAJO (P1.1 auditoría dancehall): el canal side pasa por un highpass a
-      // 120 Hz — por debajo, la señal es SOLO mid (mono por construcción). Es la regla
-      // nº1 de la mezcla de sound-system: el sub pega idéntico en mono/club/teléfono y
-      // no se cancela; el width ensancha pads/hats sin des-monoizar jamás el bajo.
-      const sideHP = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 120, Q: 0.5 });
-      const sideW = new GainNode(ctx, { gain: 1 }); sideSum.connect(sideHP); sideHP.connect(sideW);
-      const Lout = new GainNode(ctx, { gain: 1 }); midSum.connect(Lout); sideW.connect(Lout);
-      const Rout = new GainNode(ctx, { gain: 1 }); midSum.connect(Rout);
-      const sideNeg = new GainNode(ctx, { gain: -1 }); sideW.connect(sideNeg); sideNeg.connect(Rout);
-      const merger = new ChannelMergerNode(ctx, { numberOfInputs: 2 });
-      Lout.connect(merger, 0, 0); Rout.connect(merger, 0, 1);
-
-      // TRANSIENT SHAPER (punch): envelope-follower. gain = 1 + k·(envRápido − envLento).
-      // punch 0 = transparente (k=0); >0 realza el ATAQUE, <0 lo suaviza. La sidechain
-      // (abs → LP rápido/lento → ±k) modula la ganancia del camino principal (punchGain).
-      const punchGain = new GainNode(ctx, { gain: 1 });
-      const absShaper = new WaveShaperNode(ctx, { curve: absCurve() });
-      const fastLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 120, Q: 0.4 });
-      const slowLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 12, Q: 0.4 });
-      const fastK = new GainNode(ctx, { gain: 0 });
-      const slowK = new GainNode(ctx, { gain: 0 });
-      absShaper.connect(fastLP); fastLP.connect(fastK); fastK.connect(punchGain.gain);
-      absShaper.connect(slowLP); slowLP.connect(slowK); slowK.connect(punchGain.gain);
-
-      const low = new BiquadFilterNode(ctx, { type: 'lowshelf', frequency: 220 });
-      const mid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, Q: 0.8 });
-      const high = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: 4500 });
-      // SATURADOR (WaveShaper, oversample 4x → sin aliasing): calor analógico. Va tras el EQ.
-      const sat = new WaveShaperNode(ctx, { oversample: '4x' });
-      sat.curve = satCurve(0);
-      // GLUE-COMP (compresor de bus SSL-style): gentil, PEGA la mezcla. Ataque lento
-      // (deja pasar transientes) + release medio (bombeo suave). Va ANTES del limiter.
-      const glue = new DynamicsCompressorNode(ctx, { threshold: 0, knee: 6, ratio: 2, attack: 0.02, release: 0.18 });
-      // LIMITER (brickwall): rápido + ratio alto, atrapa picos y sube loudness. Va al final.
-      const lim = new DynamicsCompressorNode(ctx, { threshold: -3, knee: 0, ratio: 20, attack: 0.003, release: 0.12 });
-      const makeup = new GainNode(ctx, { gain: 1 });
-      // FILTRO DJ (lpf+hpf) y DRIVE del máster en el BUS (no como sufijo de código):
-      // así afectan TODA la mezcla sin que los pise el FX propio de cada voz (CLAUDE.md
-      // regla 2 — el FX por voz es de un solo uso). En reposo son transparentes.
-      const djHP = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 20, Q: 0.7 });
-      const djLP = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 20000, Q: 0.7 });
-      const djDrive = new WaveShaperNode(ctx, { oversample: '4x' });
-      djDrive.curve = satCurve(0);
-      // cadena: entry(M/S) → merger → punch → djHP → djLP → djDrive → EQ → sat → glue → lim → makeup
-      merger.connect(punchGain); merger.connect(absShaper); // main + sidechain del transient
-      punchGain.connect(djHP); djHP.connect(djLP); djLP.connect(djDrive); djDrive.connect(low);
-      low.connect(mid); mid.connect(high); high.connect(sat); sat.connect(glue); glue.connect(lim); lim.connect(makeup);
-      masterChain = { ctx, entry, sideW, sat, lastSat: 0, fastK, slowK, low, mid, high, glue, lim, makeup, wired: false, dg: null, outSink: null, bypassSink: null, bypassDg: null, djHP, djLP, djDrive, lastDrive: 0 };
+      masterChain = { ...createMasterChainNodes(ctx), wired: false, dg: null, outSink: null, bypassSink: null, bypassDg: null };
     }
     const mc = masterChain;
     const s = busSettings;
-    mc.low.gain.value = s.low;   // dB
-    mc.mid.gain.value = s.mid;
-    mc.high.gain.value = s.high;
-    // FILTRO DJ del máster: filter<0 cierra el lpf (barre a grave), >0 sube el hpf
-    // (barre a agudo), 0 = abierto (transparente). Exponencial para que sea musical.
-    // CLAMP defensivo a [-1,1]: un filter fuera de rango daría un lpf sub-audible (mudo).
-    const f = Math.max(-1, Math.min(1, s.filter));
-    // rampa corta (~35 ms al 95 %): un barrido con la perilla MIDI llega en escalones de 1/127;
-    // fijar .value de golpe hace «zipper» (chasquidos) en la frecuencia del filtro.
-    const tNow = ctx.currentTime;
-    mc.djLP.frequency.setTargetAtTime(f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000, tNow, 0.012);
-    mc.djHP.frequency.setTargetAtTime(f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20, tNow, 0.012);
-    const dr = Math.max(0, Math.min(1, s.drive));
-    if (Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; } // DRIVE del máster
-    mc.sideW.gain.value = s.width; // 1 = normal · 0 = mono · >1 = más ancho
-    const kp = s.punch * 2; // profundidad del transient shaper (−2..2); 0 = transparente
-    mc.fastK.gain.value = kp;
-    mc.slowK.gain.value = -kp;
-    if (Math.abs(s.sat - mc.lastSat) > 0.001) { mc.sat.curve = satCurve(s.sat); mc.lastSat = s.sat; } // recalcula la curva solo si cambió
-    // glue-comp: 0 = transparente (ratio 1). Sube → baja el umbral (más pegamento, −6..−22 dB)
-    // y ratio 2→4. Ataque/release fijos, gentiles (glue, no limiting).
-    const gl = s.glue;
-    mc.glue.threshold.value = gl > 0.01 ? -(6 + gl * 16) : 0;
-    mc.glue.ratio.value = gl > 0.01 ? 2 + gl * 2 : 1;
-    mc.lim.threshold.value = -3 - s.limit * 9;      // más limit → umbral más bajo (-3..-12)
-    mc.makeup.gain.value = 1 + s.limit * 0.6 + gl * 0.35 - s.sat * 0.15; // compensa nivel (limiter + glue − saturación)
+    setMasterChainParams(mc, s, ctx);
     // LIMITADOR TRUE-PEAK: carga el worklet una vez por contexto; al estar listo, re-aplica el
     // bus para enrutar la salida por él. Es la ÚLTIMA etapa (tp → destino, fijo). Fallback: si
     // el worklet no cargó, sink = ctx.destination → salida directa (nunca muda).
@@ -731,6 +748,60 @@ export function applyMasterBus(): void {
 export function setMasterBus(patch: Partial<MasterBusSettings>): void {
   busSettings = { ...busSettings, ...patch };
   applyMasterBus();
+}
+
+// --- RENDER OFFLINE (Fase 4.2) -------------------------------------------------------------
+// Mientras se renderiza offline, superdough apunta por ratos a OTRO contexto: el motor en vivo
+// no toca su bus ni su EQ por canal (leerían el contexto equivocado) y no se puede dar ▶.
+// Al terminar se reaplica todo lo que haya cambiado entretanto.
+let offlineDepth = 0;
+export function isOfflineRendering(): boolean {
+  return offlineDepth > 0;
+}
+export function beginOfflineRender(): void {
+  offlineDepth++;
+}
+export function endOfflineRender(): void {
+  offlineDepth = Math.max(0, offlineDepth - 1);
+  if (!offlineDepth) {
+    applyMasterBus();
+    applyChannelEqs();
+  }
+}
+
+// Valores del bus a partir del máster del proyecto (lo mismo que hace setMaster en vivo).
+export function busFromMaster(m: { limit?: number; glue?: number; sat?: number; width?: number; punch?: number; eqLow?: number; eqMid?: number; eqHigh?: number; filter?: number; drive?: number }): MasterBusSettings {
+  return { limit: m.limit ?? 0, glue: m.glue ?? 0, sat: m.sat ?? 0, width: m.width ?? 1, punch: m.punch ?? 0, low: m.eqLow ?? 0, mid: m.eqMid ?? 0, high: m.eqHigh ?? 0, filter: m.filter ?? 0, drive: m.drive ?? 0 };
+}
+
+// BUS DE MÁSTER para un contexto offline: la MISMA cadena (createMasterChainNodes) y el mismo
+// mapeo de valores (setMasterChainParams) que en vivo, con su propio limitador TP al final.
+// `apply` cambia los valores en el instante actual del contexto (con el render suspendido en la
+// frontera de la sección, igual que una escena en vivo) y re-cablea si el bus se (des)activa.
+export interface OfflineBus {
+  apply: (s: MasterBusSettings) => void;
+  latencyFrames: number; // retardo de la salida respecto de la entrada (para alinear con los stems)
+}
+export async function createOfflineMasterBus(ctx: BaseAudioContext, dg: AudioNode, initial: MasterBusSettings): Promise<OfflineBus> {
+  const mc = createMasterChainNodes(ctx);
+  const tp = await createLimiterFor(ctx);
+  const sink: AudioNode = tp ?? ctx.destination;
+  if (tp) tp.connect(ctx.destination);
+  try { dg.disconnect(); } catch { /* */ }
+  let wired: boolean | null = null;
+  const apply = (s: MasterBusSettings) => {
+    setMasterChainParams(mc, s, ctx);
+    const active = busActive(s);
+    if (active === wired) return;
+    try { dg.disconnect(); } catch { /* */ }
+    try { mc.makeup.disconnect(); } catch { /* */ }
+    if (active) { dg.connect(mc.entry); mc.makeup.connect(sink); } else dg.connect(sink);
+    wired = active;
+  };
+  apply(initial);
+  const sr = ctx.sampleRate;
+  const latencyFrames = (tp ? limiterLatencyFrames(sr) : 0) + (busActive(initial) ? await measureBusChainFrames(sr) : 0);
+  return { apply, latencyFrames };
 }
 
 // LATENCIA POST-MÁSTER (la compensación de retardo de un DAW): lo que sale por el tap post
@@ -795,9 +866,9 @@ export async function getMasterPostLatency(): Promise<number> {
 // máster: todo en try/catch, y si el orbit aún no existe (se crea al primer evento)
 // se reintenta tras el siguiente swap.
 interface ChannelEqRouteRT { orbit: number; low: number; mid: number; high: number; midFreq: number }
-interface SdOrbit { output?: AudioNode }
-interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void } }
-interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; out: GainNode; src: AudioNode; ctx: BaseAudioContext }
+export interface SdOrbit { output?: AudioNode }
+export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void } }
+export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; out: GainNode; src: AudioNode; ctx: BaseAudioContext }
 
 let channelEqRoutes: ChannelEqRouteRT[] = [];
 const chanEqChains = new Map<number, ChanEqChain>();
@@ -818,7 +889,7 @@ function teardownChanEq(ctrl: SdController, st: ChanEqChain): void {
   try { ctrl.output?.connectToDestination?.(st.src, [0, 1]); } catch { /* */ }
 }
 
-function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: AudioNode, orbit: number): ChanEqChain | undefined {
+export function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: AudioNode, orbit: number): ChanEqChain | undefined {
   try {
     const low = new BiquadFilterNode(ctx, { type: 'lowshelf', frequency: 120 });
     const mid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, Q: 1.0 });
@@ -839,6 +910,7 @@ function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: AudioNode, 
 // Reasigna el EQ de todos los canales (idempotente). Se llama tras cada swap y con
 // reintentos (el orbit puede no existir hasta que ese canal suene por primera vez).
 export function applyChannelEqs(): void {
+  if (offlineDepth) return; // render offline en curso: se reaplica al terminar
   try {
     const ctx = getAudioContext();
     const ctrl = getSdController();

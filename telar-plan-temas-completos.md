@@ -1,6 +1,6 @@
 # Telar — Temas completos a calidad máster (Fases 4–7)
 
-**Aprobada por Carlos el 2026-10-26** («adelante con todo»). **Hecho:** —. Mismo protocolo de `CLAUDE.md`: una tarea por commit → `npm run build` + `npm test` → verificación medida (Node + Chromium sin pantalla) → lo que hay que oír va a `escuchas-pendientes.md`. Tamaño: S (chica), M (media), L (grande).
+**Aprobada por Carlos el 2026-10-26** («adelante con todo»). **Hecho:** 4.1 (`1edd2b8`) · 4.2. Mismo protocolo de `CLAUDE.md`: una tarea por commit → `npm run build` + `npm test` → verificación medida (Node + Chromium sin pantalla) → lo que hay que oír va a `escuchas-pendientes.md`. Tamaño: S (chica), M (media), L (grande).
 
 **Objetivo:** hacer en Telar un tema completo, desde los loops de Splice hasta el máster, y sacarlo listo para LabelGrid, para Reaper y para el celular, sin perder calidad en ningún paso.
 
@@ -31,6 +31,7 @@
 - **Archivos:** `src/audio/offlineRender.ts` (nuevo), `src/audio/engine.ts` (el bus y el EQ por canal se construyen para cualquier contexto sin pisar los del contexto en vivo), `src/audio/masterLimiter.ts`, `src/lib/songExport.ts`.
 - **Hacer:** `OfflineAudioContext` a 44,1 o 48 kHz con un controlador de superdough propio (se cambia y se devuelve el del audio en vivo, sin cerrarlo). Mismo bus: EQ, glue, saturación, ancho, punch, filtro/drive DJ, limitador TP, EQ por canal sobre los orbits y sidechain. Los eventos se agendan por tramos con `suspend()`, para que la memoria no se dispare en temas de 7 minutos. El bus se automatiza por sección (4.1). La cola sigue hasta que el audio cae bajo −90 dB (máx. 10 s). Exportar pasa a usar esto; el tiempo real queda de respaldo.
 - **Tests (Chromium):** null test contra la exportación en tiempo real (residuo < −60 dB con el bus apagado, < −40 dB encendido); mismo largo; varias veces más rápido que el tiempo real con el tema de las aves.
+- **Resultado:** sin reverb, −63 dB. Con reverb no hay null posible: superdough genera la reverb al azar en cada arranque (dos exportaciones en tiempo real tampoco coinciden). Con el bus apretado (glue + saturación + limitador), los compresores de Web Audio calculan su ganancia por bloques: dos exportaciones en tiempo real difieren lo mismo que offline vs tiempo real (−18 dB en los compases con hats), con el mismo espectro ±0,1 dB y el mismo nivel ±0,2 dB. Velocidad en la máquina de prueba (2 núcleos): 1,7–1,9× el tiempo real con el tema de las aves (80 compases en 78 s), 4× por stem; el render offline usa un solo hilo, así que en una PC normal rinde más. Escenas verificadas (silencio y filtro del máster en su compás exacto); el audio en vivo funciona después.
 - **Aceptación (oído):** el WAV offline suena igual que en vivo.
 - **Commit:** `feat(export): render offline con el bus de Telar`
 

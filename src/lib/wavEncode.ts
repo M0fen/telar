@@ -31,3 +31,26 @@ export function audioBufferToWav(buf: AudioBuffer): Blob {
   }
   return new Blob([ab], { type: 'audio/wav' });
 }
+
+// Cabecera WAV de 44 bytes (PCM entero o IEEE float). Sirve para rehacer la cabecera de un WAV
+// sin re-codificar el audio (p. ej. alargarlo con silencio al final).
+export function wavHeader(o: { dataLen: number; sampleRate: number; channels: number; bits: number; float: boolean }): Uint8Array {
+  const ab = new ArrayBuffer(44);
+  const v = new DataView(ab);
+  const ws = (off: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  const blockAlign = o.channels * (o.bits / 8);
+  ws(0, 'RIFF');
+  v.setUint32(4, 36 + o.dataLen, true);
+  ws(8, 'WAVE');
+  ws(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, o.float ? 3 : 1, true);
+  v.setUint16(22, o.channels, true);
+  v.setUint32(24, o.sampleRate, true);
+  v.setUint32(28, o.sampleRate * blockAlign, true);
+  v.setUint16(32, blockAlign, true);
+  v.setUint16(34, o.bits, true);
+  ws(36, 'data');
+  v.setUint32(40, o.dataLen, true);
+  return new Uint8Array(ab);
+}

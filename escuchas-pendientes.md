@@ -121,5 +121,9 @@ Una sola pasada por **áreas de la herramienta**, para hacer de corrido cuando T
 - [ ] **Panel MIDI en la vista DAW**: arranca minimizado (🎛 MIDI en vivo ▸) y no tapa las pistas; si lo abres ahí, la DAW lo recuerda (también al recargar). En standard y DJ sigue como lo dejaste.
 - [ ] **■ tras grabar el jam**: al «■ parar y armar», el tema se calla del todo (antes podía seguir sonando con el transporte en ■).
 
+## 14 · Temas completos a calidad máster (Fases 4–7) — NUEVO, medido sin oír
+- [ ] **Exportar sin tiempo real (4.2)**: ⤓ exportar → canción completa. Sale en menos tiempo de lo que dura el tema (en mi máquina de prueba, de 2 núcleos, ~1,7×; en tu PC debería ser bastante más rápido) y **suena igual que en vivo**: las escenas cambian la mezcla en su compás exacto, el máster con su limitador, la cola de la reverb hasta que se apaga. No se corta aunque el navegador se trabe. Después ▶ suena normal. (Medido: sin reverb, la diferencia con la exportación en tiempo real está 63 dB por debajo; con reverb, la reverb de superdough se genera al azar en cada arranque, así que nunca es idéntica ni entre dos exportaciones en tiempo real; con el bus apretado, mismo espectro ±0,1 dB y mismo nivel ±0,2 dB.)
+- [ ] **Stems sin tiempo real**: los stems del tema completo salen en minutos, todos del mismo largo y alineados con la mezcla.
+
 ## Interfaz / calidad visual (mirar, sin audio)
 - [ ] **Paleta única**: el texto del editor de código de los nodos coincide con el resto de la UI; cables y puntos del lienzo se ven igual que siempre.

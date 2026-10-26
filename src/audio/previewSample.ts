@@ -1,3 +1,4 @@
+import { isOfflineRendering } from './engine';
 import { getAudioContext } from '@strudel/web';
 import { ensureAudioReady } from './engine';
 import { resolveSampleUrl } from '../lib/sampleResolve';
@@ -51,6 +52,7 @@ export function preloadPreview(name: string): void {
 // Reproduce YA. Si está en caché suena en el acto; si no, carga y suena. Corta el
 // preview previo. maxSec acota loops largos (para que el ▸ no quede sonando eterno).
 export async function playPreview(name: string, gain = 0.9, maxSec = 4): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureAudioReady(); // reanuda el AudioContext dentro del gesto de clic
   const ctx = getAudioContext();
   const buf = await loadBuf(name);

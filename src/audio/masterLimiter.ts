@@ -148,6 +148,32 @@ export async function ensureMasterLimiter(ctx: BaseAudioContext, onReady?: (n: A
   if (n) onReady?.(n);
 }
 
+// Un limitador para OTRO contexto (render offline, Fase 4.2): el mismo procesador, sin tocar
+// el del audio en vivo; copia su techo y su bypass. null si el worklet no carga.
+export async function createLimiterFor(ctx: BaseAudioContext): Promise<AudioWorkletNode | null> {
+  try {
+    const url = URL.createObjectURL(new Blob([WORKLET_SRC], { type: 'application/javascript' }));
+    try {
+      await (ctx as AudioContext).audioWorklet.addModule(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    const n = new AudioWorkletNode(ctx, WORKLET_NAME, {
+      numberOfInputs: 1, numberOfOutputs: 1,
+      channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers',
+      outputChannelCount: [2],
+    });
+    for (const k of ['ceilingDb', 'bypass']) {
+      const v = node?.parameters.get(k)?.value;
+      if (typeof v === 'number') n.parameters.get(k)?.setValueAtTime(v, 0);
+    }
+    return n;
+  } catch (e) {
+    console.warn('[tp-limiter] sin limitador en el render offline:', e);
+    return null;
+  }
+}
+
 // bypass en caliente (A/B) sin re-cablear: pone el AudioParam del worklet.
 export function setLimiterBypass(on: boolean): void {
   try {

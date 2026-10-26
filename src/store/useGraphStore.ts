@@ -13,7 +13,7 @@ import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
 import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
-import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs } from '../audio/engine';
+import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
 import { registerUserPacks } from '../lib/userPacks';
 import { registerCloudBank } from '../lib/cloudBank';
@@ -867,6 +867,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
     },
 
     play: async () => {
+      // exportando offline: superdough apunta por ratos al render → no puede sonar nada en vivo
+      if (isOfflineRendering()) { toast.info('Exportando… ▶ vuelve a funcionar al terminar.'); return; }
       set({ initializing: true });
       await ensureEngine();
       // Reanuda el contexto Y espera la carga de los AudioWorklets de efectos

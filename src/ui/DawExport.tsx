@@ -6,8 +6,8 @@ import { useExportStore, exportWav, exportStems, cancelExport, stamp, EXPORT_TAI
 
 // EXPORTAR desde el DAW (Fases 3.3 y 3.4): la canción entera o la región marcada a WAV (32-bit
 // float, lo que suena tras el máster) y los STEMS por pista en un ZIP (cada pista sola, sin el
-// bus del máster, todas del mismo largo desde el compás 1). En tiempo real: cada pasada dura
-// lo que dura la canción.
+// bus del máster, todas del mismo largo desde el compás 1). Se renderiza offline (Fase 4.2):
+// más rápido que el tiempo real y sin cortes; si el render offline falla, en tiempo real.
 const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
 export interface StemTrack { id: string; name: string; muted?: boolean; silent?: boolean }
@@ -38,7 +38,7 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
   }
   return (
     <span className="daw-create">
-      <button className={`daw-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} title="exportar a WAV (en tiempo real, lo que suena tras el máster)">⤓ exportar ▾</button>
+      <button className={`daw-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} title="exportar a WAV (lo que suena tras el máster, con sus escenas; más rápido que el tiempo real)">⤓ exportar ▾</button>
       {open && (
         <span className="daw-menu" role="menu" ref={menuRef}>
           <button role="menuitem" onClick={() => { setOpen(false); void exportWav(0, total, `telar-${fromSong ? 'cancion' : 'bucle'}-${stamp()}.wav`); }}>
@@ -65,7 +65,7 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
                 </span>
                 <label className="daw-stems-mix"><input type="checkbox" checked={withMix} onChange={(e) => setWithMix(e.target.checked)} /> incluir la mezcla (con máster)</label>
                 <span className="daw-stems-note">cada pista sola, sin el máster (EQ, glue, limitador) · WAV 32-bit float: juntas no se recortan aunque pasen de 0 dB</span>
-                <span className="daw-stems-est">{passes} pasada{passes === 1 ? '' : 's'} en tiempo real · ≈ {mmss(passes * (total / cps + EXPORT_TAIL_S) + passes * 1.5)}</span>
+                <span className="daw-stems-est">{passes} pasada{passes === 1 ? '' : 's'} de {dur(total)} · más rápido que el tiempo real</span>
                 <button
                   className="daw-btn on"
                   disabled={!chosen.length}

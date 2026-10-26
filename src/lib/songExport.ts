@@ -1,6 +1,6 @@
-// EXPORTAR (Modo DAW, Fase 3.3): la canción entera o una región a WAV, exactamente N compases
-// + la cola (reverb/eco) — y la base de los stems (3.4). El motor es EN VIVO (no hay render
-// offline con el bus de Telar), así que se graba en tiempo real: se detiene, se arranca desde el
+// EXPORTAR (Modo DAW, Fases 3.3–4.2): la canción entera o una región a WAV, y los stems (3.4).
+// Por defecto se renderiza OFFLINE (ver «RENDER OFFLINE» abajo). El camino en TIEMPO REAL
+// (renderPass) queda de respaldo: se detiene, se arranca desde el
 // compás pedido sin bucles, a partir del compás N no arranca ningún evento nuevo (`stopAt`) y la
 // toma se recorta con precisión de muestra desde el instante en que suena el ciclo 0 del
 // transporte (sacado del propio scheduler). Al terminar (o cancelar) todo vuelve como estaba.
@@ -11,6 +11,10 @@ import { getScheduler, getMasterPostNode, getAudioCtx, getMasterPostLatency } fr
 import { startAudioRecording, stopAudioRecording, isAudioRecording } from './audioRecorder';
 import { makeZip, type ZipEntry } from './zip';
 import { toast } from '../store/useNotifyStore';
+import { useScenesStore } from '../store/useScenesStore';
+import { bakeSong } from './songBake';
+import { renderOffline } from '../audio/offlineRender';
+import { audioBufferToWav, wavHeader } from './wavEncode';
 
 export const EXPORT_TAIL_S = 2.5;
 
@@ -108,6 +112,49 @@ export async function renderPass(o: ExportOpts): Promise<Blob | null> {
   }
 }
 
+// --- RENDER OFFLINE (Fase 4.2) --------------------------------------------------------------
+// Camino por defecto: la canción horneada (escenas incluidas) renderizada en un
+// OfflineAudioContext con el bus de Telar → más rápido que el tiempo real y sin cortes. Si
+// falla, se exporta en tiempo real (renderPass) como antes.
+const OWN_TEMPO = /\b(cpm|cps|setcps|setcpm)\s*\(/;
+
+interface WavFile {
+  blob: Blob;
+  frames: number;
+  channels: number;
+  bits: number;
+  float: boolean;
+  sampleRate: number;
+}
+
+async function offlinePass(o: { start: number; bars: number; bus: boolean; only?: string | null; progress?: (f: number) => void }): Promise<WavFile | null> {
+  const g = useGraphStore.getState();
+  const song = useSongStore.getState();
+  const baked = bakeSong({
+    nodes: g.nodes,
+    edges: g.edges,
+    steps: song.steps,
+    scenes: useScenesStore.getState().scenes,
+    master: g.master,
+    transpose: g.transpose,
+    xfader: g.xfader,
+    only: o.only ?? null,
+  });
+  if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
+  const cps = OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5;
+  const r = await renderOffline({ code: baked.code, cps, start: o.start, bars: o.bars, sections: baked.sections, bus: o.bus, onProgress: o.progress, isCancelled: () => cancelFlag });
+  if (!r) return null;
+  return { blob: audioBufferToWav(r.buffer), frames: r.buffer.length, channels: r.buffer.numberOfChannels, bits: 32, float: true, sampleRate: r.buffer.sampleRate };
+}
+
+// alarga un WAV con silencio hasta `frames` (los stems salen todos del mismo largo)
+function padWav(f: WavFile, frames: number): Blob {
+  if (frames <= f.frames) return f.blob;
+  const bpf = f.channels * (f.bits / 8);
+  const header = wavHeader({ dataLen: frames * bpf, sampleRate: f.sampleRate, channels: f.channels, bits: f.bits, float: f.float });
+  return new Blob([header as BlobPart, f.blob.slice(44), new Uint8Array((frames - f.frames) * bpf) as BlobPart], { type: 'audio/wav' });
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -128,8 +175,19 @@ export async function exportWav(start: number, bars: number, filename: string): 
   const regionOn = useSongStore.getState().regionOn;
   useExportStore.setState({ busy: true, frac: 0, label: 'exportando la canción' });
   try {
+    await useGraphStore.getState().stop();
     useSongStore.getState().setLoop(false);
-    const blob = await renderPass({ start, bars, progress: (f) => useExportStore.setState({ frac: f }) });
+    let blob: Blob | null = null;
+    try {
+      const f = await offlinePass({ start, bars, bus: true, progress: (x) => useExportStore.setState({ frac: x }) });
+      blob = f?.blob ?? null;
+      if (!f) return false; // cancelado
+    } catch (e) {
+      console.warn('[export] render offline falló → tiempo real', e);
+      toast.warn('El render rápido falló: exporto en tiempo real (tarda lo que dura el tema).');
+      useExportStore.setState({ frac: 0, label: 'exportando en tiempo real' });
+      blob = await renderPass({ start, bars, progress: (f) => useExportStore.setState({ frac: f }) });
+    }
     if (!blob) return false;
     downloadBlob(blob, filename);
     return true;
@@ -140,7 +198,7 @@ export async function exportWav(start: number, bars: number, filename: string): 
   }
 }
 
-// STEMS POR PISTA (Fase 3.4): una pasada en tiempo real por pista, cada una SOLA (compile
+// STEMS POR PISTA (Fase 3.4): una pasada por pista (offline; en tiempo real de respaldo), cada una SOLA (compile
 // `only`: con sus FX, sus secciones y lo que las escenas le hacen, como en la mezcla), por el
 // tap PRE-bus (sin limitador/EQ del máster, para mezclar en otro lado), todas del mismo largo
 // exacto → `telar-stems-….zip` con un WAV por pista (+ la mezcla, opcional).
@@ -155,7 +213,37 @@ export async function exportStems(tracks: { id: string; name: string }[], bars: 
   const passes = tracks.length + (includeMix ? 1 : 0);
   useExportStore.setState({ busy: true, frac: 0, label: 'stems' });
   try {
+    await useGraphStore.getState().stop();
     useSongStore.getState().setLoop(false);
+    // OFFLINE: una pasada por pista (sin el bus) + la mezcla (con el bus, alineada); todas del
+    // mismo largo (las más cortas se alargan con silencio)
+    try {
+      const done: { name: string; f: WavFile }[] = [];
+      let k = 0;
+      for (const t of tracks) {
+        useExportStore.setState({ label: `stem ${k + 1}/${passes} · ${t.name}` });
+        const kk = k;
+        const f = await offlinePass({ start: 0, bars, bus: false, only: t.id, progress: (x) => useExportStore.setState({ frac: (kk + x) / passes }) });
+        if (!f) return false; // cancelado
+        done.push({ name: `${String(k + 1).padStart(2, '0')}-${safeName(t.name, t.id)}.wav`, f });
+        k++;
+      }
+      if (includeMix) {
+        useExportStore.setState({ label: `mezcla ${passes}/${passes}` });
+        const kk = k;
+        const f = await offlinePass({ start: 0, bars, bus: true, progress: (x) => useExportStore.setState({ frac: (kk + x) / passes }) });
+        if (!f) return false;
+        done.push({ name: '00-mezcla.wav', f });
+      }
+      const frames = Math.max(...done.map((d) => d.f.frames));
+      useExportStore.setState({ label: 'armando el ZIP', frac: 1 });
+      downloadBlob(await makeZip(done.map((d) => ({ name: d.name, data: padWav(d.f, frames) }))), `telar-stems-${stamp()}.zip`);
+      return true;
+    } catch (e) {
+      if (cancelFlag) return false;
+      console.warn('[export] stems offline fallaron → tiempo real', e);
+      toast.warn('El render rápido falló: exporto los stems en tiempo real.');
+    }
     const files: ZipEntry[] = [];
     let i = 0;
     for (const t of tracks) {

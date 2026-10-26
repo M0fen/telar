@@ -3,7 +3,7 @@ import type { SynthParams, VoiceParams } from '../graph/types';
 import { SYNTH_WAVES } from '../graph/types';
 import { isMorphWave } from './wavetables';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
-import { ensureEngine, ensureAudioReady, registerWavetables } from './engine';
+import { ensureEngine, ensureAudioReady, registerWavetables, isOfflineRendering } from './engine';
 import { toast } from '../store/useNotifyStore';
 
 // Reporta un fallo de audición SIN spamear: con throttle (una vez cada ~4 s) e ignorando
@@ -194,6 +194,7 @@ export async function playSourceSound(
   begin = 0,
   end = 1,
 ): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine();
   await ensureAudioReady();
   await registerWavetables(); // el source puede sonar con una wavetable (telar_*) al audicionar sin Play
@@ -252,6 +253,7 @@ export function voiceToValue(v: VoiceParams, name: string, begin = 0, end = 1): 
 
 // Audiciona la voz procesada (con FX) AL INSTANTE, independiente del transporte/ciclo.
 export async function playVoiceSample(name: string, v: VoiceParams, begin = 0, end = 1, holdSec = 6): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine();
   await ensureAudioReady();
   const ctx = getAudioContext();
@@ -268,6 +270,7 @@ export async function playVoiceSample(name: string, v: VoiceParams, begin = 0, e
 // del piano roll suena IDÉNTICO al resultado. holdSec corto para respuesta inmediata
 // al probar teclas. Es la ÚNICA vía de audición del piano roll (coherente con el final).
 export async function playVoiceNote(name: string, v: VoiceParams, note: string, begin = 0, end = 1, holdSec = 1.4): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine();
   await ensureAudioReady();
   const ctx = getAudioContext();
@@ -284,6 +287,7 @@ export async function playVoiceNote(name: string, v: VoiceParams, note: string, 
 // null = silencio) en su paso, con la voz PROCESADA (mismos FX que el resultado). Preview
 // aislado — NO toca el transporte. La melodía abarca 1 ciclo (como en el patrón compilado).
 export async function playVoiceMelody(name: string, v: VoiceParams, notes: (string | null)[], stepSec: number, holdSec: number, begin = 0, end = 1): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine();
   await ensureAudioReady();
   const ctx = getAudioContext();
@@ -304,6 +308,7 @@ export async function playVoiceMelody(name: string, v: VoiceParams, notes: (stri
 // su banco. Feedback inmediato al colocar/probar pasos. note opcional (para pitchear
 // samples melódicos como el cencerro).
 export async function playDrumHit(sound: string, bank?: string, note?: string | number, holdSec = 0.5, gain = 0.9): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine();
   await ensureAudioReady();
   const ctx = getAudioContext();
@@ -324,6 +329,7 @@ export async function playSynthNote(
   holdSec = 0.6,
   nodeId?: string,
 ): Promise<void> {
+  if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine(); // registra osciladores/samples (idempotente) por si no hubo Play
   await ensureAudioReady(); // reanuda el AudioContext + carga worklets (1ª vez)
   await registerWavetables(); // registra las wavetables de morph (telar_*) — la audición puede usarlas ANTES de Play
