@@ -673,6 +673,39 @@ export interface CompileOpts {
   // hagan, igual que en la mezcla); las demás callan — los bombos que disparan un sidechain
   // siguen disparándolo en silencio para que el stem bombee como en la mezcla.
   only?: string | null;
+  // CANCIÓN HORNEADA (Fase 4.1): orbits FIJOS para todas las secciones — cada sección se compila
+  // con la mezcla de su escena y todas deben mandar cada pista al MISMO bus (si no, el EQ por
+  // canal y las colas de reverb cambiarían de pista al pasar de sección). Sin plan: como siempre.
+  orbitPlan?: OrbitPlan;
+  // false = sin `.analyze()` (los medidores en vivo): el render offline corre en OTRO contexto de
+  // audio y no puede conectarse a los analizadores del contexto en vivo.
+  analyze?: boolean;
+}
+
+// Orbits fijos (Fase 4.1): sidechain duck por id del nodo fx, EQ por canal por id del source.
+export interface OrbitPlan {
+  sidechain: Map<string, number>;
+  eq: Map<string, number>;
+}
+
+// Nodos sidechain en modo duck con un disparador válido (los que reciben un orbit propio).
+export function duckSidechainIds(nodes: N[]): string[] {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const out: string[] = [];
+  for (const n of nodes) {
+    if (n.data.kind !== 'fx' || n.data.opId !== 'sidechain') continue;
+    if (String(n.data.params?.mode ?? 'gen') !== 'duck') continue;
+    const trig = String(n.data.params?.trigger ?? '');
+    const t = byId.get(trig);
+    if (!trig || !t || t.data.kind !== 'source') continue;
+    out.push(n.id);
+  }
+  return out;
+}
+
+// Sources con EQ por canal activo.
+export function eqSourceIds(nodes: N[]): string[] {
+  return nodes.filter((n) => n.data.kind === 'source' && !!n.data.eq && channelEqActive(n.data.eq)).map((n) => n.id);
 }
 
 // Ganancia de crossfader por lado (curva de potencia constante: ambos a −3 dB en el
@@ -708,14 +741,16 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   // (mininotación "2:3"). Sin disparador válido, el nodo cae al tremolo genérico.
   const sidechainOrbit = new Map<string, number>(); // fx nodeId → orbit asignado
   const duckByTrigger = new Map<string, { orbits: number[]; depth: number; attack: number }>();
-  let nextOrbit = 2; // 0/1 reservados al bus por defecto
+  const plan = opts.orbitPlan;
+  // con plan, los orbits libres empiezan después de TODOS los del plan (no chocan)
+  let nextOrbit = plan ? Math.max(1, ...plan.sidechain.values(), ...plan.eq.values()) + 1 : 2; // 0/1 reservados al bus por defecto
   for (const n of nodes) {
     if (n.data.kind !== 'fx' || n.data.opId !== 'sidechain') continue;
     if (String(n.data.params?.mode ?? 'gen') !== 'duck') continue;
     const trig = String(n.data.params?.trigger ?? '');
     const trigNode = byId.get(trig);
     if (!trig || !trigNode || trigNode.data.kind !== 'source') continue; // → genérico
-    const orbit = nextOrbit++;
+    const orbit = plan?.sidechain.get(n.id) ?? nextOrbit++;
     sidechainOrbit.set(n.id, orbit);
     const depth = Math.max(0.05, Math.min(1, Number(n.data.params?.depth ?? 0.7)));
     const attack = Math.max(0.005, Math.min(0.5, Number(n.data.params?.attack ?? 0.1)));
@@ -734,9 +769,12 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   const channelEqs: ChannelEqRoute[] = [];
   for (const n of nodes) {
     if (n.data.kind !== 'source') continue;
-    const eq = n.data.eq;
-    if (!channelEqActive(eq) || !eq) continue;
-    const orbit = nextOrbit++;
+    const active = !!n.data.eq && channelEqActive(n.data.eq);
+    const planned = plan?.eq.get(n.id);
+    // con plan: TODA pista del plan va a su orbit (EQ plano en las secciones donde no tiene EQ)
+    if (!active && planned == null) continue;
+    const eq = active ? n.data.eq! : { low: 0, mid: 0, high: 0 };
+    const orbit = planned ?? nextOrbit++;
     eqOrbitBySource.set(n.id, orbit);
     channelEqs.push({
       // min −30 dB permite el KILL del modo DJ (corte casi total de una banda).
@@ -744,7 +782,7 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
       low: Math.max(-30, Math.min(15, eq.low ?? 0)),
       mid: Math.max(-30, Math.min(15, eq.mid ?? 0)),
       high: Math.max(-30, Math.min(15, eq.high ?? 0)),
-      midFreq: Math.max(200, Math.min(8000, eq.midFreq ?? 1000)),
+      midFreq: Math.max(200, Math.min(8000, (eq as { midFreq?: number }).midFreq ?? 1000)),
     });
   }
 
@@ -888,7 +926,7 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           text += automationSuffix(node.data.auto, opts.songBars ?? 0);
           // tap del analyser del instrumento (no altera el sonido): alimenta el VU
           // por canal (siempre) y el osciloscopio inline (cuando está activo).
-          text += `.analyze("${SRC_ANALYSER_PREFIX}${id}")`;
+          if (opts.analyze !== false) text += `.analyze("${SRC_ANALYSER_PREFIX}${id}")`;
           expr = { text, spans };
           if (opts.only && opts.only !== id) {
             // stem de OTRA pista: esta calla; si dispara un sidechain, lo sigue disparando muda
