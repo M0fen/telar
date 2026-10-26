@@ -140,15 +140,37 @@ function parseJson(raw: string | null): unknown {
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
+let pending: ProjectSnapshot | null = null;
+function writeProject(s: ProjectSnapshot): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(s));
+  } catch (e) {
+    console.warn('projectStore: no se pudo guardar', e);
+  }
+}
 export function saveProjectDebounced(s: ProjectSnapshot): void {
+  pending = s;
   if (timer) clearTimeout(timer);
-  timer = setTimeout(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(s));
-    } catch (e) {
-      console.warn('projectStore: no se pudo guardar', e);
-    }
-  }, 500);
+  timer = setTimeout(flushProjectSave, 500);
+}
+
+// Guarda YA lo que espera el medio segundo del autoguardado. Se llama al cerrar o recargar la
+// pestaña y al ocultarla (en el teléfono, cambiar de app): sin esto, el último cambio hecho
+// justo antes se perdía. Sin nada pendiente no hace nada.
+export function flushProjectSave(): void {
+  if (timer) {
+    clearTimeout(timer);
+    timer = null;
+  }
+  const s = pending;
+  pending = null;
+  if (s) writeProject(s);
+}
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  window.addEventListener('pagehide', flushProjectSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushProjectSave();
+  });
 }
 
 // Mayor sufijo numérico de los ids cargados, para que nextId no colisione.

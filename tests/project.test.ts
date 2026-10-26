@@ -3,7 +3,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  flushProjectSave,
   projectExtras,
+  saveProjectDebounced,
   sanitizeScenes,
   sanitizeSong,
   startupScenes,
@@ -104,4 +106,30 @@ test('Fase 2.1: el nombre propio de una sección (marcador del DAW) viaja en el 
   const { sanitizeSong } = await import('../src/lib/projectStore.ts');
   const s = sanitizeSong({ steps: [{ id: 'a', scene: 1, bars: 8, name: '  drop  ' }, { id: 'b', scene: 2, bars: 8, name: '' }, { id: 'c', scene: 2, bars: 8, name: 7 }], loop: true })!;
   assert.deepEqual(s.steps.map((x) => x.name), ['drop', undefined, undefined]);
+});
+
+test('autoguardado: lo pendiente se guarda YA al cerrar u ocultar la pestaña (flush), una sola vez', () => {
+  const store = new Map<string, string>();
+  let writes = 0;
+  const g = globalThis as unknown as { localStorage?: unknown };
+  const prev = g.localStorage;
+  g.localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => { writes++; store.set(k, v); },
+    removeItem: (k: string) => { store.delete(k); },
+  };
+  try {
+    const a = { cps: 0.5, song } as unknown as ProjectSnapshot;
+    const b = { cps: 0.6, song } as unknown as ProjectSnapshot;
+    saveProjectDebounced(a);
+    saveProjectDebounced(b); // el último gana
+    assert.equal(writes, 0, 'aún esperando el medio segundo');
+    flushProjectSave();
+    assert.equal(writes, 1);
+    assert.equal(JSON.parse(store.get('telar.project.v1') as string).cps, 0.6);
+    flushProjectSave(); // nada pendiente → no reescribe
+    assert.equal(writes, 1);
+  } finally {
+    g.localStorage = prev;
+  }
 });
