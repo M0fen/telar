@@ -23,6 +23,7 @@ import {
   ensureEngine,
   beginOfflineRender,
   endOfflineRender,
+  settleLiveTransitions,
   createOfflineMasterBus,
   busFromMaster,
   djLpFreq,
@@ -168,7 +169,14 @@ let busy = false;
 export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRenderResult | null> {
   if (busy) throw new Error('ya hay un render en curso');
   busy = true;
-  const repl = await ensureEngine();
+  let repl: Awaited<ReturnType<typeof ensureEngine>>;
+  try {
+    repl = await ensureEngine();
+    await settleLiveTransitions(); // ninguna transición en vivo puede terminar con superdough apuntando al offline
+  } catch (e) {
+    busy = false;
+    throw e;
+  }
   const live = getAudioContext();
   const liveCtrl = getSuperdoughAudioController();
   const livePoly = maxPolyphony;

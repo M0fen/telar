@@ -261,9 +261,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
   let lastEqKey = '';
   let lastDroppedKey = '';
   const recompile = () => {
-    const { nodes, edges, cps, playing, master, transpose, xfader } = get();
+    const { nodes, edges, cps, playing, master, transpose, xfader, songKey } = get();
     const songBars = songTotal(useSongStore.getState().steps);
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, only: useSongStore.getState().exportOnly });
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly });
     setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
@@ -440,7 +440,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
     // pistas a él en UNA sola operación (un recompile / un undo). Clásico de hard-techno/house.
     autoSidechain: () => {
       const nodes = get().nodes;
-      const sources = nodes.filter((n) => n.data.kind === 'source');
+      // las transiciones (7.4) no bombean: el impacto cae CON el bombo y el duck se lo comería
+      const sources = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
       // Puntúa cuán "bombo" es un source. OJO: no usamos \b (word boundary) porque en
       // regex el '_' y los dígitos son caracteres de palabra → nombres reales como
       // "808bd", "kick_deep" o "bd*4" quedaban fuera. Buscamos por subcadena con una
@@ -560,6 +561,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         'eq' in patch || // EQ por canal: enruta a un orbit + setChannelEqs (antes NO recompilaba → EQ inerte)
         'comp' in patch || // compresor de canal (6.1): igual que el EQ (sin esto, tocarlo no hacía nada hasta otro cambio)
         'sends' in patch || // envíos a los retornos (6.4): la pista necesita su tira; el valor va a la ruta
+        'transitions' in patch || // transiciones colocadas en el DAW (7.4)
         'auto' in patch || // curvas de automatización del DAW (Fase 3.1) → sufijo .withHap
         'perf' in patch || // FX de deck momentáneos (DJ): roll/gate/echo
         'xfa' in patch // asignación de crossfader
@@ -743,7 +745,11 @@ export const useGraphStore = create<GraphState>((set, get) => {
     setVizHeadless: (vizHeadless) => set({ vizHeadless }),
     setVizMilkStyle: (vizMilkStyle) => set({ vizMilkStyle }),
     setTitle: (t) => set({ title: String(t ?? '').slice(0, 60) }),
-    setSongKey: (k) => set({ songKey: cleanKey(k) }),
+    setSongKey: (k) => {
+      set({ songKey: cleanKey(k) });
+      // lo afinado de las transiciones (7.4) sigue a la tónica
+      if (get().nodes.some((n) => n.data.kind === 'source' && Array.isArray(n.data.transitions))) get().recompile();
+    },
 
     addPattern: (code, name, extra, pos, opts) => {
       pushPast(true);

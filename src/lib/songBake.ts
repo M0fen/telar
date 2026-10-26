@@ -39,6 +39,7 @@ export interface BakeInput {
   transpose?: number;
   xfader?: number;
   only?: string | null; // stem: solo esta pista
+  keyRoot?: number; // tónica del tema (lo afinado de las transiciones, 7.4)
   analyze?: boolean; // true = cada evento lleva la etiqueta de su pista (MIDI); por defecto no
 }
 
@@ -82,7 +83,7 @@ export function bakeSong(input: BakeInput): BakeResult {
   const startMaster = releaseMomentary(input.master);
   const steps = input.steps.filter((s) => s.bars >= 1);
   const total = songTotal(steps);
-  const base = { transpose: input.transpose, xfader: input.xfader, songBars: total, only: input.only ?? null, analyze: !!input.analyze };
+  const base = { transpose: input.transpose, xfader: input.xfader, songBars: total, only: input.only ?? null, analyze: !!input.analyze, keyRoot: input.keyRoot };
 
   // estados por sección: la escena de la sección SOBRE lo que venía (lo que no guarda, sigue)
   const states: { start: number; bars: number; nodes: N[]; master: MasterFx }[] = [];

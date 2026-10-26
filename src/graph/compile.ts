@@ -14,6 +14,7 @@ import { cleanSends, sendsActive, RETURN_RANGES, DEFAULT_RETURNS } from '../lib/
 import type { Edge, Node } from '@xyflow/react';
 import { automationSuffix, masterAutomationSuffix, cleanAuto, isActive, curveSignal } from '../lib/automation';
 import { fxCurve } from '../lib/fxAutomation';
+import { transitionsCode, cleanTransitions } from '../lib/transitions';
 import type { NodeData, SynthParams, VoiceParams } from './types';
 import { channelEqActive, channelCompActive, DEFAULT_CHANNEL_COMP, SYNTH_WAVES, type ChannelComp } from './types';
 import { OPS_BY_ID } from './ops';
@@ -701,6 +702,7 @@ export interface CompileOpts {
   transpose?: number; // semitonos globales ("tono"): se suma SOLO a fuentes con note(…)
   xfader?: number; // crossfader DJ 0..1 (0 = todo A, 1 = todo B); afecta el gain de los decks asignados
   songBars?: number; // compases de la canción: las curvas de automatización se repiten con ella (Fase 3.1)
+  keyRoot?: number; // tónica del tema (0–11): lo afinado de las transiciones (7.4)
   // STEM (Fase 3.4): solo suena ESTA pista (con sus FX, sus secciones y lo que las escenas le
   // hagan, igual que en la mezcla); las demás callan — los bombos que disparan un sidechain
   // siguen disparándolo en silencio para que el stem bombee como en la mezcla.
@@ -877,7 +879,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         // patrón en loop en vez del código completo — la sección editada suena al
         // instante. Gateado por `solo` para que un valor rancio jamás altere la mezcla.
         const preview = node.data.solo && typeof node.data.seqPreviewCode === 'string' && node.data.seqPreviewCode.trim();
-        const raw = (preview ? (node.data.seqPreviewCode as string) : node.data.code ?? '').trim();
+        // pista de TRANSICIONES (7.4): su código sale de los elementos colocados en el DAW
+        const trans = Array.isArray(node.data.transitions) ? transitionsCode(cleanTransitions(node.data.transitions), opts.songBars ?? 0, opts.keyRoot ?? 0) : null;
+        const raw = (trans ?? (preview ? (node.data.seqPreviewCode as string) : node.data.code ?? '')).trim();
         const code = raw.replace(INLINE_VIZ_RE, '').trim();
         if (!code) {
           firstError ??= 'Source vacío';

@@ -1011,6 +1011,9 @@ body {
 }
 .tn-transform .tn-collapsed { color: #c4a6ff; }
 .tn-fx .tn-collapsed { color: #7cc0ff; }
+/* pista de transiciones (7.4): resumen en vez de código */
+.tn-trans { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; font-size: 10px; color: #b48cf0; max-width: 230px; }
+.tn-trans-btns { display: flex; gap: 4px; }
 
 /* ancho fijo del canal Source (estilo DAW): da un ancho de referencia definido a
    los canvas inline (scope/pianoroll usan width:100%) y evita que el ancho

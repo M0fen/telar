@@ -56,6 +56,7 @@ import { useWarpStore } from '../audio/warpLoops';
 import { retuneWarp, warpExistingSource, setWarpKeyOpts } from '../lib/warpActions';
 import { songBpmOf, warpLabel, effectiveSemis, type WarpInfo } from '../lib/loopWarp';
 import { bareSampleName } from '../lib/sampleFit';
+import { TRANS_DEF, cleanTransitions, type TransItem, type TransKind } from '../lib/transitions';
 
 // V1a — "el grafo como señal viva": registra el DOM de este nodo para que signalFlow le
 // escriba la variable CSS `--pulse` (0..1) según lo que dispara/propaga el grafo; el CSS
@@ -434,6 +435,25 @@ function CollapsedChip({ label }: { label: string }) {
   return <div className="tn-collapsed nodrag">{label}</div>;
 }
 
+// resumen de la pista de transiciones (7.4): qué hay y dónde se editan (fila del DAW)
+function TransSummary({ items, collapsed, showMix, onMix }: { items: TransItem[]; collapsed: boolean; showMix: boolean; onMix: () => void }) {
+  const setMode = useGraphStore((s) => s.setMode);
+  const count = new Map<TransKind, number>();
+  for (const it of items) count.set(it.kind, (count.get(it.kind) ?? 0) + 1);
+  const list = [...count].map(([k, n]) => `${TRANS_DEF[k].icon} ${TRANS_DEF[k].label}${n > 1 ? ` ×${n}` : ''}`).join(' · ');
+  return (
+    <div className="tn-trans nodrag" onMouseDown={(e) => e.stopPropagation()}>
+      <span>{items.length ? list : 'sin transiciones'}</span>
+      {!collapsed && (
+        <div className="tn-trans-btns">
+          <button className="tn-tool tn-tool-vista" onClick={() => setMode('daw')} title="las transiciones se colocan en la fila «transiciones» del DAW">editar en el DAW</button>
+          <button className={`tn-tool tn-tool-vista${showMix ? ' on' : ''}`} onClick={onMix} title="nivel, filtro, envíos, EQ y compresor de las transiciones">mezcla</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Tira de visualización (onda/pianoroll) para mostrar dentro de un Source PLEGADO:
 // registra su canvas en el motor compartido por nodeId (mutuamente excluyente con
 // el widget inline del editor, que no está montado al estar plegado).
@@ -587,6 +607,63 @@ function SourceNode({ id, data, selected }: NodeProps) {
   // (o si el source está vacío, para poder escribir el patrón).
   const emptyCode = !(d.code ?? '').trim();
   const codeVisible = !collapsed && (!!d.showCode || emptyCode);
+  // mini-mezclador del canal: gain y filtro DJ (bipolar) en vivo, envíos, EQ y compresor
+  const mixPanel = (
+    <div className="tn-mix nodrag">
+      <TrackMeter id={id} db className="tmeter-mix" />
+      <label>
+        <span>gain</span>
+        <Knob
+          value={d.gain ?? 1}
+          min={0}
+          max={1.5}
+          step={0.01}
+          size={18}
+          defaultValue={1}
+          label="gain"
+          onChange={(v) => update(id, { gain: v })}
+        />
+      </label>
+      <label>
+        <span>filtro</span>
+        <Knob
+          value={d.chFilter ?? 0}
+          min={-1}
+          max={1}
+          step={0.01}
+          size={18}
+          defaultValue={0}
+          label="filtro (− lpf · + hpf)"
+          onChange={(v) => update(id, { chFilter: v })}
+        />
+      </label>
+      {/* THROW de eco (dub): momentáneo — manda el canal al delay mientras se
+          mantiene pulsado (el gesto clásico del dancehall sobre skank/voz).
+          Reusa la emisión perf.echo del compilador (delay sync 3/16). */}
+      <button
+        className={`tn-throw${d.perf?.echo ? ' on' : ''}`}
+        title="throw de eco (dub): MANTÉN PULSADO para mandar este canal al delay — suelta y limpia. El eco cae al tempo (3/16, puntillo)."
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); update(id, { perf: { ...(d.perf ?? {}), echo: 0.55 } }); }}
+        onPointerUp={() => update(id, { perf: { ...(d.perf ?? {}), echo: 0 } })}
+        onLostPointerCapture={() => { if (d.perf?.echo) update(id, { perf: { ...(d.perf ?? {}), echo: 0 } }); }}
+      >
+        eco
+      </button>
+      {/* ENVÍOS a los retornos compartidos (6.4): una reverb y un eco para todo el tema */}
+      <label title="envío a la REVERB compartida (después del EQ, el compresor y el fader). Su espacio y su EQ: panel del máster › retornos">
+        <span>→rev</span>
+        <Knob value={d.sends?.rev ?? 0} min={0} max={1} step={0.01} size={18} defaultValue={0} label="envío a la reverb" onChange={(v) => update(id, { sends: { ...(d.sends ?? {}), rev: v } })} />
+      </label>
+      <label title="envío al ECO compartido, a tempo (después del EQ, el compresor y el fader). División y EQ: panel del máster › retornos">
+        <span>→eco</span>
+        <Knob value={d.sends?.del ?? 0} min={0} max={1} step={0.01} size={18} defaultValue={0} label="envío al eco" onChange={(v) => update(id, { sends: { ...(d.sends ?? {}), del: v } })} />
+      </label>
+      <ChannelEqStrip id={id} data={d} />
+      <ChannelCompStrip id={id} data={d} />
+    </div>
+  );
+  // la pista de TRANSICIONES (7.4) no tiene código propio: se ve su resumen y su mezcla
+  const trans = Array.isArray(d.transitions) ? cleanTransitions(d.transitions) : null;
   const glowRef = useFlowGlow(id);
   return (
     <div
@@ -600,7 +677,12 @@ function SourceNode({ id, data, selected }: NodeProps) {
       <NodeHeader id={id} data={d} badge="source" live />
       <Vu id={id} className="vu-src" />
       {d.warp && <WarpChip id={id} warp={d.warp} />}
-      {collapsed ? (
+      {trans ? (
+        <>
+          <TransSummary items={trans} collapsed={collapsed} showMix={showMix} onMix={() => update(id, { showMix: !showMix })} />
+          {!collapsed && showMix && mixPanel}
+        </>
+      ) : collapsed ? (
         <>
           <CollapsedChip label={d.name?.trim() || d.code?.trim() || 'patrón'} />
           {/* plegado: se ve el VISUAL del instrumento (onda en vivo) para guiarse */}
@@ -622,61 +704,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
           {d.showPly && <PlyStrip id={id} code={d.code ?? ''} />}
           {d.showSlice && <SliceStrip id={id} code={d.code ?? ''} warp={d.warp} />}
           {showTrim && <SampleTrim nodeId={id} code={d.code ?? ''} begin={d.begin} end={d.end} />}
-          {showMix && (
-            // mini-mezclador del canal: gain y filtro DJ (bipolar) en vivo.
-            <div className="tn-mix nodrag">
-              <TrackMeter id={id} db className="tmeter-mix" />
-              <label>
-                <span>gain</span>
-                <Knob
-                  value={d.gain ?? 1}
-                  min={0}
-                  max={1.5}
-                  step={0.01}
-                  size={18}
-                  defaultValue={1}
-                  label="gain"
-                  onChange={(v) => update(id, { gain: v })}
-                />
-              </label>
-              <label>
-                <span>filtro</span>
-                <Knob
-                  value={d.chFilter ?? 0}
-                  min={-1}
-                  max={1}
-                  step={0.01}
-                  size={18}
-                  defaultValue={0}
-                  label="filtro (− lpf · + hpf)"
-                  onChange={(v) => update(id, { chFilter: v })}
-                />
-              </label>
-              {/* THROW de eco (dub): momentáneo — manda el canal al delay mientras se
-                  mantiene pulsado (el gesto clásico del dancehall sobre skank/voz).
-                  Reusa la emisión perf.echo del compilador (delay sync 3/16). */}
-              <button
-                className={`tn-throw${d.perf?.echo ? ' on' : ''}`}
-                title="throw de eco (dub): MANTÉN PULSADO para mandar este canal al delay — suelta y limpia. El eco cae al tempo (3/16, puntillo)."
-                onPointerDown={(e) => { e.currentTarget.setPointerCapture?.(e.pointerId); update(id, { perf: { ...(d.perf ?? {}), echo: 0.55 } }); }}
-                onPointerUp={() => update(id, { perf: { ...(d.perf ?? {}), echo: 0 } })}
-                onLostPointerCapture={() => { if (d.perf?.echo) update(id, { perf: { ...(d.perf ?? {}), echo: 0 } }); }}
-              >
-                eco
-              </button>
-              {/* ENVÍOS a los retornos compartidos (6.4): una reverb y un eco para todo el tema */}
-              <label title="envío a la REVERB compartida (después del EQ, el compresor y el fader). Su espacio y su EQ: panel del máster › retornos">
-                <span>→rev</span>
-                <Knob value={d.sends?.rev ?? 0} min={0} max={1} step={0.01} size={18} defaultValue={0} label="envío a la reverb" onChange={(v) => update(id, { sends: { ...(d.sends ?? {}), rev: v } })} />
-              </label>
-              <label title="envío al ECO compartido, a tempo (después del EQ, el compresor y el fader). División y EQ: panel del máster › retornos">
-                <span>→eco</span>
-                <Knob value={d.sends?.del ?? 0} min={0} max={1} step={0.01} size={18} defaultValue={0} label="envío al eco" onChange={(v) => update(id, { sends: { ...(d.sends ?? {}), del: v } })} />
-              </label>
-              <ChannelEqStrip id={id} data={d} />
-              <ChannelCompStrip id={id} data={d} />
-            </div>
-          )}
+          {showMix && mixPanel}
         </>
       )}
       <Handle type="source" position={Position.Right} style={handleStyle} />

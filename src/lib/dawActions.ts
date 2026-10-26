@@ -12,13 +12,52 @@ import { startJam, finishJam, isJamRecording, buildFromTake, type JamHooks, type
 import { getScheduler } from '../audio/engine';
 import { cleanAuto } from './automation';
 import { setVariation, splitVariation, type FillKind } from './variation';
+import { cleanTransitions, autoTransitions, type TransItem } from './transitions';
 import { splitArrange, spliceArm, isMutedArm, unmuteArm, muteArm, isSilenceArm } from '../nodes/stepseqCode';
 
 export function arrangeState(): E.ArrangeState {
   const codes: Record<string, string> = {};
-  for (const n of useGraphStore.getState().nodes) if (n.data.kind === 'source') codes[n.id] = n.data.code ?? '';
+  // la pista de transiciones (7.4) no sigue la estructura: su código lo escribe el compilador
+  for (const n of useGraphStore.getState().nodes) if (n.data.kind === 'source' && !Array.isArray(n.data.transitions)) codes[n.id] = n.data.code ?? '';
   return { steps: useSongStore.getState().steps.map((s) => ({ ...s })), codes };
 }
+
+// --- TRANSICIONES (Fase 7.4): riser, reverso, impacto y barrido en la línea de tiempo ----------
+export const transitionsNode = () => useGraphStore.getState().nodes.find((n) => n.data.kind === 'source' && Array.isArray(n.data.transitions));
+function setTransitions(items: TransItem[]): void {
+  const g = useGraphStore.getState();
+  let node = transitionsNode();
+  if (!node) {
+    const before = new Set(g.nodes.map((n) => n.id));
+    g.addSources([{ name: 'transiciones', code: 'silence' }]);
+    node = useGraphStore.getState().nodes.find((n) => !before.has(n.id) && n.data.kind === 'source');
+    if (!node) return;
+  }
+  useGraphStore.getState().updateNodeData(node.id, { transitions: cleanTransitions(items) });
+}
+export const dawTransitions = {
+  list: (): TransItem[] => cleanTransitions(transitionsNode()?.data.transitions),
+  add(it: TransItem): void {
+    const cur = dawTransitions.list().filter((x) => !(x.kind === it.kind && x.at === it.at));
+    setTransitions([...cur, it]);
+  },
+  remove(it: TransItem): void {
+    setTransitions(dawTransitions.list().filter((x) => !(x.kind === it.kind && x.at === it.at)));
+  },
+  // un riser de 4 que termina en cada cambio de sección + un impacto en su primer compás
+  auto(): number {
+    const add = autoTransitions(useSongStore.getState().steps);
+    if (!add.length) { toast.info('hace falta más de una sección para poner transiciones entre ellas'); return 0; }
+    const cur = dawTransitions.list();
+    const key = (x: TransItem) => `${x.kind}@${x.at}`;
+    const have = new Set(cur.map(key));
+    setTransitions([...cur, ...add.filter((x) => !have.has(key(x)))]);
+    return add.length;
+  },
+  clear(): void {
+    if (transitionsNode()) setTransitions([]);
+  },
+};
 
 function trackName(id: string): string {
   const n = useGraphStore.getState().nodes.find((x) => x.id === id);
@@ -141,7 +180,7 @@ function jamHooks(): JamHooks {
     now: () => Number(getScheduler()?.now?.() ?? 0),
     playing: () => useGraphStore.getState().playing,
     snapshot: () => {
-      const src = useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source');
+      const src = useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions)); // las transiciones se colocan, no se graban
       const anySolo = src.some((n) => n.data.solo);
       const tracks: Record<string, { audible: boolean; gain: number; filt: number; rev: number; del: number }> = {};
       for (const n of src) {

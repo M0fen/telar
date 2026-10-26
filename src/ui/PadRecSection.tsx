@@ -14,7 +14,7 @@ export function PadRecSection({ pick, pickIf }: { pick: string | null; pickIf: (
   const nodes = useGraphStore((s) => s.nodes);
   const songKey = useGraphStore((s) => s.songKey);
   const playing = useGraphStore((s) => s.playing);
-  const sources = nodes.filter((n) => n.data.kind === 'source');
+  const sources = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions)); // la pista de transiciones no se toca con pads
   const recKey = midiKeyFor('padrec.rec');
   const labels = mode === 'scale' ? Array.from({ length: 16 }, (_, i) => scaleNote(i, songKey, octave)) : map.map((s) => s ?? '');
   return (

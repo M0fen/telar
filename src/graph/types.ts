@@ -313,6 +313,9 @@ export interface NodeData {
   // AUTOMATIZACIÓN por compás (Fase 3.1 / 7.2): en un Source sus perillas (vol, filt, pan, rev, del),
   // en el Out las del máster, en un FX la de su perilla (p. ej. cutoff). Ver lib/automation.ts.
   auto?: Record<string, [number, number][]>;
+  // PISTA DE TRANSICIONES (Fase 7.4): riser/reverso/impacto/barrido colocados en el DAW; el
+  // compilador escribe su código desde aquí (lib/transitions.ts)
+  transitions?: { kind: 'riser' | 'reverse' | 'impact' | 'sweep'; at: number; bars: number }[];
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
   chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)

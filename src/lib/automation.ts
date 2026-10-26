@@ -17,6 +17,8 @@
 //     retornos. En vivo los mueve audio/autoRunner (a ~30 por segundo, en el compás que suena);
 //     al exportar se agendan exactos sobre los AudioParam del render.
 // Mientras una perilla del motor tiene curva, manda la curva (la perilla vale con ■).
+import { sweepCurve, cleanTransitions } from './transitions';
+
 export type AutoPoint = [number, number]; // [compás (desde 0, fraccional), valor]
 export type TrackParam = 'vol' | 'filt' | 'pan' | 'rev' | 'del';
 export type MasterParam = 'mfilt' | 'mdrive' | 'mroom' | 'mdelay' | 'mcrush' | 'rv' | 'dl';
@@ -184,11 +186,18 @@ export interface EngineAuto {
   sends: Record<string, { rev?: AutoPoint[]; del?: AutoPoint[] }>; // por id de pista
   master: { mfilt?: AutoPoint[]; mdrive?: AutoPoint[]; rv?: AutoPoint[]; dl?: AutoPoint[] };
 }
-export function engineAutomation(nodes: { id: string; data: { kind?: string; auto?: unknown } }[], songBars: number): EngineAuto {
+export function engineAutomation(nodes: { id: string; data: { kind?: string; auto?: unknown; mute?: unknown } }[], songBars: number): EngineAuto {
   const out: EngineAuto = { bars: Number.isFinite(songBars) && songBars > 0 ? songBars : 0, sends: {}, master: {} };
   const outNode = nodes.find((n) => n.data.kind === 'out');
   const ma = cleanAuto(outNode?.data.auto);
   for (const p of ['mfilt', 'mdrive', 'rv', 'dl'] as const) if (ma[p] && isActive(ma[p], p)) out.master[p] = ma[p];
+  // BARRIDOS de la pista de transiciones (7.4): el filtro DJ del máster sube y se abre en el compás
+  // (con la pista de transiciones en M, tampoco barren)
+  const trans = nodes.find((n) => n.data.kind === 'source' && Array.isArray((n.data as { transitions?: unknown }).transitions));
+  if (trans && !trans.data.mute) {
+    const merged = sweepCurve(cleanTransitions((trans.data as { transitions?: unknown }).transitions), out.master.mfilt, out.bars);
+    if (merged) out.master.mfilt = merged;
+  }
   for (const n of nodes) {
     if (n.data.kind !== 'source') continue;
     const a = cleanAuto(n.data.auto);

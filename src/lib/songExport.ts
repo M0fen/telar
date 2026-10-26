@@ -222,6 +222,7 @@ function prepare(only?: string | null): Prepared {
     transpose: g.transpose,
     xfader: g.xfader,
     only: only ?? null,
+    keyRoot: g.songKey?.root ?? 0,
   });
   if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
   return { code: baked.code, cps: OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5, sections: baked.sections, auto: engineAutomation(g.nodes, baked.total) };
@@ -308,7 +309,7 @@ export async function buildSongMidi(start: number, bars: number): Promise<Uint8A
   const bpc = g.beatsPerCycle || 4;
   const tracks: MidiTrack[] = [];
   for (const n of g.nodes) {
-    if (n.data.kind !== 'source') continue;
+    if (n.data.kind !== 'source' || Array.isArray(n.data.transitions)) continue; // las transiciones son audio, no notas
     const hs = byTrack.get(n.id);
     if (!hs?.length) continue;
     const { notes, drum } = hapsToNotes(hs, start, bpc);

@@ -10,6 +10,7 @@ import { getScheduler } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
+import { DawTransitions } from './DawTransitions';
 import { fxParamsDownstream, fxCurve } from '../lib/fxAutomation';
 import { DawExport } from './DawExport';
 import { useKeepInView } from './useKeepInView';
@@ -98,7 +99,8 @@ export function DawView() {
 
   // Solo lo que cambia el modelo: id, nombre, código, mute y solo de cada pista (mover una
   // perilla de ganancia o un nodo en el lienzo no lo recalcula).
-  const sources = nodes.filter((n) => n.data.kind === 'source');
+  // la pista de transiciones (7.4) va en su propia fila
+  const sources = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
   const outNode = nodes.find((n) => n.data.kind === 'out');
   const srcSig = sources.map((n) => `${n.id}\u0000${n.data.name ?? ''}\u0000${n.data.code ?? ''}\u0000${n.data.mute ? 1 : 0}${n.data.solo ? 1 : 0}`).join('\u0001');
   const model = useMemo(
@@ -520,6 +522,7 @@ export function DawView() {
               })()}
             </Fragment>
             ))}
+            {fromSong && <DawTransitions total={total} px={px} width={width} gridBg={gridBg} />}
             {fromSong && outNode && (() => {
               // MÁSTER (7.2): filtro DJ, drive, reverb/eco/crush del máster y nivel de los retornos
               const au = cleanAuto(outNode.data.auto);

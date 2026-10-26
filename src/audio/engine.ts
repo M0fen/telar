@@ -12,6 +12,7 @@
 import { ensureCompModule, compModuleReady, createCompNode, setCompParams, getOrbitGr, type CompRoute } from './chanComp';
 import { returnsFor, applyLiveReturns } from './fxReturns';
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
+import { registerTransitionSounds, stopTransitionVoices } from './transSounds';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames, createLimiterFor } from './masterLimiter';
 
@@ -242,6 +243,7 @@ export async function ensureEngine(): Promise<Repl> {
       repl = r;
       installSliderRuntime();
       installMidiRuntime(); // parchea .midi() sobre el Pattern de web
+      try { registerTransitionSounds(); } catch { /* sin transiciones, el resto suena */ } // 7.4
       return r;
     })();
   }
@@ -322,6 +324,19 @@ export async function stopAudio(): Promise<void> {
   stopEpoch++;
   if (repl) repl.stop();
   started = false;
+  // las transiciones (riser, reverso, impacto) duran compases: ■ las baja en 30 ms (7.4)
+  if (repl) {
+    try { stopTransitionVoices(getAudioContext()); } catch { /* nunca romper el audio */ }
+  }
+}
+
+// el render offline: que ninguna voz de transición del contexto en vivo termine mientras superdough
+// apunta al offline (su limpieza crearía nodos en el contexto equivocado)
+export async function settleLiveTransitions(): Promise<void> {
+  if (!repl) return;
+  try {
+    if (stopTransitionVoices(getAudioContext())) await new Promise((r) => window.setTimeout(r, 80));
+  } catch { /* */ }
 }
 
 export function isStarted(): boolean {
