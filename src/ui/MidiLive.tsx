@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import './MidiLive.css';
 import { startMidiInput, setLiveFx, releaseAllLiveFx, getScheduler, type LiveFxKey } from '../audio/engine';
 import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
+import { toggleAB, useRefStore } from '../audio/refTrack';
 import { useMidiStore, midiKeyFor, midiKeyLabel } from '../store/useMidiStore';
 import { useGraphStore } from '../store/useGraphStore';
 import { useScenesStore } from '../store/useScenesStore';
@@ -179,6 +180,7 @@ function MidiMonitor() {
 }
 
 export function MidiLive() {
+  const refB = useRefStore((s) => s.ab === 'B'); // A/B con la referencia (6.3)
   const { on, learn, pick, inputs, err, map, lit } = useMidiStore(
     useShallow((s) => ({ on: s.on, learn: s.learn, pick: s.pick, inputs: s.inputs, err: s.err, map: s.map, lit: s.lit })),
   );
@@ -217,6 +219,7 @@ export function MidiLive() {
       slots[`src.${id}.filter`] = { kind: 'knob', get: () => (srcFilter(id) + 1) / 2, set: (v) => gs().updateNodeData(id, { chFilter: v * 2 - 1 }) };
     }
     for (let n = 1; n <= 8; n++) slots[`scene.${n}`] = { kind: 'tap', tap: () => useScenesStore.getState().trigger(n) };
+    slots['ref.ab'] = { kind: 'tap', tap: () => void toggleAB() }; // A/B con la referencia (6.3)
     registerSlots(slots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [srcSig]);
@@ -249,6 +252,7 @@ export function MidiLive() {
     if (kind === 'fx') return `${KNOBS.find((k) => k.id === a)?.label ?? a} · perilla`;
     if (kind === 'mom') { const m = MOMENTARY.find((x) => x.id === a); return m ? `${m.group} ${m.label}` : a; }
     if (slot === 'reset') return 'Reiniciar';
+    if (slot === 'ref.ab') return 'A/B referencia';
     if (kind === 'scene') return `escena ${a}`;
     if (kind === 'src') {
       const nm = sources.find((s) => s.id === a)?.data.name ?? 'pista';
@@ -453,6 +457,17 @@ export function MidiLive() {
               </button>
             );
           })}
+          <button
+            className={`ml-scpad ml-refab${pick === 'ref.ab' ? ' pick' : ''}${refB ? ' on' : ''}`}
+            onPointerDown={() => {
+              if (pickIf('ref.ab')) return;
+              void toggleAB();
+            }}
+            title="A/B con la pista de referencia (cárgala en el máster: «referencia»)"
+          >
+            A/B
+            {midiKeyFor('ref.ab') && <span className="ml-badge sm">{midiKeyLabel(midiKeyFor('ref.ab'))}</span>}
+          </button>
         </div>
       </div>
     </div>

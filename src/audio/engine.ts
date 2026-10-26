@@ -410,12 +410,28 @@ let tpKickCtx: BaseAudioContext | null = null;
 // (filtro/drive DJ, EQ, glue y limitadores incluidos). El pre-bus (destinationGain) queda
 // para el FREEZE, que necesita el stem limpio (si no, el bus se aplicaría dos veces).
 let postTap: GainNode | null = null;
+// A/B con la PISTA DE REFERENCIA (Fase 6.3): la mezcla se calla en la salida (después del tap:
+// medir, grabar y visualizar siguen viendo la mezcla) mientras suena la referencia.
+let mixAb: GainNode | null = null;
+let mixAudible = true;
 function ensurePostTap(ctx: BaseAudioContext): GainNode {
   if (!postTap || postTap.context !== ctx) {
     postTap = new GainNode(ctx, { gain: 1 });
-    postTap.connect(ctx.destination);
+    mixAb = new GainNode(ctx, { gain: mixAudible ? 1 : 0 });
+    postTap.connect(mixAb);
+    mixAb.connect(ctx.destination);
   }
   return postTap;
+}
+export function setMixAudible(on: boolean): void {
+  mixAudible = on;
+  try {
+    if (!mixAb) return;
+    const t = mixAb.context.currentTime;
+    mixAb.gain.cancelScheduledValues(t);
+    mixAb.gain.setValueAtTime(mixAb.gain.value, t);
+    mixAb.gain.linearRampToValueAtTime(on ? 1 : 0, t + 0.015); // sin clic
+  } catch { /* nunca romper el audio */ }
 }
 export function getMasterPostNode(): AudioNode | undefined {
   try {

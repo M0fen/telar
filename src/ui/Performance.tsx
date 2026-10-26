@@ -7,6 +7,7 @@ import { HoldFx } from './HoldFx';
 import { Scenes } from './Scenes';
 import { SongTimeline } from './SongTimeline';
 import { LufsMeter } from './LufsMeter';
+import { RefTrack } from './RefTrack';
 import { Vu } from '../nodes/Vu';
 import { IR_SPACES, registerIrFiles } from '../audio/irReverb';
 import { useIrStore } from '../store/useIrStore';
@@ -181,6 +182,7 @@ export function Performance() {
           </div>
         </div>
         <LufsMeter />
+        <RefTrack />
       </section>
 
       {mode === 'dj' && (
