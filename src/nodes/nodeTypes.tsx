@@ -15,6 +15,8 @@ import { SampleTrim } from './SampleTrim';
 import { ArrangeStrip } from './ArrangeStrip';
 import { GateStrip } from './GateStrip';
 import { PlyStrip } from './PlyStrip';
+import { SliceStrip } from './SliceStrip';
+import { parseSliceCode } from '../lib/slicer';
 import { StepSeq } from './StepSeq';
 import { HoldFx } from '../ui/HoldFx';
 import { ErrorBoundary } from '../ui/ErrorBoundary';
@@ -302,6 +304,17 @@ function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
           <line x1="8.1" y1="15.9" x2="20" y2="4" />
         </svg>
       </ToolBtn>
+      {parseSliceCode(data.code ?? '') && (
+        <ToolBtn active={!!data.showSlice} onClick={() => update(id, { showSlice: !data.showSlice })} title="rebanador: parte el loop en rebanadas (8 / 16 / 32 o en sus golpes) para reordenarlo o tocarlo con los pads">
+          {/* tijera sobre una onda = rebanar */}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+            <line x1="6" y1="4" x2="6" y2="20" />
+            <line x1="12" y1="4" x2="12" y2="20" />
+            <line x1="18" y1="4" x2="18" y2="20" />
+            <path d="M2 12c1-3 2-3 3 0s2 3 3 0 2-3 3 0 2 3 3 0 2-3 3 0 2 3 3 0" strokeWidth="1.2" />
+          </svg>
+        </ToolBtn>
+      )}
       {!data.warp && bareSampleName((data.code ?? '').trim()) && (
         <ToolBtn onClick={() => void warpExistingSource(id)} title="al tempo del tema: estira este loop (sin cambiar el tono) para que caiga en la rejilla aunque venga de otro BPM">
           {/* flechas = estirar al tempo */}
@@ -604,6 +617,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
           {d.showSeq && <StepSeq id={id} code={d.code ?? ''} />}
           {d.showGate && <GateStrip id={id} code={d.code ?? ''} />}
           {d.showPly && <PlyStrip id={id} code={d.code ?? ''} />}
+          {d.showSlice && <SliceStrip id={id} code={d.code ?? ''} warp={d.warp} />}
           {showTrim && <SampleTrim nodeId={id} code={d.code ?? ''} begin={d.begin} end={d.end} />}
           {showMix && (
             // mini-mezclador del canal: gain y filtro DJ (bipolar) en vivo.

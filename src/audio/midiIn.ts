@@ -21,6 +21,14 @@ const caught: Record<string, boolean> = {}; // slotId → ya agarró
 const lastApplied: Record<string, number> = {}; // slotId → último valor que la perilla aplicó
 const lastPhys: Record<string, number> = {}; // firma → último valor físico (0..1)
 
+// INSTRUMENTO DE PADS (Fase 5.4 rebanador; 7.1 grabar): las NOTAS que no están asignadas a un
+// slot van aquí (nota, velocidad 0..1, pulsado/soltado). null = nadie las usa.
+type NoteSink = (note: number, vel: number, down: boolean) => void;
+let noteSink: NoteSink | null = null;
+export function setNoteSink(fn: NoteSink | null): void {
+  noteSink = fn;
+}
+
 export function registerSlots(slots: Record<string, MidiSlot>): void {
   for (const k of Object.keys(ctl)) delete ctl[k];
   Object.assign(ctl, slots);
@@ -79,7 +87,11 @@ export function handleMidi(data: Uint8Array | number[]): void {
 
   const slotId = st.map[key];
   const slot = ctl[slotId];
-  if (!slot) return;
+  if (!slot) {
+    // nota libre → instrumento de pads (rebanadas…), si hay uno armado
+    if (ty !== 0xb0 && noteSink) noteSink(d1, down ? (val ?? 0.8) : 0, down);
+    return;
+  }
   if (slot.kind === 'knob' && ty === 0xb0 && st.rel[key]) {
     // encoder relativo (sin fin): suma/resta el delta — nunca salta, no necesita pickup
     const dlt = st.rel[key] === '64' ? v - 64 : v < 64 ? v : v - 128;

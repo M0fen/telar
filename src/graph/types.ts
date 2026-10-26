@@ -272,6 +272,7 @@ export interface NodeData {
   collapsed?: boolean;
   showMix?: boolean; // muestra el mini-mezclador (gain + filtro) en el Source
   showTrim?: boolean; // muestra el recortador de forma de onda en el Source
+  showSlice?: boolean; // muestra el rebanador (Fase 5.4) en el Source
   showTiles?: boolean; // muestra los "piano tiles" del instrumento
   showScope?: boolean; // muestra la onda (osciloscopio) del instrumento
   showSynth?: boolean; // muestra el panel de synth (solo UI, no cambia el sonido)

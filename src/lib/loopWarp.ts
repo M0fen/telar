@@ -196,7 +196,7 @@ export function warpNameIn(code: string): string | null {
 export function replaceWarpInCode(code: string, oldName: string, newName: string, cycles: number): string {
   const esc = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return code
-    .replace(new RegExp(`(s(?:ound)?\\(\\s*["'\`])${esc}(["'\`]\\s*\\))\\.(?:slow|loopAt)\\(\\s*[0-9.]+\\s*\\)`, 'g'), `$1${newName}$2.slow(${fmt(cycles)})`)
+    .replace(new RegExp(`(s(?:ound)?\\(\\s*["'\`])${esc}(["'\`]\\s*\\))((?:\\.slice\\([^)]*\\))?)\\.(?:slow|loopAt)\\(\\s*[0-9.]+\\s*\\)`, 'g'), `$1${newName}$2$3.slow(${fmt(cycles)})`)
     .replace(new RegExp(`(["'\`])${esc}(["'\`])`, 'g'), `$1${newName}$2`);
 }
 

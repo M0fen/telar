@@ -387,6 +387,11 @@ export function startWarp(w: WarpInfo, songBpm: number): Promise<boolean> {
   return syncOne(w, songBpm, { background: true }).catch(() => false);
 }
 
+// El original decodificado (rebanador: transientes sobre el audio sin estirar)
+export function warpOriginalBuffer(w: WarpInfo): Promise<AudioBuffer | null> {
+  return decodeOrig(w.orig).catch(() => null);
+}
+
 // ¿Qué tempo tiene guardado un original? (para corregir: la duración real del archivo)
 export async function warpOriginalSeconds(w: WarpInfo): Promise<number> {
   const b = await decodeOrig(w.orig).catch(() => null);

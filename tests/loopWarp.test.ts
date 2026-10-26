@@ -125,6 +125,11 @@ test('5.2 corregir el loop en el código: nombre y largo en todos los brazos', (
   assert.equal(replaceWarpInCode('s("wl_a_ab12").loopAt(2)', 'wl_a_ab12', 'wl_a_cd34', 4), 's("wl_a_cd34").slow(4)');
   assert.equal(replaceWarpInCode('s("wl_a_ab12")', 'wl_a_ab12', 'wl_a_cd34', 4), 's("wl_a_cd34")');
   assert.equal(warpClean('wl_top_loop_ab12'), 'top_loop');
+  // rebanado (5.4): el largo se corrige detrás del .slice
+  assert.equal(
+    replaceWarpInCode('s("wl_a_ab12").slice([0, 0.25, 1], "1@2500 0@7500").slow(2)', 'wl_a_ab12', 'wl_a_cd34', 4),
+    's("wl_a_cd34").slice([0, 0.25, 1], "1@2500 0@7500").slow(4)',
+  );
 });
 
 test('5.2 cuadros clave por tiempo y vuelta periódica (unión continua)', () => {
