@@ -66,6 +66,59 @@ export interface OfflineRenderOpts {
   isCancelled?: () => boolean;
 }
 
+// BUS SOBRE UNA MEZCLA YA RENDERIZADA (Fase 4.4): la mezcla pre-bus (render con bus: false) pasa
+// por el MISMO bus del máster, con sus cambios por sección. Mucho más rápido que volver a
+// renderizar todas las voces → se puede repetir varias veces para llegar a un objetivo de
+// loudness (loudDb empuja el limitador TP). No toca superdough.
+export async function renderBusOver(o: {
+  input: AudioBuffer;
+  cps: number;
+  start: number;
+  sections: BakedSection[];
+  loudDb?: number;
+}): Promise<AudioBuffer> {
+  const sr = o.input.sampleRate;
+  const cps = o.cps > 0 ? o.cps : 0.5;
+  const MARGIN = 4096;
+  const off = new OfflineAudioContext(2, o.input.length + MARGIN, sr);
+  const src = new AudioBufferSourceNode(off, { buffer: o.input });
+  const pre = new GainNode(off, { gain: 1 });
+  src.connect(pre);
+  const total = o.sections.reduce((m, s) => Math.max(m, s.start + s.bars), 0);
+  const sectionAt = (bar: number): BakedSection | undefined => {
+    if (!o.sections.length) return undefined;
+    if (total <= 0) return o.sections[0];
+    const x = ((bar % total) + total) % total;
+    return o.sections.find((s) => x >= s.start && x < s.start + s.bars) ?? o.sections[0];
+  };
+  const settings = (sec: BakedSection | undefined) => ({ ...busFromMaster(sec?.master ?? {}), loud: o.loudDb ?? 0 });
+  const bus = await createOfflineMasterBus(off, pre, settings(sectionAt(o.start)));
+  // fronteras de sección dentro del tramo (en segundos desde el inicio)
+  const dur = o.input.length / sr;
+  const used = new Set<number>();
+  if (total > 0) {
+    for (let k = Math.floor(o.start / total) * total; (k - o.start) / cps < dur; k += total) {
+      for (const s of o.sections) {
+        const b = k + s.start;
+        const t = (b - o.start) / cps;
+        if (b <= o.start || t >= dur) continue;
+        let q = Math.round((t * sr) / 128) * 128 / sr;
+        while (used.has(q)) q += 128 / sr;
+        used.add(q);
+        off.suspend(q).then(() => { bus.apply(settings(sectionAt(b))); off.resume(); });
+      }
+    }
+  }
+  src.start(0);
+  const r = await off.startRendering();
+  const lat = bus.latencyFrames;
+  const len = o.input.length;
+  const out = new AudioBuffer({ numberOfChannels: 2, length: len, sampleRate: sr });
+  out.copyToChannel(r.getChannelData(0).subarray(lat, lat + len), 0);
+  out.copyToChannel(r.getChannelData(r.numberOfChannels > 1 ? 1 : 0).subarray(lat, lat + len), 1);
+  return out;
+}
+
 export interface OfflineRenderResult {
   buffer: AudioBuffer;
   musicalSeconds: number; // duración de los compases (sin cola)

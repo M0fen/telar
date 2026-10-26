@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { useKeepInView } from './useKeepInView';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
-import { useExportStore, exportWav, exportStems, cancelExport, setExportPrefs, EXPORT_TAIL_S, type ExportRate } from '../lib/songExport';
+import { useExportStore, exportWav, exportStems, cancelExport, setExportPrefs, reportSummary, EXPORT_TAIL_S, type ExportRate, type ExportTarget } from '../lib/songExport';
 import { FORMAT_LABEL, type ExportFormat } from '../lib/audioFormats';
 import { liveSampleRate } from '../audio/engine';
 
@@ -26,6 +26,8 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
   const region = useSongStore((s) => s.region);
   const format = useExportStore((s) => s.format);
   const rate = useExportStore((s) => s.rate);
+  const target = useExportStore((s) => s.target);
+  const last = useExportStore((s) => s.last);
   const title = useGraphStore((s) => s.title);
   const setTitle = useGraphStore((s) => s.setTitle);
   // frecuencia del audio en vivo (la del render): 'live' = sin convertir
@@ -69,6 +71,14 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
                 </button>
               ))}
             </span>
+            <span className="daw-exp-row" role="radiogroup" aria-label="volumen del máster">
+              {(['mix', -14, -8] as ExportTarget[]).map((t) => (
+                <button key={String(t)} role="radio" aria-checked={target === t} className={`daw-chip${target === t ? ' on' : ''}`} onClick={() => setExportPrefs({ target: t })} title={t === 'mix' ? 'tal como suena en Telar' : t === -14 ? 'Spotify, YouTube, Apple Music: −14 LUFS y −1 dBTP' : 'para el club y los DJ: −8 LUFS y −1 dBTP (empuja el limitador)'}>
+                  {t === 'mix' ? 'como suena' : t === -14 ? 'streaming −14' : 'club −8'}
+                </button>
+              ))}
+            </span>
+            {last && <span className="daw-exp-last" title="informe de la última exportación (medido sobre el archivo: BS.1770 / EBU R128)">último ({last.what}): {reportSummary(last)}</span>}
           </span>
           <button role="menuitem" onClick={() => { setOpen(false); void exportWav(0, total, fromSong ? 'master' : 'bucle'); }}>
             {fromSong ? 'canción completa' : `bucle de ${total} compases`} · {total} c. · {dur(total)}

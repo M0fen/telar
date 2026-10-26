@@ -13,10 +13,12 @@ import { makeZip, type ZipEntry } from './zip';
 import { toast } from '../store/useNotifyStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { bakeSong } from './songBake';
-import { renderOffline } from '../audio/offlineRender';
+import { renderOffline, renderBusOver } from '../audio/offlineRender';
 import { wavHeader } from './wavEncode';
 import { encodeAudio } from './exportEncode';
 import { exportFileName, type ExportFormat } from './audioFormats';
+import { measureLoudness, reportText, type LoudnessReport } from './loudness';
+import type { BakedSection } from './songBake';
 
 export const EXPORT_TAIL_S = 2.5;
 
@@ -36,6 +38,17 @@ function readPref<T>(key: string, ok: (v: unknown) => v is T, dflt: T): T {
 }
 const isFormat = (v: unknown): v is ExportFormat => FORMATS.includes(v as ExportFormat);
 const isRate = (v: unknown): v is ExportRate => v === 'live' || v === 44100 || v === 48000;
+// objetivo de loudness (Fase 4.4): 'mix' = como suena; −14 = streaming; −8 = club
+export type ExportTarget = 'mix' | -14 | -8;
+const isTarget = (v: unknown): v is ExportTarget => v === 'mix' || v === -14 || v === -8;
+
+export interface ExportReport {
+  what: string; // 'master', 'region 9-16', …
+  report: LoudnessReport;
+  gainDb: number; // lo que se empujó el limitador para llegar al objetivo
+  target: ExportTarget;
+  reached: boolean;
+}
 
 export interface ExportUi {
   busy: boolean;
@@ -43,6 +56,8 @@ export interface ExportUi {
   label: string;
   format: ExportFormat;
   rate: ExportRate;
+  target: ExportTarget;
+  last: ExportReport | null; // informe de la última exportación
 }
 export const useExportStore = create<ExportUi>(() => ({
   busy: false,
@@ -50,12 +65,15 @@ export const useExportStore = create<ExportUi>(() => ({
   label: '',
   format: readPref('telar.export.format', isFormat, 'wav24'),
   rate: readPref('telar.export.rate', isRate, 'live'),
+  target: readPref('telar.export.target', isTarget, 'mix'),
+  last: null,
 }));
-export function setExportPrefs(p: { format?: ExportFormat; rate?: ExportRate }): void {
+export function setExportPrefs(p: { format?: ExportFormat; rate?: ExportRate; target?: ExportTarget }): void {
   useExportStore.setState(p);
   try {
     if (p.format) localStorage.setItem('telar.export.format', JSON.stringify(p.format));
     if (p.rate) localStorage.setItem('telar.export.rate', JSON.stringify(p.rate));
+    if (p.target != null) localStorage.setItem('telar.export.target', JSON.stringify(p.target));
   } catch {
     /* preferencia de comodidad */
   }
@@ -176,7 +194,13 @@ const projectBpm = (): number => {
 };
 export const exportName = (part: string, ext: string): string => exportFileName({ title: useGraphStore.getState().title, bpm: projectBpm(), part, ext });
 
-async function offlineBuffer(o: { start: number; bars: number; bus: boolean; only?: string | null; progress?: (f: number) => void }): Promise<AudioBuffer | null> {
+interface Prepared {
+  code: string;
+  cps: number;
+  sections: BakedSection[];
+}
+// canción horneada con el estado actual (solo una pista si `only`)
+function prepare(only?: string | null): Prepared {
   const g = useGraphStore.getState();
   const song = useSongStore.getState();
   const baked = bakeSong({
@@ -187,21 +211,64 @@ async function offlineBuffer(o: { start: number; bars: number; bus: boolean; onl
     master: g.master,
     transpose: g.transpose,
     xfader: g.xfader,
-    only: o.only ?? null,
+    only: only ?? null,
   });
   if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
-  const cps = OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5;
-  const r = await renderOffline({ code: baked.code, cps, start: o.start, bars: o.bars, sections: baked.sections, bus: o.bus, onProgress: o.progress, isCancelled: () => cancelFlag });
+  return { code: baked.code, cps: OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5, sections: baked.sections };
+}
+
+// mezcla PRE-bus (stems y entrada del máster)
+async function renderPre(p: Prepared, start: number, bars: number, progress?: (f: number) => void): Promise<AudioBuffer | null> {
+  const r = await renderOffline({ code: p.code, cps: p.cps, start, bars, sections: p.sections, bus: false, onProgress: progress, isCancelled: () => cancelFlag });
   return r ? r.buffer : null;
 }
 
-// render offline + codificación (en el worker). Stems: siempre WAV 32 float (sumados pueden
-// pasar de 0 dB sin recortarse), a la misma frecuencia que la mezcla.
-async function offlinePass(o: { start: number; bars: number; bus: boolean; only?: string | null; format?: ExportFormat; progress?: (f: number) => void }): Promise<(WavFile & { ext: string }) | null> {
-  const buf = await offlineBuffer({ ...o, progress: (x) => o.progress?.(x * 0.8) });
-  if (!buf) return null;
-  const format = o.format ?? 'wav32f';
-  const enc = await encodeAudio(buf, format, outRate(buf.sampleRate), (x) => o.progress?.(0.8 + x * 0.2));
+const chansOf = (b: AudioBuffer) => Array.from({ length: b.numberOfChannels }, (_, c) => b.getChannelData(c));
+
+// MÁSTER (Fase 4.4): la mezcla pre-bus por el bus del máster; con objetivo de loudness se empuja
+// el limitador TP (secante, ≤ 6 pasadas de solo-bus) hasta quedar a ±0,2 LU. Nunca pasa el techo
+// del limitador (−1 dBTP) ni más de +12 dB.
+async function masterFrom(pre: AudioBuffer, p: Prepared, start: number, target: ExportTarget, progress?: (f: number) => void): Promise<{ buf: AudioBuffer; report: LoudnessReport; gainDb: number; reached: boolean }> {
+  const pass = async (loudDb: number) => {
+    const buf = await renderBusOver({ input: pre, cps: p.cps, start, sections: p.sections, loudDb });
+    return { buf, report: measureLoudness(chansOf(buf), buf.sampleRate) };
+  };
+  let gainDb = 0;
+  let cur = await pass(0);
+  progress?.(0.3);
+  if (target !== 'mix' && Number.isFinite(cur.report.integrated)) {
+    const clamp = (x: number) => Math.max(-12, Math.min(12, x));
+    let l0 = 0;
+    let i0 = cur.report.integrated;
+    let l1 = clamp(target - i0);
+    for (let k = 0; k < 6; k++) {
+      if (Math.abs(i0 - target) <= 0.2) break;
+      cur = await pass(l1);
+      gainDb = l1;
+      progress?.(0.3 + 0.1 * (k + 1));
+      const i1 = cur.report.integrated;
+      if (Math.abs(i1 - target) <= 0.2 || Math.abs(l1) >= 12) break;
+      const slope = Math.abs(l1 - l0) > 0.01 ? (i1 - i0) / (l1 - l0) : 1;
+      const next = clamp(l1 + (target - i1) / Math.max(0.15, slope));
+      l0 = l1;
+      i0 = i1;
+      l1 = next;
+    }
+  }
+  const reached = target === 'mix' || Math.abs(cur.report.integrated - target) <= 0.5;
+  return { buf: cur.buf, report: cur.report, gainDb, reached };
+}
+
+const fmt1 = (x: number) => (Number.isFinite(x) ? x.toLocaleString('es', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '—');
+export function reportSummary(r: ExportReport): string {
+  const t = r.target === 'mix' ? '' : r.reached ? ` · ${r.gainDb >= 0 ? '+' : ''}${fmt1(r.gainDb)} dB para ${r.target} LUFS` : ` · no llegó a ${r.target} LUFS`;
+  return `${fmt1(r.report.integrated)} LUFS · ${fmt1(r.report.truePeak)} dBTP · LRA ${fmt1(r.report.lra)} LU${t}`;
+}
+
+// codificación en el worker. Stems: siempre WAV 32 float (sumados pueden pasar de 0 dB sin
+// recortarse), a la misma frecuencia que la mezcla.
+async function encodeFile(buf: AudioBuffer, format: ExportFormat, progress?: (f: number) => void): Promise<WavFile & { ext: string }> {
+  const enc = await encodeAudio(buf, format, outRate(buf.sampleRate), progress);
   const bits = format === 'wav16' ? 16 : format === 'wav24' ? 24 : 32;
   return { blob: enc.blob, frames: enc.frames, channels: 2, bits, float: bits === 32, sampleRate: enc.sampleRate, ext: enc.ext };
 }
@@ -240,10 +307,19 @@ export async function exportWav(start: number, bars: number, part: string): Prom
     let blob: Blob | null = null;
     let ext = 'wav';
     try {
-      const f = await offlinePass({ start, bars, bus: true, format: useExportStore.getState().format, progress: (x) => useExportStore.setState({ frac: x }) });
-      if (!f) return false; // cancelado
+      const { format, target } = useExportStore.getState();
+      const p = prepare();
+      const pre = await renderPre(p, start, bars, (x) => useExportStore.setState({ frac: x * 0.6 }));
+      if (!pre) return false; // cancelado
+      useExportStore.setState({ label: target === 'mix' ? 'máster' : `máster a ${target} LUFS` });
+      const m = await masterFrom(pre, p, start, target, (x) => useExportStore.setState({ frac: 0.6 + x * 0.25 }));
+      useExportStore.setState({ label: 'codificando' });
+      const f = await encodeFile(m.buf, format, (x) => useExportStore.setState({ frac: 0.85 + x * 0.15 }));
       blob = f.blob;
       ext = f.ext;
+      const rep: ExportReport = { what: part, report: m.report, gainDb: m.gainDb, target, reached: m.reached };
+      useExportStore.setState({ last: rep });
+      (m.reached ? toast.ok : toast.warn)(`Exportado · ${reportSummary(rep)}`);
     } catch (e) {
       console.warn('[export] render offline falló → tiempo real', e);
       toast.warn('El render rápido falló: exporto en tiempo real (tarda lo que dura el tema; sale en WAV 32 float).');
@@ -285,21 +361,32 @@ export async function exportStems(tracks: { id: string; name: string }[], bars: 
       for (const t of tracks) {
         useExportStore.setState({ label: `stem ${k + 1}/${passes} · ${t.name}` });
         const kk = k;
-        const f = await offlinePass({ start: 0, bars, bus: false, only: t.id, progress: (x) => useExportStore.setState({ frac: (kk + x) / passes }) });
-        if (!f) return false; // cancelado
+        const pre = await renderPre(prepare(t.id), 0, bars, (x) => useExportStore.setState({ frac: (kk + x * 0.9) / passes }));
+        if (!pre) return false; // cancelado
+        const f = await encodeFile(pre, 'wav32f');
         done.push({ name: `${String(k + 1).padStart(2, '0')}-${safeName(t.name, t.id)}.wav`, f });
         k++;
       }
+      let informe = '';
       if (includeMix) {
         useExportStore.setState({ label: `mezcla ${passes}/${passes}` });
         const kk = k;
-        const f = await offlinePass({ start: 0, bars, bus: true, progress: (x) => useExportStore.setState({ frac: (kk + x) / passes }) });
-        if (!f) return false;
+        const p = prepare();
+        const target = useExportStore.getState().target;
+        const pre = await renderPre(p, 0, bars, (x) => useExportStore.setState({ frac: (kk + x * 0.7) / passes }));
+        if (!pre) return false;
+        const m = await masterFrom(pre, p, 0, target);
+        const f = await encodeFile(m.buf, 'wav32f');
         done.push({ name: '00-mezcla.wav', f });
+        const rep: ExportReport = { what: 'mezcla', report: m.report, gainDb: m.gainDb, target, reached: m.reached };
+        useExportStore.setState({ last: rep });
+        informe = reportText(m.report, { 'Ajuste al objetivo': target === 'mix' ? 'ninguno (como suena)' : `${m.gainDb.toFixed(1)} dB para ${target} LUFS` });
       }
       const frames = Math.max(...done.map((d) => d.f.frames));
       useExportStore.setState({ label: 'armando el ZIP', frac: 1 });
-      downloadBlob(await makeZip(done.map((d) => ({ name: d.name, data: padWav(d.f, frames) }))), exportName('stems', 'zip'));
+      const files: ZipEntry[] = done.map((d) => ({ name: d.name, data: padWav(d.f, frames) }));
+      if (informe) files.push({ name: 'informe.txt', data: new TextEncoder().encode(informe + '\n') });
+      downloadBlob(await makeZip(files), exportName('stems', 'zip'));
       return true;
     } catch (e) {
       if (cancelFlag) return false;

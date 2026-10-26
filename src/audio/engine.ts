@@ -386,7 +386,7 @@ export function getMasterAnalyser(): AnalyserNode | undefined {
 // puede clippear al apilar sonidos). Insertamos un bus real en el motor:
 //   destinationGain → EQ(low-shelf, mid-peak, high-shelf) → limiter → makeup → dest
 // Todo con try/catch para no silenciar nunca la salida (peor caso: bypass directo).
-export interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number; filter: number; drive: number }
+export interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number; filter: number; drive: number; loud?: number /* dB extra hacia el limitador TP: solo al exportar con objetivo de loudness (4.4) */ }
 let busSettings: MasterBusSettings = { limit: 0, glue: 0, sat: 0, width: 1, punch: 0, low: 0, mid: 0, high: 0, filter: 0, drive: 0 };
 interface MasterChain {
   ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
@@ -553,7 +553,7 @@ export function releaseAllLiveFx(): void {
 }
 
 export function busActive(s: MasterBusSettings): boolean {
-  return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1 || Math.abs(s.filter) > 0.01 || s.drive > 0.01;
+  return s.limit > 0.01 || s.glue > 0.01 || s.sat > 0.01 || Math.abs(s.width - 1) > 0.01 || Math.abs(s.punch) > 0.01 || Math.abs(s.low) > 0.1 || Math.abs(s.mid) > 0.1 || Math.abs(s.high) > 0.1 || Math.abs(s.filter) > 0.01 || s.drive > 0.01 || Math.abs(s.loud ?? 0) > 0.05;
 }
 
 // Curva |x| para el detector de envolvente (rectificado de onda completa).
@@ -678,7 +678,8 @@ function setMasterChainParams(mc: MasterChainNodes, s: MasterBusSettings, ctx: B
   mc.glue.threshold.value = gl > 0.01 ? -(6 + gl * 16) : 0;
   mc.glue.ratio.value = gl > 0.01 ? 2 + gl * 2 : 1;
   mc.lim.threshold.value = -3 - s.limit * 9;      // más limit → umbral más bajo (-3..-12)
-  mc.makeup.gain.value = 1 + s.limit * 0.6 + gl * 0.35 - s.sat * 0.15; // compensa nivel (limiter + glue − saturación)
+  // compensa nivel (limiter + glue − saturación) y, al exportar con objetivo, empuja el limitador TP
+  mc.makeup.gain.value = (1 + s.limit * 0.6 + gl * 0.35 - s.sat * 0.15) * Math.pow(10, (s.loud ?? 0) / 20);
 }
 
 export function applyMasterBus(): void {
