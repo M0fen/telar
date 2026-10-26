@@ -6,7 +6,7 @@
 import { create } from 'zustand';
 import { superdough, getAudioContext } from '@strudel/web';
 import { ensureAudioReady, isOfflineRendering } from './engine';
-import { setNoteSink } from './midiIn';
+import { claimNoteSink, releaseNoteSink } from './midiIn';
 import { useGraphStore } from '../store/useGraphStore';
 import { parseSliceCode, sliceBounds, sliceCount } from '../lib/slicer';
 
@@ -66,6 +66,7 @@ function sink(note: number, vel: number, down: boolean): void {
 // arma (o desarma) los pads para un Source; solo uno a la vez
 export function armSlicePads(nodeId: string | null): void {
   useSlicePadsStore.setState({ armed: nodeId, learning: false });
-  setNoteSink(nodeId ? sink : null);
+  if (nodeId) claimNoteSink(sink, () => useSlicePadsStore.setState({ armed: null, learning: false }));
+  else releaseNoteSink(sink);
 }
 export const learnSlicePads = () => useSlicePadsStore.setState({ learning: true });

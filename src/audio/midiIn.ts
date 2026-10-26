@@ -23,10 +23,23 @@ const lastPhys: Record<string, number> = {}; // firma → último valor físico 
 
 // INSTRUMENTO DE PADS (Fase 5.4 rebanador; 7.1 grabar): las NOTAS que no están asignadas a un
 // slot van aquí (nota, velocidad 0..1, pulsado/soltado). null = nadie las usa.
-type NoteSink = (note: number, vel: number, down: boolean) => void;
+export type NoteSink = (note: number, vel: number, down: boolean) => void;
 let noteSink: NoteSink | null = null;
-export function setNoteSink(fn: NoteSink | null): void {
+let onLost: (() => void) | null = null;
+// UN instrumento de pads a la vez: el que las toma avisa al que las tenía (se desarma solo)
+export function claimNoteSink(fn: NoteSink, lost: () => void): void {
+  if (noteSink !== fn && onLost) {
+    const l = onLost;
+    onLost = null;
+    try { l(); } catch { /* */ }
+  }
   noteSink = fn;
+  onLost = lost;
+}
+export function releaseNoteSink(fn: NoteSink): void {
+  if (noteSink !== fn) return;
+  noteSink = null;
+  onLost = null;
 }
 
 export function registerSlots(slots: Record<string, MidiSlot>): void {

@@ -4,6 +4,8 @@ import './MidiLive.css';
 import { startMidiInput, setLiveFx, releaseAllLiveFx, getScheduler, type LiveFxKey } from '../audio/engine';
 import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
 import { toggleAB, useRefStore } from '../audio/refTrack';
+import { togglePadRec } from '../audio/padRecorder';
+import { PadRecSection } from './PadRecSection';
 import { useMidiStore, midiKeyFor, midiKeyLabel } from '../store/useMidiStore';
 import { useGraphStore } from '../store/useGraphStore';
 import { useScenesStore } from '../store/useScenesStore';
@@ -220,6 +222,7 @@ export function MidiLive() {
     }
     for (let n = 1; n <= 8; n++) slots[`scene.${n}`] = { kind: 'tap', tap: () => useScenesStore.getState().trigger(n) };
     slots['ref.ab'] = { kind: 'tap', tap: () => void toggleAB() }; // A/B con la referencia (6.3)
+    slots['padrec.rec'] = { kind: 'tap', tap: () => togglePadRec() }; // ● grabar desde los pads (7.1)
     registerSlots(slots);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [srcSig]);
@@ -253,6 +256,7 @@ export function MidiLive() {
     if (kind === 'mom') { const m = MOMENTARY.find((x) => x.id === a); return m ? `${m.group} ${m.label}` : a; }
     if (slot === 'reset') return 'Reiniciar';
     if (slot === 'ref.ab') return 'A/B referencia';
+    if (slot === 'padrec.rec') return '● grabar (pads)';
     if (kind === 'scene') return `escena ${a}`;
     if (kind === 'src') {
       const nm = sources.find((s) => s.id === a)?.data.name ?? 'pista';
@@ -435,6 +439,8 @@ export function MidiLive() {
           )}
         </div>
       </div>
+
+      <PadRecSection pick={pick} pickIf={pickIf} />
 
       <div className="ml-sec">
         <h4>Escenas</h4>

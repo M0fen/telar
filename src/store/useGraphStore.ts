@@ -191,6 +191,9 @@ interface GraphState {
   // DEJAR MARGEN (Fase 6.2): multiplica el gain de TODAS las pistas (y el que guardan las
   // escenas) por `k`, en un paso deshacible. Devuelve cuántas pistas cambió.
   scaleSourceGains: (k: number) => number;
+  // TOMA (grabar desde los pads, 7.1): lo que cambie entre begin y end es un solo paso de deshacer
+  beginTake: () => void;
+  endTake: () => void;
 
   onNodesChange: (c: NodeChange[]) => void;
   onEdgesChange: (c: EdgeChange[]) => void;
@@ -304,9 +307,15 @@ export const useGraphStore = create<GraphState>((set, get) => {
   // portapapeles de nodos (copiar/pegar). Vive fuera del estado (no persiste).
   let clipboard: { nodes: GNode[]; edges: Edge[] } | null = null;
   let lastPush = 0;
+  // TOMA (grabar desde los pads, 7.1): toda la toma es UN paso de deshacer — el primer cambio
+  // guarda el estado de antes y los siguientes no apilan nada hasta cerrar la toma.
+  let take: { pushed: boolean } | null = null;
   const pushPast = (force = false, withExtras = false, live = false) => {
     const now = Date.now();
-    if (!force && now - lastPush < 500) return;
+    if (take && !force) {
+      if (take.pushed) return;
+      take.pushed = true;
+    } else if (!force && now - lastPush < 500) return;
     lastPush = now;
     const entry = snap();
     if (withExtras) entry.extras = currentExtras();
@@ -809,6 +818,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
       if (stepsChanged && steps) useSongStore.getState().setSteps(steps);
       if (changed) recompile();
     },
+
+    beginTake: () => { take = { pushed: false }; },
+    endTake: () => { take = null; lastPush = 0; },
 
     scaleSourceGains: (k) => {
       if (!(k > 0) || Math.abs(k - 1) < 1e-4) return 0;
