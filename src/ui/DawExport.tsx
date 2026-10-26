@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useKeepInView } from './useKeepInView';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { useExportStore, exportWav, exportStems, cancelExport, stamp, EXPORT_TAIL_S } from '../lib/songExport';
@@ -20,6 +21,8 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
   const region = useSongStore((s) => s.region);
   const cps = useGraphStore((s) => s.cps) || 0.5;
   const dur = (bars: number) => mmss(bars / cps + EXPORT_TAIL_S);
+  const menuRef = useRef<HTMLSpanElement>(null);
+  useKeepInView(menuRef, open && !busy, [stemsOpen, region?.start, region?.bars]);
 
   if (busy) {
     return (
@@ -34,7 +37,7 @@ export function DawExport({ total, fromSong, tracks }: { total: number; fromSong
     <span className="daw-create">
       <button className={`daw-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} title="exportar a WAV (en tiempo real, lo que suena tras el máster)">⤓ exportar ▾</button>
       {open && (
-        <span className="daw-menu" role="menu">
+        <span className="daw-menu" role="menu" ref={menuRef}>
           <button role="menuitem" onClick={() => { setOpen(false); void exportWav(0, total, `telar-${fromSong ? 'cancion' : 'bucle'}-${stamp()}.wav`); }}>
             {fromSong ? 'canción completa' : `bucle de ${total} compases`} · {total} c. · {dur(total)}
           </button>

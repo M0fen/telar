@@ -11,6 +11,7 @@ import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
 import { DawExport } from './DawExport';
+import { useKeepInView } from './useKeepInView';
 import { AUTO_RANGE, isActive, cleanAuto, type AutoParam, type AutoPoint } from '../lib/automation';
 import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
@@ -77,6 +78,8 @@ export function DawView() {
   const jamRec = useJamStore((s) => s.recording);
   const jamBars = useJamStore((s) => s.bars);
   const [createOpen, setCreateOpen] = useState(false);
+  const createRef = useRef<HTMLSpanElement>(null);
+  useKeepInView(createRef, createOpen);
   const bodyRef = useRef<HTMLDivElement>(null);
   const phRulerRef = useRef<HTMLDivElement>(null);
   const phRowsRef = useRef<HTMLDivElement>(null);
@@ -300,7 +303,7 @@ export function DawView() {
               crear estructura ▾
             </button>
             {createOpen && (
-              <span className="daw-menu" role="menu">
+              <span className="daw-menu" role="menu" ref={createRef}>
                 {STRUCTURE_TEMPLATES.map((tp) => (
                   <button key={tp.id} role="menuitem" onClick={() => { setCreateOpen(false); createFromTemplate(tp.sections); }}>
                     {tp.label}
