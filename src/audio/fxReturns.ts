@@ -54,6 +54,9 @@ export class FxReturns {
   private dlGain: GainNode;
   private space = '';
   private applied = false; // el primer `set` va directo (sin deslizar desde los valores de fábrica)
+  // nivel AUTOMATIZADO (7.2, dB): mientras suena, la curva manda sobre la perilla
+  levelOverride: { rv?: number; dl?: number } = {};
+  private levelAuto: { rv?: boolean; dl?: boolean } = {}; // render: curva agendada (set() no la pisa)
   ready: Promise<void> = Promise.resolve();
   dest: AudioNode | null = null; // a qué suma de superdough está conectada la salida
 
@@ -99,13 +102,23 @@ export class FxReturns {
     go(this.pre.delayTime, p.rvPre / 1000);
     go(this.rvLow.frequency, p.rvLow);
     go(this.rvHigh.frequency, p.rvHigh);
-    go(this.rvGain.gain, dbToGain(p.rvLevel));
+    if (!this.levelAuto.rv) go(this.rvGain.gain, dbToGain(this.levelOverride.rv ?? p.rvLevel));
     go(this.dl.delayTime, delaySeconds(p.dlNote, secPerBeat));
     go(this.fb.gain, Math.min(0.9, Math.max(0, p.dlFb)));
     go(this.dlLow.frequency, p.dlLow);
     go(this.dlHigh.frequency, p.dlHigh);
-    go(this.dlGain.gain, dbToGain(p.dlLevel));
+    if (!this.levelAuto.dl) go(this.dlGain.gain, dbToGain(this.levelOverride.dl ?? p.dlLevel));
     this.applied = true;
+  }
+
+  // RENDER (7.2): agenda la curva del nivel de un retorno (ganancias ya en lineal) desde `t0`
+  automateLevel(which: 'rv' | 'dl', values: Float32Array, t0: number, dur: number): void {
+    const g = which === 'rv' ? this.rvGain.gain : this.dlGain.gain;
+    this.levelAuto[which] = true;
+    try {
+      g.cancelScheduledValues(t0);
+      g.setValueCurveAtTime(values, t0, Math.max(0.001, dur));
+    } catch { /* sin curva: queda la perilla */ }
   }
 
   private loadSpace(name: string): void {
@@ -171,6 +184,15 @@ export function setReturnParams(p: ReturnParams): void {
     if (liveRet?.dest) liveRet.set(p, beatSec());
   } catch { /* nunca romper el audio */ }
 }
+// nivel de los retornos AUTOMATIZADO (7.2): {rv, dl} en dB, o null para volver a la perilla
+export function setReturnLevelOverride(o: { rv?: number; dl?: number } | null): void {
+  try {
+    if (!liveRet) return;
+    liveRet.levelOverride = o ?? {};
+    if (liveRet.dest) liveRet.set(liveParams, beatSec());
+  } catch { /* nunca romper el audio */ }
+}
+
 // (re)asegura los retornos del contexto en vivo: conectados a la suma solo si alguna pista manda
 export function applyLiveReturns(ctx: BaseAudioContext, dest: AudioNode | null, connect: (node: AudioNode) => void, needed: boolean): void {
   try {

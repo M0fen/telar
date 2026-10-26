@@ -12,7 +12,7 @@
 // para resaltar qué se está tocando, como en strudel.cc.
 import { cleanSends, sendsActive, RETURN_RANGES, DEFAULT_RETURNS } from '../lib/returns';
 import type { Edge, Node } from '@xyflow/react';
-import { automationSuffix } from '../lib/automation';
+import { automationSuffix, masterAutomationSuffix, cleanAuto, isActive } from '../lib/automation';
 import type { NodeData, SynthParams, VoiceParams } from './types';
 import { channelEqActive, channelCompActive, DEFAULT_CHANNEL_COMP, SYNTH_WAVES, type ChannelComp } from './types';
 import { OPS_BY_ID } from './ops';
@@ -48,6 +48,7 @@ export interface ChannelEqRoute {
   midFreq: number;
   comp: { thr: number; ratio: number; att: number; rel: number; makeup: number } | null;
   sends: { rev: number; del: number }; // envíos a los retornos compartidos (6.4), desde la tira
+  autoSends?: boolean; // los envíos tienen curva (7.2): la tira y los retornos hacen falta aunque estén en 0
 }
 
 export interface CompileResult {
@@ -735,7 +736,12 @@ export function duckSidechainIds(nodes: N[]): string[] {
 
 // Sources con tira de canal activa (EQ, compresor o envíos a los retornos): reciben un orbit propio.
 export function eqSourceIds(nodes: N[]): string[] {
-  return nodes.filter((n) => n.data.kind === 'source' && (channelEqActive(n.data.eq) || channelCompActive(n.data.comp) || sendsActive(n.data.sends))).map((n) => n.id);
+  return nodes.filter((n) => n.data.kind === 'source' && (channelEqActive(n.data.eq) || channelCompActive(n.data.comp) || sendsActive(n.data.sends) || autoSendsActive(n.data.auto))).map((n) => n.id);
+}
+// ¿los envíos de la pista tienen curva de automatización? (7.2)
+function autoSendsActive(auto: unknown): boolean {
+  const a = cleanAuto(auto);
+  return (!!a.rev && isActive(a.rev, 'rev')) || (!!a.del && isActive(a.del, 'del'));
 }
 
 const clampN = (x: unknown, a: number, b: number, d: number) => {
@@ -817,7 +823,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
     if (n.data.kind !== 'source') continue;
     const eqOn = channelEqActive(n.data.eq);
     const comp = compRoute(n.data.comp);
-    const sendsOn = sendsActive(n.data.sends);
+    const autoSends = autoSendsActive(n.data.auto);
+    const sendsOn = sendsActive(n.data.sends) || autoSends;
     const planned = plan?.eq.get(n.id);
     // con plan: TODA pista del plan va a su orbit (EQ plano / compresor en bypass / envíos a 0 en
     // las secciones donde no los tiene)
@@ -835,6 +842,7 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
       midFreq: Math.max(200, Math.min(8000, (eq as { midFreq?: number }).midFreq ?? 1000)),
       comp,
       sends: cleanSends(n.data.sends),
+      ...(autoSends ? { autoSends: true } : {}),
     });
   }
 
@@ -1054,5 +1062,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs, dropped: droppedSources };
 
   const master = combine(outExprs);
+  // automatización del MÁSTER que vive en el código (reverb/eco/crush, Fase 7.2): del primer Out
+  const mAuto = masterAutomationSuffix(outs[0]?.data.auto, opts.songBars ?? 0);
+  if (mAuto) return { code: `(${master.text})${mAuto}`, error: null, spans: shift(master.spans, 1), channelEqs, dropped: droppedSources };
   return { code: master.text, error: null, spans: master.spans, channelEqs, dropped: droppedSources };
 }

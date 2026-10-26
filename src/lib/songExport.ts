@@ -14,6 +14,7 @@ import { toast } from '../store/useNotifyStore';
 import { keyShort } from './songKey';
 import { useScenesStore } from '../store/useScenesStore';
 import { bakeSong } from './songBake';
+import { engineAutomation, type EngineAuto } from './automation';
 import { renderOffline, renderBusOver } from '../audio/offlineRender';
 import { wavHeader } from './wavEncode';
 import { encodeAudio } from './exportEncode';
@@ -206,6 +207,7 @@ interface Prepared {
   code: string;
   cps: number;
   sections: BakedSection[];
+  auto: EngineAuto; // curvas del motor: envíos, filtro DJ, drive, retornos (7.2)
 }
 // canción horneada con el estado actual (solo una pista si `only`)
 function prepare(only?: string | null): Prepared {
@@ -222,13 +224,13 @@ function prepare(only?: string | null): Prepared {
     only: only ?? null,
   });
   if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
-  return { code: baked.code, cps: OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5, sections: baked.sections };
+  return { code: baked.code, cps: OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5, sections: baked.sections, auto: engineAutomation(g.nodes, baked.total) };
 }
 
 // mezcla PRE-bus (stems y entrada del máster)
 async function renderPre(p: Prepared, start: number, bars: number, progress?: (f: number) => void): Promise<AudioBuffer | null> {
   const bpc = useGraphStore.getState().beatsPerCycle || 4;
-  const r = await renderOffline({ code: p.code, cps: p.cps, start, bars, sections: p.sections, bus: false, beatSec: 1 / (p.cps * bpc), onProgress: progress, isCancelled: () => cancelFlag });
+  const r = await renderOffline({ code: p.code, cps: p.cps, start, bars, sections: p.sections, bus: false, beatSec: 1 / (p.cps * bpc), auto: p.auto, onProgress: progress, isCancelled: () => cancelFlag });
   return r ? r.buffer : null;
 }
 
@@ -239,7 +241,7 @@ const chansOf = (b: AudioBuffer) => Array.from({ length: b.numberOfChannels }, (
 // del limitador (−1 dBTP) ni más de +12 dB.
 async function masterFrom(pre: AudioBuffer, p: Prepared, start: number, target: ExportTarget, progress?: (f: number) => void): Promise<{ buf: AudioBuffer; report: LoudnessReport; gainDb: number; reached: boolean }> {
   const pass = async (loudDb: number) => {
-    const buf = await renderBusOver({ input: pre, cps: p.cps, start, sections: p.sections, loudDb });
+    const buf = await renderBusOver({ input: pre, cps: p.cps, start, sections: p.sections, loudDb, auto: p.auto });
     return { buf, report: measureLoudness(chansOf(buf), buf.sampleRate) };
   };
   let gainDb = 0;

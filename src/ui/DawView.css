@@ -249,3 +249,8 @@
 .daw-menu .daw-chip.on { border-color: var(--accent, #3df0d0); color: var(--accent, #3df0d0); }
 .daw-menu .daw-chip:focus-visible { outline: 1px solid var(--accent, #3df0d0); }
 .daw-exp-last { color: var(--dim, #6b7a88); font-size: 10px; line-height: 1.35; font-variant-numeric: tabular-nums; }
+
+/* fila del MÁSTER (automatización, 7.2) */
+.daw-mrow .daw-tname { border-top: 1px solid var(--line, #202c38); }
+.daw-mrow .daw-tn { color: #e8a33d; letter-spacing: 0.08em; text-transform: uppercase; font-size: 10px; }
+.daw-mrow .daw-lane { border-top: 1px solid var(--line, #202c38); }

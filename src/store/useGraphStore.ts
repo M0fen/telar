@@ -13,7 +13,7 @@ import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
 import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
-import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering } from '../audio/engine';
+import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
 import { registerIrReverbs } from '../audio/irReverb';
 import { registerUserPacks } from '../lib/userPacks';
 import { registerCloudBank } from '../lib/cloudBank';
@@ -24,6 +24,9 @@ import { cleanKey, keyScale, type SongKey } from '../lib/songKey';
 import { scaleGains, scaleStateGains } from '../lib/levels';
 import { RETURN_KEYS, returnsFromMaster } from '../lib/returns';
 import { setReturnParams, setReturnsTempoSource } from '../audio/fxReturns';
+import { setEngineAutomation, setAutoPositionSource } from '../audio/autoRunner';
+import { engineAutomation } from '../lib/automation';
+import { isJamRecording } from '../lib/jamRecorder';
 import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
@@ -33,7 +36,7 @@ import { backupProject } from '../lib/projectBackups';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
 import { useSongStore, type SongStep } from './useSongStore';
-import { songTotal } from '../lib/songClock';
+import { songTotal, timelinePos } from '../lib/songClock';
 import { useScenesStore } from './useScenesStore';
 import { registerDownloadedSamples } from './useDownloadsStore';
 
@@ -259,7 +262,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
   let lastDroppedKey = '';
   const recompile = () => {
     const { nodes, edges, cps, playing, master, transpose, xfader } = get();
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars: songTotal(useSongStore.getState().steps), only: useSongStore.getState().exportOnly });
+    const songBars = songTotal(useSongStore.getState().steps);
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, only: useSongStore.getState().exportOnly });
+    setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
     if (eqKey !== lastEqKey) { lastEqKey = eqKey; setChannelEqs(channelEqs); }
@@ -1137,4 +1142,17 @@ setReturnsTempoSource(() => {
 setReturnParams(returnsFromMaster(useGraphStore.getState().master));
 useGraphStore.subscribe((s, p) => {
   if (s.master !== p.master && RETURN_KEYS.some((k) => s.master[k] !== p.master[k])) setReturnParams(returnsFromMaster(s.master));
+});
+
+// AUTOMATIZACIÓN EN EL MOTOR (7.2): el compás de canción que SUENA (el reloj del planificador va
+// 0,05 s por delante del audio), o null si está parado
+setAutoPositionSource(() => {
+  const g = useGraphStore.getState();
+  // grabando el jam mandan las perillas (lo que tocas es lo que se graba)
+  if (!g.playing || isOfflineRendering() || isJamRecording()) return null;
+  const sch = getScheduler() as { now?: () => number; cps?: number } | undefined;
+  const now = Number(sch?.now?.());
+  if (!Number.isFinite(now)) return null;
+  const cps = Number(sch?.cps) || g.cps || 0.5;
+  return timelinePos(now - 0.05 * cps, useSongStore.getState());
 });

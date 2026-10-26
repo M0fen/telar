@@ -393,6 +393,23 @@ export function getMasterAnalyser(): AnalyserNode | undefined {
 // Todo con try/catch para no silenciar nunca la salida (peor caso: bypass directo).
 export interface MasterBusSettings { limit: number; glue: number; sat: number; width: number; punch: number; low: number; mid: number; high: number; filter: number; drive: number; loud?: number /* dB extra hacia el limitador TP: solo al exportar con objetivo de loudness (4.4) */ }
 let busSettings: MasterBusSettings = { limit: 0, glue: 0, sat: 0, width: 1, punch: 0, low: 0, mid: 0, high: 0, filter: 0, drive: 0 };
+// AUTOMATIZACIÓN del bus (7.2): mientras suena, el filtro DJ y el drive con curva mandan sobre la
+// perilla (autoRunner); con ■ vuelve la perilla
+let busOverride: Partial<Pick<MasterBusSettings, 'filter' | 'drive'>> | null = null;
+// estado del filtro DJ del bus (diagnóstico): frecuencias actuales y si el bus está cableado
+export function getBusFilterState(): { lp: number; hp: number; wired: boolean } | null {
+  return masterChain ? { lp: masterChain.djLP.frequency.value, hp: masterChain.djHP.frequency.value, wired: masterChain.wired } : null;
+}
+export function setBusOverride(o: Partial<Pick<MasterBusSettings, 'filter' | 'drive'>> | null): void {
+  const had = !!busOverride;
+  busOverride = o && Object.keys(o).length ? o : null;
+  try {
+    if (offlineDepth) return;
+    // empezar/terminar cambia el cableado (bus forzado): applyMasterBus; si no, solo los valores
+    if (had !== !!busOverride || !masterChain) applyMasterBus();
+    else setMasterChainParams(masterChain, { ...busSettings, ...(busOverride ?? {}) }, masterChain.ctx);
+  } catch { /* nunca romper el audio */ }
+}
 interface MasterChain {
   ctx: BaseAudioContext; entry: AudioNode; sideW: GainNode; sat: WaveShaperNode; lastSat: number; fastK: GainNode; slowK: GainNode;
   low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; glue: DynamicsCompressorNode; lim: DynamicsCompressorNode; makeup: GainNode; wired: boolean; dg: AudioNode | null;
@@ -673,7 +690,10 @@ function createMasterChainNodes(ctx: BaseAudioContext): MasterChainNodes {
 }
 
 // Ajusta la cadena a unos valores del bus (idempotente). `ctx.currentTime` = ahora.
-function setMasterChainParams(mc: MasterChainNodes, s: MasterBusSettings, ctx: BaseAudioContext): void {
+export const djLpFreq = (f: number) => (f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000);
+export const djHpFreq = (f: number) => (f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20);
+// `skip`: lo que lleva una curva de automatización agendada (render, 7.2) — no se pisa
+function setMasterChainParams(mc: MasterChainNodes, s: MasterBusSettings, ctx: BaseAudioContext, skip?: { filter?: boolean; drive?: boolean }): void {
   mc.low.gain.value = s.low;   // dB
   mc.mid.gain.value = s.mid;
   mc.high.gain.value = s.high;
@@ -684,10 +704,12 @@ function setMasterChainParams(mc: MasterChainNodes, s: MasterBusSettings, ctx: B
   // rampa corta (~35 ms al 95 %): un barrido con la perilla MIDI llega en escalones de 1/127;
   // fijar .value de golpe hace «zipper» (chasquidos) en la frecuencia del filtro.
   const tNow = ctx.currentTime;
-  mc.djLP.frequency.setTargetAtTime(f < -0.01 ? Math.round(18000 * Math.pow(100 / 18000, -f)) : 20000, tNow, 0.012);
-  mc.djHP.frequency.setTargetAtTime(f > 0.01 ? Math.round(20 * Math.pow(6000 / 20, f)) : 20, tNow, 0.012);
+  if (!skip?.filter) {
+    mc.djLP.frequency.setTargetAtTime(djLpFreq(f), tNow, 0.012);
+    mc.djHP.frequency.setTargetAtTime(djHpFreq(f), tNow, 0.012);
+  }
   const dr = Math.max(0, Math.min(1, s.drive));
-  if (Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; } // DRIVE del máster
+  if (!skip?.drive && Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; } // DRIVE del máster
   mc.sideW.gain.value = s.width; // 1 = normal · 0 = mono · >1 = más ancho
   const kp = s.punch * 2; // profundidad del transient shaper (−2..2); 0 = transparente
   mc.fastK.gain.value = kp;
@@ -713,7 +735,7 @@ export function applyMasterBus(): void {
       masterChain = { ...createMasterChainNodes(ctx), wired: false, dg: null, outSink: null, bypassSink: null, bypassDg: null };
     }
     const mc = masterChain;
-    const s = busSettings;
+    const s = busOverride ? { ...busSettings, ...busOverride } : busSettings;
     setMasterChainParams(mc, s, ctx);
     // LIMITADOR TRUE-PEAK: carga el worklet una vez por contexto; al estar listo, re-aplica el
     // bus para enrutar la salida por él. Es la ÚLTIMA etapa (tp → destino, fijo). Fallback: si
@@ -729,7 +751,8 @@ export function applyMasterBus(): void {
     liveFxSink(fx, sink);
     const target: AudioNode = fx.fxIn;
 
-    const active = busActive(s);
+    // con filtro/drive automatizados el bus queda puesto (no se cablea y descablea al cruzar el 0)
+    const active = busActive(s) || !!busOverride;
     if (active) {
       // entrada del bus: dg → entry (rompe cualquier enlace directo dg → salida)
       if (!mc.wired || mc.dg !== dg) {
@@ -803,17 +826,23 @@ export function busFromMaster(m: { limit?: number; glue?: number; sat?: number; 
 export interface OfflineBus {
   apply: (s: MasterBusSettings) => void;
   latencyFrames: number; // retardo de la salida respecto de la entrada (para alinear con los stems)
+  // AUTOMATIZACIÓN (7.2): frecuencias del filtro DJ (para agendar su curva) y el drive (por pasos)
+  djLp: AudioParam;
+  djHp: AudioParam;
+  setDrive: (d: number) => void;
 }
-export async function createOfflineMasterBus(ctx: BaseAudioContext, dg: AudioNode, initial: MasterBusSettings): Promise<OfflineBus> {
+// `auto`: filtro y/o drive con curva → el bus queda puesto y las secciones no los pisan
+export async function createOfflineMasterBus(ctx: BaseAudioContext, dg: AudioNode, initial: MasterBusSettings, auto?: { filter?: boolean; drive?: boolean }): Promise<OfflineBus> {
   const mc = createMasterChainNodes(ctx);
+  const forced = !!(auto?.filter || auto?.drive);
   const tp = await createLimiterFor(ctx);
   const sink: AudioNode = tp ?? ctx.destination;
   if (tp) tp.connect(ctx.destination);
   try { dg.disconnect(); } catch { /* */ }
   let wired: boolean | null = null;
   const apply = (s: MasterBusSettings) => {
-    setMasterChainParams(mc, s, ctx);
-    const active = busActive(s);
+    setMasterChainParams(mc, s, ctx, auto);
+    const active = busActive(s) || forced;
     if (active === wired) return;
     try { dg.disconnect(); } catch { /* */ }
     try { mc.makeup.disconnect(); } catch { /* */ }
@@ -822,8 +851,12 @@ export async function createOfflineMasterBus(ctx: BaseAudioContext, dg: AudioNod
   };
   apply(initial);
   const sr = ctx.sampleRate;
-  const latencyFrames = (tp ? limiterLatencyFrames(sr) : 0) + (busActive(initial) ? await measureBusChainFrames(sr) : 0);
-  return { apply, latencyFrames };
+  const latencyFrames = (tp ? limiterLatencyFrames(sr) : 0) + (busActive(initial) || forced ? await measureBusChainFrames(sr) : 0);
+  const setDrive = (d: number) => {
+    const dr = Math.max(0, Math.min(1, d));
+    if (Math.abs(dr - mc.lastDrive) > 0.001) { mc.djDrive.curve = satCurve(dr * 0.9); mc.lastDrive = dr; }
+  };
+  return { apply, latencyFrames, djLp: mc.djLP.frequency, djHp: mc.djHP.frequency, setDrive };
 }
 
 // LATENCIA POST-MÁSTER (la compensación de retardo de un DAW): lo que sale por el tap post
@@ -887,17 +920,40 @@ export async function getMasterPostLatency(): Promise<number> {
 // y cut, que superdough no ofrece en el patrón. Mismo patrón defensivo que el
 // máster: todo en try/catch, y si el orbit aún no existe (se crea al primer evento)
 // se reintenta tras el siguiente swap.
-interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null; sends?: { rev: number; del: number } }
+interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null; sends?: { rev: number; del: number }; autoSends?: boolean }
 export interface SdOrbit { output?: AudioNode }
 export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void; destinationGain?: AudioNode }; getOrbit?: (orbit: number, chans: number[]) => SdOrbit }
 // tira de canal: EQ de 3 bandas → compresor (si su procesador está cargado en ese contexto) → salida,
 // y de la salida, los dos ENVÍOS a los retornos compartidos (6.4: post EQ, compresor y fader)
-export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; rev: GainNode; del: GainNode; src: AudioNode; ctx: BaseAudioContext }
+export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; rev: GainNode; del: GainNode; src: AudioNode; ctx: BaseAudioContext; autoSend?: { rev?: boolean; del?: boolean } }
 
 let channelEqRoutes: ChannelEqRouteRT[] = [];
 const chanEqChains = new Map<number, ChanEqChain>();
 const sourceOrbit = new Map<string, number>(); // Source → orbit de su tira (medidor de compresión)
 const sourceStrip = new Map<string, number>(); // Source → orbit de su tira (EQ o compresor)
+// envíos AUTOMATIZADOS (7.2): `${source}:rev|del` → valor que manda la curva (la ruta no lo pisa)
+const sendOverride = new Map<string, number>();
+// valores actuales de los envíos de una pista (diagnóstico y medidores)
+export function getStripSendGains(sourceId: string): { rev: number; del: number } | null {
+  const o = sourceStrip.get(sourceId);
+  const st = o == null ? undefined : chanEqChains.get(o);
+  return st ? { rev: st.rev.gain.value, del: st.del.gain.value } : null;
+}
+export function setSendOverride(sourceId: string, which: 'rev' | 'del', v: number | null): void {
+  const k = `${sourceId}:${which}`;
+  if (v == null) sendOverride.delete(k);
+  else sendOverride.set(k, Math.max(0, Math.min(1, v)));
+  try {
+    const o = sourceStrip.get(sourceId);
+    const st = o == null ? undefined : chanEqChains.get(o);
+    if (!st) return;
+    const r = channelEqRoutes.find((x) => x.orbit === o);
+    const val = v ?? (which === 'rev' ? r?.sends?.rev : r?.sends?.del) ?? 0;
+    const g = which === 'rev' ? st.rev : st.del;
+    g.gain.cancelScheduledValues(st.ctx.currentTime);
+    g.gain.setTargetAtTime(Math.max(0, Math.min(1, val)), st.ctx.currentTime, 0.02);
+  } catch { /* nunca romper el audio */ }
+}
 
 // salida de la tira de canal de un Source (post EQ/compresor/makeup, con su reverb/eco de orbit):
 // lo que esa pista aporta a la suma. undefined si la pista no tiene tira (va directo al bus).
@@ -925,9 +981,11 @@ export function setChanStrip(st: ChanEqChain, r: ChannelEqRouteRT): void {
   st.mid.frequency.value = r.midFreq;
   st.high.gain.value = r.high;
   if (st.comp) setCompParams(st.comp, r.comp ?? null);
-  // envíos: deslizan (sin «zipper» al girar la perilla)
+  // envíos: deslizan (sin «zipper» al girar la perilla). Uno automatizado lo lleva su curva.
   const t = st.ctx.currentTime;
-  for (const [g, v] of [[st.rev, r.sends?.rev ?? 0], [st.del, r.sends?.del ?? 0]] as [GainNode, number][]) {
+  const ov = (w: 'rev' | 'del') => (r.source != null && st.ctx === liveCtxOrNull() ? sendOverride.get(`${r.source}:${w}`) : undefined);
+  for (const [g, v, w] of [[st.rev, ov('rev') ?? r.sends?.rev ?? 0, 'rev'], [st.del, ov('del') ?? r.sends?.del ?? 0, 'del']] as [GainNode, number, 'rev' | 'del'][]) {
+    if (st.autoSend?.[w]) continue; // render: la curva ya está agendada (7.2)
     try {
       g.gain.cancelScheduledValues(t);
       g.gain.setTargetAtTime(Math.max(0, Math.min(1, v)), t, 0.015);
@@ -1034,7 +1092,7 @@ export function applyChannelEqs(): void {
     }
     // retornos compartidos (6.4): conectados a la suma solo si alguna pista manda algo
     const out = ctrl.output;
-    const needed = channelEqRoutes.some((r) => (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005);
+    const needed = channelEqRoutes.some((r) => r.autoSends || (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005);
     applyLiveReturns(ctx, out?.destinationGain ?? null, (n) => out?.connectToDestination?.(n, [0, 1]), needed && !!out?.destinationGain);
   } catch {
     /* nunca romper el audio */

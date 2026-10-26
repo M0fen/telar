@@ -12,7 +12,7 @@ import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
 import { DawExport } from './DawExport';
 import { useKeepInView } from './useKeepInView';
-import { AUTO_RANGE, isActive, cleanAuto, type AutoParam, type AutoPoint } from '../lib/automation';
+import { AUTO_RANGE, isActive, cleanAuto, TRACK_PARAMS, MASTER_PARAMS, type AutoParam, type AutoPoint } from '../lib/automation';
 import { dawSection, dawBlock, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
@@ -61,6 +61,8 @@ function blockTitle(t: DawTrack, b: DawBlock): string {
   return `${t.name} · sección ${b.arm + 1} · ${b.bars} compases · ${STATE_TXT[b.state]}${rep}\n${act}${also}\n${b.code.slice(0, 160)}`;
 }
 
+const MASTER_ROW = '__master__'; // clave del carril de automatización del máster (7.2)
+
 export function DawView() {
   const nodes = useGraphStore((s) => s.nodes);
   const update = useGraphStore((s) => s.updateNodeData);
@@ -95,6 +97,7 @@ export function DawView() {
   // Solo lo que cambia el modelo: id, nombre, código, mute y solo de cada pista (mover una
   // perilla de ganancia o un nodo en el lienzo no lo recalcula).
   const sources = nodes.filter((n) => n.data.kind === 'source');
+  const outNode = nodes.find((n) => n.data.kind === 'out');
   const srcSig = sources.map((n) => `${n.id}\u0000${n.data.name ?? ''}\u0000${n.data.code ?? ''}\u0000${n.data.mute ? 1 : 0}${n.data.solo ? 1 : 0}`).join('\u0001');
   const model = useMemo(
     () =>
@@ -416,14 +419,14 @@ export function DawView() {
                   <TrackMeter id={t.id} className="tmeter-daw" />
                   {fromSong && (() => {
                     const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
-                    const has = isActive(au?.vol, 'vol') || isActive(au?.filt, 'filt');
+                    const has = TRACK_PARAMS.some((p) => isActive(au?.[p], p));
                     const open = !!autoOpen[t.id];
                     return (
                       <button
                         className={`daw-ms${open ? ' on' : ''}${has ? ' has' : ''}`}
                         aria-pressed={open}
-                        onClick={() => setAutoOpen((o) => { const n = { ...o }; if (n[t.id]) delete n[t.id]; else n[t.id] = isActive(au?.vol, 'vol') || !isActive(au?.filt, 'filt') ? 'vol' : 'filt'; return n; })}
-                        title={`automatización (volumen y filtro por compás)${has ? ' · esta pista tiene curvas' : ''}`}
+                        onClick={() => setAutoOpen((o) => { const n = { ...o }; if (n[t.id]) delete n[t.id]; else n[t.id] = TRACK_PARAMS.find((p) => isActive(au?.[p], p)) ?? 'vol'; return n; })}
+                        title={`automatización por compás (volumen, filtro, paneo, envíos a la reverb y al eco)${has ? ' · esta pista tiene curvas' : ''}`}
                       >
                         A
                       </button>
@@ -466,8 +469,7 @@ export function DawView() {
                   <div className="daw-row auto" key={`${t.id}-auto`}>
                     <div className="daw-tname daw-autoname">
                       <select value={param} onChange={(e) => setAutoOpen((o) => ({ ...o, [t.id]: e.target.value as AutoParam }))} aria-label="parámetro automatizado">
-                        <option value="vol">volumen{isActive(au.vol, 'vol') ? ' ●' : ''}</option>
-                        <option value="filt">filtro{isActive(au.filt, 'filt') ? ' ●' : ''}</option>
+                        {TRACK_PARAMS.map((p) => <option key={p} value={p}>{AUTO_RANGE[p].label}{isActive(au[p], p) ? ' ●' : ''}</option>)}
                       </select>
                       <button className="daw-ms" onClick={() => setPts([])} disabled={!pts.length} title={`borrar la curva de ${AUTO_RANGE[param].label}`}>✕</button>
                     </div>
@@ -479,6 +481,46 @@ export function DawView() {
               })()}
             </Fragment>
             ))}
+            {fromSong && outNode && (() => {
+              // MÁSTER (7.2): filtro DJ, drive, reverb/eco/crush del máster y nivel de los retornos
+              const au = cleanAuto(outNode.data.auto);
+              const has = MASTER_PARAMS.some((p) => isActive(au[p], p));
+              const open = autoOpen[MASTER_ROW];
+              const param = (open ?? 'mfilt') as AutoParam;
+              const pts: AutoPoint[] = au[param] ?? [];
+              const setPts = (next: AutoPoint[]) => update(outNode.id, { auto: { ...au, [param]: next } });
+              return (
+                <>
+                  <div className="daw-row daw-mrow">
+                    <div className="daw-tname">
+                      <span className="daw-tn" title="automatización del máster: filtro DJ, drive, reverb/eco/crush y nivel de los retornos">máster</span>
+                      <button
+                        className={`daw-ms${open ? ' on' : ''}${has ? ' has' : ''}`}
+                        aria-pressed={!!open}
+                        onClick={() => setAutoOpen((o) => { const n = { ...o }; if (n[MASTER_ROW]) delete n[MASTER_ROW]; else n[MASTER_ROW] = MASTER_PARAMS.find((p) => isActive(au[p], p)) ?? 'mfilt'; return n; })}
+                        title={`automatización del máster por compás${has ? ' · tiene curvas' : ''}`}
+                      >
+                        A
+                      </button>
+                    </div>
+                    <div className="daw-lane" style={{ width, ...gridBg }} />
+                  </div>
+                  {open && (
+                    <div className="daw-row auto">
+                      <div className="daw-tname daw-autoname">
+                        <select value={param} onChange={(e) => setAutoOpen((o) => ({ ...o, [MASTER_ROW]: e.target.value as AutoParam }))} aria-label="parámetro del máster automatizado">
+                          {MASTER_PARAMS.map((p) => <option key={p} value={p}>{AUTO_RANGE[p].label}{isActive(au[p], p) ? ' ●' : ''}</option>)}
+                        </select>
+                        <button className="daw-ms" onClick={() => setPts([])} disabled={!pts.length} title={`borrar la curva de ${AUTO_RANGE[param].label}`}>✕</button>
+                      </div>
+                      <div className="daw-lane" style={{ width, ...gridBg }}>
+                        <DawAutoLane points={pts} param={param} total={total} px={px} onChange={setPts} />
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
             </div>
           </div>
           {menu && menuTrack && menuBlock && (

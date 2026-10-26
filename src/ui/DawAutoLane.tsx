@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
 import { AUTO_RANGE, addPoint, movePoint, removePoint, snapBar, sortPoints, type AutoParam, type AutoPoint } from '../lib/automation';
 
-// CARRIL DE AUTOMATIZACIÓN (Modo DAW, Fase 3.1) bajo una pista: la curva de volumen o filtro
-// sobre los compases. Clic en vacío = punto (y arrástralo) · arrastrar un punto = moverlo
+// CARRIL DE AUTOMATIZACIÓN (Modo DAW, Fase 3.1; 7.2 cualquier perilla) bajo una pista o el máster:
+// la curva del parámetro elegido sobre los compases. Clic en vacío = punto (y arrástralo) · arrastrar un punto = moverlo
 // (¼ de compás) · doble clic = quitarlo. Con un punto enfocado: ← → mueven ¼ de compás,
 // ↑ ↓ cambian el valor, Supr lo quita. Cada cambio va al nodo (data.auto) → Ctrl+Z.
 const H = 56;
@@ -32,7 +32,12 @@ export function DawAutoLane({
     ? [`0,${y(pts[0][1])}`, ...pts.map(([b, val]) => `${b * px},${y(val)}`), `${width},${y(pts[pts.length - 1][1])}`].join(' ')
     : '';
   const step = (rg.max - rg.min) / 20;
-  const fmt = (val: number) => (param === 'vol' ? `${Math.round(val * 100)}%` : val < -0.02 ? `paso-bajo ${Math.round(-val * 100)}%` : val > 0.02 ? `paso-alto ${Math.round(val * 100)}%` : 'abierto');
+  const fmt = (val: number) => {
+    if (param === 'filt' || param === 'mfilt') return val < -0.02 ? `paso-bajo ${Math.round(-val * 100)}%` : val > 0.02 ? `paso-alto ${Math.round(val * 100)}%` : 'abierto';
+    if (param === 'pan') return val < 0.48 ? `izquierda ${Math.round((0.5 - val) * 200)}%` : val > 0.52 ? `derecha ${Math.round((val - 0.5) * 200)}%` : 'centro';
+    if (param === 'rv' || param === 'dl') return `${val >= 0 ? '+' : ''}${val.toFixed(1)} dB`;
+    return `${Math.round(val * 100)}%`;
+  };
 
   return (
     <svg

@@ -123,15 +123,20 @@ function jamHooks(): JamHooks {
     snapshot: () => {
       const src = useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source');
       const anySolo = src.some((n) => n.data.solo);
-      const tracks: Record<string, { audible: boolean; gain: number; filt: number }> = {};
+      const tracks: Record<string, { audible: boolean; gain: number; filt: number; rev: number; del: number }> = {};
       for (const n of src) {
         tracks[n.id] = {
           audible: !n.data.mute && (!anySolo || !!n.data.solo),
           gain: typeof n.data.gain === 'number' ? n.data.gain : 1,
           filt: typeof n.data.chFilter === 'number' ? n.data.chFilter : 0,
+          rev: Number(n.data.sends?.rev) || 0,
+          del: Number(n.data.sends?.del) || 0,
         };
       }
-      return { scene: useScenesStore.getState().active, tracks };
+      // perillas del máster (7.2): las del panel MIDI y el nivel de los retornos
+      const m = useGraphStore.getState().master;
+      const master = { filter: m.filter ?? 0, drive: m.drive ?? 0, room: m.room ?? 0, delay: m.delay ?? 0, crush: m.crush ?? 0, rv: m.rvLevel ?? 0, dl: m.dlLevel ?? 0 };
+      return { scene: useScenesStore.getState().active, tracks, master };
     },
     onFinish: (take) => applyJamTake(take),
   };
@@ -170,9 +175,14 @@ function applyJamTake(take: JamTake): void {
     const prev = cleanAuto(nodes.find((n) => n.id === id)?.data.auto);
     p.auto = { ...prev, ...p.auto };
   }
+  // perillas del máster movidas (7.2): sus curvas al nodo Out (lo de antes que no moviste sigue)
+  const outNode = nodes.find((n) => n.data.kind === 'out');
+  if (r.master && outNode) r.patches[outNode.id] = { auto: { ...cleanAuto(outNode.data.auto), ...r.master.auto } };
   useGraphStore.getState().applyArrangement({ ...st.codes, ...r.codes }, r.steps, r.patches);
-  const curves = Object.values(r.patches).filter((p) => p.auto).length;
-  if (curves) toast.info(`${curves} pista(s) con curvas de volumen/filtro grabadas desde las perillas (botón A en el DAW para verlas)`);
+  if (r.master && Object.keys(r.master.reset).length) useGraphStore.getState().setMaster(r.master.reset);
+  const curves = Object.entries(r.patches).filter(([id, p]) => p.auto && id !== outNode?.id).length;
+  if (curves) toast.info(`${curves} pista(s) con curvas grabadas desde las perillas (botón A en el DAW para verlas)`);
+  if (r.master) toast.info(`máster: curvas de ${Object.keys(r.master.auto).length} perilla(s) grabadas (fila «máster» del DAW, botón A)`);
   const total = r.steps.reduce((a, x) => a + x.bars, 0);
   toast.ok(`canción armada desde el jam: ${r.steps.length} secciones · ${total} compases. ▶ canción para escucharla (Ctrl+Z la deshace)`);
   if (r.skipped.length) toast.warn(`${r.skipped.slice(0, 3).map(trackName).join(', ')}${r.skipped.length > 3 ? '…' : ''} ya tenía${r.skipped.length > 1 ? 'n' : ''} secciones propias: no se tocó.`);

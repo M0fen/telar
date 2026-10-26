@@ -8,17 +8,31 @@
 import { create } from 'zustand';
 import { splitArrange, muteArm } from '../nodes/stepseqCode';
 import { MAX_SECTION_BARS, newStepId, type EditStep } from './arrangeEdit';
-import { simplify, type AutoPoint } from './automation';
+import { simplify, type AutoPoint, type TrackAuto } from './automation';
 
 export interface JamTrackState {
   audible: boolean;
   gain: number; // volumen del nodo (data.gain, 1 si no tiene)
   filt: number; // filtro de canal (data.chFilter, −1…1)
+  rev?: number; // envío a la reverb (7.2)
+  del?: number; // envío al eco (7.2)
+}
+// perillas del MÁSTER que se graban como curvas (7.2): las del panel MIDI en vivo (filtro, eco,
+// reverb, drive, crush) y el nivel de los dos retornos
+export interface JamMasterState {
+  filter: number;
+  drive: number;
+  room: number;
+  delay: number;
+  crush: number;
+  rv: number;
+  dl: number;
 }
 export interface JamSample {
   t: number; // compás (fraccional) desde que empezó la toma
   scene: number | null; // última escena disparada
   tracks: Record<string, JamTrackState>;
+  master?: JamMasterState;
 }
 export interface JamTake {
   samples: JamSample[];
@@ -30,8 +44,10 @@ export interface JamBuild {
   codes: Record<string, string>; // solo las pistas que cambian
   // la mezcla en vivo queda neutra (manda el arreglo) y las perillas movidas pasan a curvas:
   // gain = el máximo tocado (la curva de volumen baja desde ahí), chFilter = 0 (la curva manda)
-  patches: Record<string, { mute?: boolean; solo?: boolean; gain?: number; chFilter?: number; auto?: { vol?: AutoPoint[]; filt?: AutoPoint[] } }>;
+  patches: Record<string, { mute?: boolean; solo?: boolean; gain?: number; chFilter?: number; auto?: TrackAuto }>;
   skipped: string[]; // pistas que ya tenían secciones propias (no se tocan)
+  // perillas del máster movidas (7.2): sus curvas (van al nodo Out) y a qué valor queda cada perilla
+  master?: { auto: TrackAuto; reset: Partial<Record<'filter' | 'drive' | 'room' | 'delay' | 'crush', number>> };
 }
 
 // Estado de la toma en el compás k: el último muestreo hasta el FINAL del primer tiempo
@@ -91,7 +107,8 @@ export function buildFromTake(
     out[id] = `arrange(${arms.join(', ')})`;
     patches[id] = { mute: false, solo: false, ...(auto ?? {}) };
   }
-  return { steps, codes: out, patches, skipped };
+  const master = masterCurves(take, bars);
+  return { steps, codes: out, patches, skipped, ...(master ? { master } : {}) };
 }
 
 // PERILLAS → CURVAS (Fase 3.2): volumen (data.gain) y filtro de canal (data.chFilter) de cada
@@ -108,7 +125,12 @@ export function knobCurves(take: JamTake, id: string, bars: number): JamBuild['p
   const fMax = Math.max(...filts);
   const fMin = Math.min(...filts);
   const out: NonNullable<JamBuild['patches'][string]> = {};
-  const auto: { vol?: AutoPoint[]; filt?: AutoPoint[] } = {};
+  const auto: TrackAuto = {};
+  // envíos (7.2): la curva lleva todo el movimiento (la perilla no se toca)
+  for (const w of ['rev', 'del'] as const) {
+    const vs = ss.map((x) => x.tracks[id][w] ?? 0);
+    if (Math.max(...vs) - Math.min(...vs) > 0.02) auto[w] = simplify(ss.map((x) => [x.t, Math.round((x.tracks[id][w] ?? 0) * 1000) / 1000] as AutoPoint), 0.015);
+  }
   if (gMax - gMin > 0.02 && gMax > 0) {
     out.gain = Math.round(gMax * 1000) / 1000;
     auto.vol = simplify(ss.map((x) => [x.t, Math.round((x.tracks[id].gain / gMax) * 1000) / 1000] as AutoPoint), 0.015);
@@ -117,9 +139,36 @@ export function knobCurves(take: JamTake, id: string, bars: number): JamBuild['p
     out.chFilter = 0;
     auto.filt = simplify(ss.map((x) => [x.t, Math.round(x.tracks[id].filt * 1000) / 1000] as AutoPoint), 0.015);
   }
-  if (!auto.vol && !auto.filt) return null;
+  if (!Object.keys(auto).length) return null;
   out.auto = auto;
   return out;
+}
+
+// PERILLAS DEL MÁSTER → CURVAS (7.2): las que se movieron en la toma. Las que componen con la voz
+// (reverb, eco, crush) y las que el motor fija (filtro DJ, drive) quedan a cero: la curva lleva el
+// movimiento; el nivel de los retornos se queda donde estaba (manda la curva mientras suena).
+const M_KEYS: [keyof JamMasterState, 'mfilt' | 'mdrive' | 'mroom' | 'mdelay' | 'mcrush' | 'rv' | 'dl', 'filter' | 'drive' | 'room' | 'delay' | 'crush' | null][] = [
+  ['filter', 'mfilt', 'filter'],
+  ['drive', 'mdrive', 'drive'],
+  ['room', 'mroom', 'room'],
+  ['delay', 'mdelay', 'delay'],
+  ['crush', 'mcrush', 'crush'],
+  ['rv', 'rv', null],
+  ['dl', 'dl', null],
+];
+export function masterCurves(take: JamTake, bars: number): JamBuild['master'] | null {
+  const ss = take.samples.filter((x) => x.t < bars && x.master);
+  if (ss.length < 2) return null;
+  const auto: TrackAuto = {};
+  const reset: NonNullable<JamBuild['master']>['reset'] = {};
+  for (const [k, p, knob] of M_KEYS) {
+    const vs = ss.map((x) => Number(x.master![k]) || 0);
+    const span = Math.max(...vs) - Math.min(...vs);
+    if (span <= (k === 'rv' || k === 'dl' ? 0.3 : 0.02)) continue; // dB en los retornos
+    auto[p] = simplify(ss.map((x) => [x.t, Math.round((Number(x.master![k]) || 0) * 1000) / 1000] as AutoPoint), k === 'rv' || k === 'dl' ? 0.2 : 0.015);
+    if (knob) reset[knob] = 0;
+  }
+  return Object.keys(auto).length ? { auto, reset } : null;
 }
 
 // --- muestreo en vivo ------------------------------------------------------------------

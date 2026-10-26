@@ -1,24 +1,47 @@
-// AUTOMATIZACIÓN por pista (Modo DAW, Fase 3.1): curvas de VOLUMEN y FILTRO dibujadas sobre
-// los compases de la canción. Puntos [compás, valor] con rampas lineales entre ellos; antes del
-// primero vale el primero y después del último, el último. Se repite con la canción.
+// AUTOMATIZACIÓN (Modo DAW, Fase 3.1; Fase 7.2 «cualquier perilla»): curvas dibujadas —o
+// grabadas en el jam— sobre los compases de la canción. Puntos [compás, valor] con rampas lineales
+// entre ellos; antes del primero vale el primero y después del último, el último. Se repite con la
+// canción.
 //
-// Se compila como SUFIJO del Source (regla 1): un `.withHap(...)` que lee el compás de la
-// canción del PROPIO evento (`hap.whole.begin`) — por eso sigue bien con «tocar desde», el
-// loop de región y cada vuelta — y:
-//   · volumen → multiplica `velocity` (superdough: gain × velocity) → sin salto de nivel;
-//   · filtro  → compone `cutoff`/`hcutoff` con los de la voz (un paso-bajo nunca ABRE uno más
-//     oscuro; un paso-alto nunca BAJA uno más fino), misma curva que la perilla del canal.
+// Dos sitios:
+//   · por PISTA (data.auto del Source): volumen, filtro, paneo y los envíos a los retornos;
+//   · del MÁSTER (data.auto del nodo Out): filtro DJ, drive, reverb/eco/crush del máster y el nivel
+//     de los dos retornos.
+// Y dos maneras de sonar, según dónde vive cada perilla:
+//   · en el CÓDIGO (regla 1): un sufijo `.withHap(...)` que lee el compás del PROPIO evento
+//     (`hap.whole.begin`) — sigue bien con «tocar desde», el loop de región y cada vuelta:
+//       volumen → multiplica `velocity`; filtro → compone `cutoff`/`hcutoff` con la voz (un
+//       paso-bajo nunca ABRE uno más oscuro); paneo → fija `pan`; reverb/eco/crush del máster →
+//       componen con lo que cada voz ya trae (como sus perillas);
+//   · en el MOTOR (Web Audio, sin recompilar): envíos, filtro DJ y drive del bus y nivel de los
+//     retornos. En vivo los mueve audio/autoRunner (a ~30 por segundo, en el compás que suena);
+//     al exportar se agendan exactos sobre los AudioParam del render.
+// Mientras una perilla del motor tiene curva, manda la curva (la perilla vale con ■).
 export type AutoPoint = [number, number]; // [compás (desde 0, fraccional), valor]
-export type AutoParam = 'vol' | 'filt';
-export interface TrackAuto {
-  vol?: AutoPoint[];
-  filt?: AutoPoint[];
-}
+export type TrackParam = 'vol' | 'filt' | 'pan' | 'rev' | 'del';
+export type MasterParam = 'mfilt' | 'mdrive' | 'mroom' | 'mdelay' | 'mcrush' | 'rv' | 'dl';
+export type AutoParam = TrackParam | MasterParam;
+export type TrackAuto = Partial<Record<AutoParam, AutoPoint[]>>;
 
-export const AUTO_RANGE: Record<AutoParam, { min: number; max: number; neutral: number; label: string }> = {
-  vol: { min: 0, max: 1.5, neutral: 1, label: 'volumen' },
-  filt: { min: -1, max: 1, neutral: 0, label: 'filtro' },
+// mode: 'mul' multiplica (neutro 1), 'compose' compone con la voz (neutro = no hace nada),
+// 'set' fija el valor (activa en cuanto tiene un punto). where: código o motor.
+export const AUTO_RANGE: Record<AutoParam, { min: number; max: number; neutral: number; label: string; mode: 'mul' | 'compose' | 'set'; where: 'code' | 'engine' }> = {
+  vol: { min: 0, max: 1.5, neutral: 1, label: 'volumen', mode: 'mul', where: 'code' },
+  filt: { min: -1, max: 1, neutral: 0, label: 'filtro', mode: 'compose', where: 'code' },
+  pan: { min: 0, max: 1, neutral: 0.5, label: 'paneo', mode: 'set', where: 'code' },
+  rev: { min: 0, max: 1, neutral: 0, label: 'envío reverb', mode: 'set', where: 'engine' },
+  del: { min: 0, max: 1, neutral: 0, label: 'envío eco', mode: 'set', where: 'engine' },
+  mfilt: { min: -1, max: 1, neutral: 0, label: 'filtro DJ', mode: 'set', where: 'engine' },
+  mdrive: { min: 0, max: 1, neutral: 0, label: 'drive', mode: 'set', where: 'engine' },
+  mroom: { min: 0, max: 0.8, neutral: 0, label: 'reverb (room)', mode: 'compose', where: 'code' },
+  mdelay: { min: 0, max: 1, neutral: 0, label: 'eco (delay)', mode: 'compose', where: 'code' },
+  mcrush: { min: 0, max: 1, neutral: 0, label: 'crush', mode: 'compose', where: 'code' },
+  rv: { min: -30, max: 6, neutral: 0, label: 'retorno reverb (dB)', mode: 'set', where: 'engine' },
+  dl: { min: -30, max: 6, neutral: 0, label: 'retorno eco (dB)', mode: 'set', where: 'engine' },
 };
+export const TRACK_PARAMS: TrackParam[] = ['vol', 'filt', 'pan', 'rev', 'del'];
+export const MASTER_PARAMS: MasterParam[] = ['mfilt', 'mdrive', 'mroom', 'mdelay', 'mcrush', 'rv', 'dl'];
+const ALL_PARAMS = [...TRACK_PARAMS, ...MASTER_PARAMS] as AutoParam[];
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
 const clampV = (p: AutoParam, v: number) => Math.max(AUTO_RANGE[p].min, Math.min(AUTO_RANGE[p].max, Number(v) || 0));
@@ -80,16 +103,25 @@ export function cleanAuto(a: unknown): TrackAuto {
   if (!a || typeof a !== 'object') return {};
   const o = a as Record<string, unknown>;
   const out: TrackAuto = {};
-  const vol = cleanPoints(o.vol, 'vol');
-  const filt = cleanPoints(o.filt, 'filt');
-  if (vol.length) out.vol = vol;
-  if (filt.length) out.filt = filt;
+  for (const p of ALL_PARAMS) {
+    const pts = cleanPoints(o[p], p);
+    if (pts.length) out[p] = pts;
+  }
   return out;
 }
 
-// ¿la curva hace algo? (al menos un punto fuera del valor neutro)
+// ¿la curva hace algo? Las que FIJAN un valor, en cuanto tienen un punto; las demás, si algún
+// punto se aparta del neutro.
 export function isActive(pts: unknown, p: AutoParam): boolean {
-  return cleanPoints(pts, p).some((x) => Math.abs(x[1] - AUTO_RANGE[p].neutral) > 1e-3);
+  const c = cleanPoints(pts, p);
+  if (AUTO_RANGE[p].mode === 'set') return c.length > 0;
+  return c.some((x) => Math.abs(x[1] - AUTO_RANGE[p].neutral) > 1e-3);
+}
+
+// valor de la curva en el compás de canción `bar`, repitiendo cada L compases (L ≤ 0: sin repetir)
+export function curveAt(pts: AutoPoint[], bar: number, L: number): number {
+  const x = L > 0 ? ((bar % L) + L) % L : bar;
+  return valueAt(pts, x);
 }
 
 // Función JS (texto) de la curva con repetición cada L compases (L ≤ 0: sin repetir).
@@ -103,15 +135,71 @@ function curveFn(pts: AutoPoint[], L: number): string {
 export function automationSuffix(auto: unknown, songBars: number): string {
   const a = cleanAuto(auto);
   const L = Number.isFinite(songBars) && songBars > 0 ? songBars : 0;
-  const vol = a.vol && isActive(a.vol, 'vol') ? curveFn(a.vol, L) : 'null';
-  const filt = a.filt && isActive(a.filt, 'filt') ? curveFn(a.filt, L) : 'null';
-  if (vol === 'null' && filt === 'null') return '';
+  const fn = (p: AutoParam) => (a[p] && isActive(a[p], p) ? curveFn(a[p]!, L) : 'null');
+  const vol = fn('vol');
+  const filt = fn('filt');
+  const pan = fn('pan');
+  if (vol === 'null' && filt === 'null' && pan === 'null') return '';
   return (
-    `.withHap(((V,F)=>h=>{const t=h.whole?Number(h.whole.begin):0;return h.withValue(v=>{const o=Object.assign({},v);` +
+    `.withHap(((V,F,P)=>h=>{const t=h.whole?Number(h.whole.begin):0;return h.withValue(v=>{const o=Object.assign({},v);` +
     `if(V){o.velocity=(v.velocity==null?1:v.velocity)*V(t)}` +
     `if(F){const f=F(t);if(f<-0.02)o.cutoff=Math.min(+v.cutoff||20000,18000*Math.pow(100/18000,-f));else if(f>0.02)o.hcutoff=Math.max(+v.hcutoff||0,20*Math.pow(5000/20,f))}` +
-    `return o})})(${vol},${filt}))`
+    `if(P){o.pan=P(t)}` +
+    `return o})})(${vol},${filt},${pan}))`
   );
+}
+
+// Sufijo de automatización del MÁSTER sobre la mezcla entera (reverb/eco/crush, que viven en el
+// código): COMPONEN con lo que cada voz trae — igual que sus perillas del máster.
+export function masterAutomationSuffix(auto: unknown, songBars: number): string {
+  const a = cleanAuto(auto);
+  const L = Number.isFinite(songBars) && songBars > 0 ? songBars : 0;
+  const fn = (p: AutoParam) => (a[p] && isActive(a[p], p) ? curveFn(a[p]!, L) : 'null');
+  const room = fn('mroom');
+  const dly = fn('mdelay');
+  const crush = fn('mcrush');
+  if (room === 'null' && dly === 'null' && crush === 'null') return '';
+  return (
+    `.withHap(((R,D,C)=>h=>{const t=h.whole?Number(h.whole.begin):0;return h.withValue(v=>{const o=Object.assign({},v);` +
+    `if(R){const r=R(t);if(r>0.005)o.room=1-(1-(+v.room||0))*(1-r)}` +
+    `if(D){const d=D(t);if(d>0.005)o.delay=1-(1-(+v.delay||0))*(1-d)}` +
+    `if(C){const c=C(t);if(c>0.02)o.crush=Math.min(+v.crush||16,16-c*12)}` +
+    `return o})})(${room},${dly},${crush}))`
+  );
+}
+
+// Curvas que mueve el MOTOR (no el código): los envíos de cada pista y el filtro DJ, el drive y los
+// retornos del máster. Lo usan el autoRunner (en vivo) y el render (al exportar).
+export interface EngineAuto {
+  bars: number; // compases de la canción (las curvas se repiten con ella; 0 = sin repetir)
+  sends: Record<string, { rev?: AutoPoint[]; del?: AutoPoint[] }>; // por id de pista
+  master: { mfilt?: AutoPoint[]; mdrive?: AutoPoint[]; rv?: AutoPoint[]; dl?: AutoPoint[] };
+}
+export function engineAutomation(nodes: { id: string; data: { kind?: string; auto?: unknown } }[], songBars: number): EngineAuto {
+  const out: EngineAuto = { bars: Number.isFinite(songBars) && songBars > 0 ? songBars : 0, sends: {}, master: {} };
+  const outNode = nodes.find((n) => n.data.kind === 'out');
+  const ma = cleanAuto(outNode?.data.auto);
+  for (const p of ['mfilt', 'mdrive', 'rv', 'dl'] as const) if (ma[p] && isActive(ma[p], p)) out.master[p] = ma[p];
+  for (const n of nodes) {
+    if (n.data.kind !== 'source') continue;
+    const a = cleanAuto(n.data.auto);
+    const s: { rev?: AutoPoint[]; del?: AutoPoint[] } = {};
+    if (a.rev && isActive(a.rev, 'rev')) s.rev = a.rev;
+    if (a.del && isActive(a.del, 'del')) s.del = a.del;
+    if (s.rev || s.del) out.sends[n.id] = s;
+  }
+  return out;
+}
+export const hasEngineAuto = (e: EngineAuto) => Object.keys(e.master).length > 0 || Object.keys(e.sends).length > 0;
+
+// muestras de una curva para agendarla en un AudioParam (setValueCurveAtTime): de `bar0` a `bar1`
+// a `rate` valores por segundo (`cps` ciclos por segundo), pasadas por `map` (valor → parámetro)
+export function curveSamples(pts: AutoPoint[], L: number, bar0: number, bar1: number, cps: number, rate = 200, map: (v: number) => number = (v) => v): Float32Array {
+  const dur = Math.max(0, (bar1 - bar0) / cps);
+  const n = Math.max(2, Math.ceil(dur * rate) + 1);
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = map(curveAt(pts, bar0 + ((bar1 - bar0) * i) / (n - 1), L));
+  return out;
 }
 
 // Quita puntos redundantes (los que caen en la recta entre sus vecinos ± tol) — para las

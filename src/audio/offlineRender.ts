@@ -25,6 +25,8 @@ import {
   endOfflineRender,
   createOfflineMasterBus,
   busFromMaster,
+  djLpFreq,
+  djHpFreq,
   buildChanEq,
   setChanStrip,
   type ChanEqChain,
@@ -33,7 +35,8 @@ import {
 import type { BakedSection } from '../lib/songBake';
 import { ensureCompModule } from './chanComp';
 import { returnsFor } from './fxReturns';
-import { returnsFromMaster } from '../lib/returns';
+import { returnsFromMaster, dbToGain } from '../lib/returns';
+import { curveAt, curveSamples, type EngineAuto } from '../lib/automation';
 import type { ChannelEqRoute } from '../graph/compile';
 
 // superdough reutiliza nodos (un pool global que no mira el contexto): un nodo del audio en vivo
@@ -66,6 +69,7 @@ export interface OfflineRenderOpts {
   sections: BakedSection[]; // máster y EQ por canal de cada sección (compases de canción)
   bus: boolean; // false = stem (sin el bus del máster)
   beatSec?: number; // duración de un pulso (s): el eco del retorno compartido va a tempo (6.4)
+  auto?: EngineAuto; // curvas del motor (envíos y nivel de los retornos, 7.2)
   tailMax?: number; // s de cola como máximo (por defecto 10)
   onProgress?: (f: number) => void;
   isCancelled?: () => boolean;
@@ -81,6 +85,7 @@ export async function renderBusOver(o: {
   start: number;
   sections: BakedSection[];
   loudDb?: number;
+  auto?: EngineAuto; // filtro DJ y drive automatizados (7.2)
 }): Promise<AudioBuffer> {
   const sr = o.input.sampleRate;
   const cps = o.cps > 0 ? o.cps : 0.5;
@@ -97,10 +102,35 @@ export async function renderBusOver(o: {
     return o.sections.find((s) => x >= s.start && x < s.start + s.bars) ?? o.sections[0];
   };
   const settings = (sec: BakedSection | undefined) => ({ ...busFromMaster(sec?.master ?? {}), loud: o.loudDb ?? 0 });
-  const bus = await createOfflineMasterBus(off, pre, settings(sectionAt(o.start)));
+  const fa = o.auto?.master.mfilt;
+  const da = o.auto?.master.mdrive;
+  const bus = await createOfflineMasterBus(off, pre, settings(sectionAt(o.start)), { filter: !!fa, drive: !!da });
   // fronteras de sección dentro del tramo (en segundos desde el inicio)
   const dur = o.input.length / sr;
   const used = new Set<number>();
+  // AUTOMATIZACIÓN del bus (7.2): el filtro DJ, curva exacta; el drive, a pasos de 1/16 de compás
+  const L = o.auto?.bars ?? 0;
+  const endBar = o.start + dur * cps;
+  if (fa) {
+    const clampF = (f: number) => Math.max(-1, Math.min(1, f));
+    try {
+      bus.djLp.cancelScheduledValues(0);
+      bus.djHp.cancelScheduledValues(0);
+      bus.djLp.setValueCurveAtTime(curveSamples(fa, L, o.start, endBar, cps, 200, (f) => djLpFreq(clampF(f))), 0, dur);
+      bus.djHp.setValueCurveAtTime(curveSamples(fa, L, o.start, endBar, cps, 200, (f) => djHpFreq(clampF(f))), 0, dur);
+    } catch { /* sin curva: queda la perilla */ }
+  }
+  if (da) {
+    bus.setDrive(curveAt(da, o.start, L));
+    const stepS = 1 / 16 / cps;
+    for (let t = stepS; t < dur; t += stepS) {
+      let q = Math.round((t * sr) / 128) * 128 / sr;
+      while (used.has(q)) q += 128 / sr;
+      used.add(q);
+      const b = o.start + t * cps;
+      off.suspend(q).then(() => { bus.setDrive(curveAt(da, b, L)); off.resume(); });
+    }
+  }
   if (total > 0) {
     for (let k = Math.floor(o.start / total) * total; (k - o.start) / cps < dur; k += total) {
       for (const s of o.sections) {
@@ -192,12 +222,19 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
 
     // RETORNOS COMPARTIDOS (6.4): solo si alguna pista manda algo en alguna sección
     const beatSec = o.beatSec && o.beatSec > 0 ? o.beatSec : 1 / (cps * 4);
-    const sendsOn = o.sections.some((s) => s.channelEqs.some((r) => (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005));
+    const sendsOn = o.sections.some((s) => s.channelEqs.some((r) => r.autoSends || (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005));
     const rets = sendsOn && ctrl.output?.destinationGain ? returnsFor(off) : null;
+    const autoL = o.auto?.bars ?? 0;
+    const endBar = o.start + (musical + tailMax) * cps; // las curvas siguen hasta el final de la cola
     if (rets) {
       rets.set(returnsFromMaster(first?.master), beatSec, 0);
       await rets.ready; // un IR tuyo se decodifica antes de renderizar
       rets.connectTo(ctrl.output!.destinationGain!, (n) => ctrl.output?.connectToDestination?.(n, [0, 1]));
+      // nivel de los retornos automatizado (7.2): la curva entera, exacta
+      for (const w of ['rv', 'dl'] as const) {
+        const pts = o.auto?.master[w];
+        if (pts) rets.automateLevel(w, curveSamples(pts, autoL, o.start, endBar, cps, 200, dbToGain), 0, (endBar - o.start) / cps);
+      }
     }
 
     // EQ por canal sobre los orbits offline (se crean al primer evento de cada canal)
@@ -212,6 +249,22 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
           st = buildChanEq(off, ctrl, src, r.orbit);
           if (!st) continue;
           eqChains.set(r.orbit, st);
+          // envíos automatizados (7.2): desde que existe la tira hasta el final, exactos
+          const sa = r.source ? o.auto?.sends[r.source] : undefined;
+          if (sa) {
+            const t0 = off.currentTime;
+            const b0 = o.start + t0 * cps;
+            for (const w of ['rev', 'del'] as const) {
+              const pts = sa[w];
+              if (!pts) continue;
+              const g = w === 'rev' ? st.rev.gain : st.del.gain;
+              try {
+                g.cancelScheduledValues(t0);
+                g.setValueCurveAtTime(curveSamples(pts, autoL, b0, endBar, cps, 200, (v) => Math.max(0, Math.min(1, v))), t0, Math.max(0.001, (endBar - b0) / cps));
+                st.autoSend = { ...(st.autoSend ?? {}), [w]: true };
+              } catch { /* sin curva: queda la perilla */ }
+            }
+          }
         }
         setChanStrip(st, r); // EQ + compresor de la sección (6.1)
       }
