@@ -10,6 +10,7 @@
 // código dentro del string compilado: eso permite mapear los eventos activos
 // (hap.context.locations, en coords del código evaluado) de vuelta a su editor
 // para resaltar qué se está tocando, como en strudel.cc.
+import { cleanSends, sendsActive, RETURN_RANGES, DEFAULT_RETURNS } from '../lib/returns';
 import type { Edge, Node } from '@xyflow/react';
 import { automationSuffix } from '../lib/automation';
 import type { NodeData, SynthParams, VoiceParams } from './types';
@@ -46,6 +47,7 @@ export interface ChannelEqRoute {
   high: number;
   midFreq: number;
   comp: { thr: number; ratio: number; att: number; rel: number; makeup: number } | null;
+  sends: { rev: number; del: number }; // envíos a los retornos compartidos (6.4), desde la tira
 }
 
 export interface CompileResult {
@@ -180,6 +182,18 @@ export interface MasterFx {
   eqLow?: number; // −12..+12 dB (shelf graves)
   eqMid?: number; // −12..+12 dB (peak medios)
   eqHigh?: number; // −12..+12 dB (shelf agudos)
+  // RETORNOS COMPARTIDOS (Fase 6.4): reverb y eco a tempo con su EQ y su nivel. Los aplica el
+  // motor (audio/fxReturns.ts), no el código: no recompilan. Rangos y valores: lib/returns.ts.
+  rvSpace?: string;
+  rvLevel?: number;
+  rvPre?: number;
+  rvLow?: number;
+  rvHigh?: number;
+  dlNote?: number;
+  dlFb?: number;
+  dlLow?: number;
+  dlHigh?: number;
+  dlLevel?: number;
 }
 
 // ¿La fuente es un SAMPLE (s("kick")) o un OSCILADOR (note()/s("sawtooth"))? Un
@@ -649,6 +663,15 @@ const MASTER_RANGES: { key: keyof MasterFx; min: number; max: number; def: numbe
   { key: 'glue', min: 0, max: 1, def: 0, label: 'glue' },
   { key: 'sat', min: 0, max: 1, def: 0, label: 'saturador de bus' },
   { key: 'width', min: 0, max: 2, def: 1, label: 'ancho' },
+  { key: 'rvLevel', min: RETURN_RANGES.rvLevel[0], max: RETURN_RANGES.rvLevel[1], def: DEFAULT_RETURNS.rvLevel, label: 'nivel del retorno de reverb' },
+  { key: 'rvPre', min: RETURN_RANGES.rvPre[0], max: RETURN_RANGES.rvPre[1], def: DEFAULT_RETURNS.rvPre, label: 'pre-delay de la reverb' },
+  { key: 'rvLow', min: RETURN_RANGES.rvLow[0], max: RETURN_RANGES.rvLow[1], def: DEFAULT_RETURNS.rvLow, label: 'corte de graves de la reverb' },
+  { key: 'rvHigh', min: RETURN_RANGES.rvHigh[0], max: RETURN_RANGES.rvHigh[1], def: DEFAULT_RETURNS.rvHigh, label: 'corte de agudos de la reverb' },
+  { key: 'dlNote', min: RETURN_RANGES.dlNote[0], max: RETURN_RANGES.dlNote[1], def: DEFAULT_RETURNS.dlNote, label: 'división del eco' },
+  { key: 'dlFb', min: RETURN_RANGES.dlFb[0], max: RETURN_RANGES.dlFb[1], def: DEFAULT_RETURNS.dlFb, label: 'realimentación del eco' },
+  { key: 'dlLow', min: RETURN_RANGES.dlLow[0], max: RETURN_RANGES.dlLow[1], def: DEFAULT_RETURNS.dlLow, label: 'corte de graves del eco' },
+  { key: 'dlHigh', min: RETURN_RANGES.dlHigh[0], max: RETURN_RANGES.dlHigh[1], def: DEFAULT_RETURNS.dlHigh, label: 'corte de agudos del eco' },
+  { key: 'dlLevel', min: RETURN_RANGES.dlLevel[0], max: RETURN_RANGES.dlLevel[1], def: DEFAULT_RETURNS.dlLevel, label: 'nivel del retorno de eco' },
 ];
 const fmtN = (n: number): string => String(Number(n.toFixed(2)));
 
@@ -710,9 +733,9 @@ export function duckSidechainIds(nodes: N[]): string[] {
   return out;
 }
 
-// Sources con tira de canal activa (EQ o compresor): reciben un orbit propio.
+// Sources con tira de canal activa (EQ, compresor o envíos a los retornos): reciben un orbit propio.
 export function eqSourceIds(nodes: N[]): string[] {
-  return nodes.filter((n) => n.data.kind === 'source' && (channelEqActive(n.data.eq) || channelCompActive(n.data.comp))).map((n) => n.id);
+  return nodes.filter((n) => n.data.kind === 'source' && (channelEqActive(n.data.eq) || channelCompActive(n.data.comp) || sendsActive(n.data.sends))).map((n) => n.id);
 }
 
 const clampN = (x: unknown, a: number, b: number, d: number) => {
@@ -794,10 +817,11 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
     if (n.data.kind !== 'source') continue;
     const eqOn = channelEqActive(n.data.eq);
     const comp = compRoute(n.data.comp);
+    const sendsOn = sendsActive(n.data.sends);
     const planned = plan?.eq.get(n.id);
-    // con plan: TODA pista del plan va a su orbit (EQ plano / compresor en bypass en las
-    // secciones donde no lo tiene)
-    if (!eqOn && !comp && planned == null) continue;
+    // con plan: TODA pista del plan va a su orbit (EQ plano / compresor en bypass / envíos a 0 en
+    // las secciones donde no los tiene)
+    if (!eqOn && !comp && !sendsOn && planned == null) continue;
     const eq = eqOn ? n.data.eq! : { low: 0, mid: 0, high: 0 };
     const orbit = planned ?? nextOrbit++;
     eqOrbitBySource.set(n.id, orbit);
@@ -810,6 +834,7 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
       high: Math.max(-30, Math.min(15, eq.high ?? 0)),
       midFreq: Math.max(200, Math.min(8000, (eq as { midFreq?: number }).midFreq ?? 1000)),
       comp,
+      sends: cleanSends(n.data.sends),
     });
   }
 

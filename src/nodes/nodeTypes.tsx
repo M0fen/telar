@@ -664,6 +664,15 @@ function SourceNode({ id, data, selected }: NodeProps) {
               >
                 eco
               </button>
+              {/* ENVÍOS a los retornos compartidos (6.4): una reverb y un eco para todo el tema */}
+              <label title="envío a la REVERB compartida (después del EQ, el compresor y el fader). Su espacio y su EQ: panel del máster › retornos">
+                <span>→rev</span>
+                <Knob value={d.sends?.rev ?? 0} min={0} max={1} step={0.01} size={18} defaultValue={0} label="envío a la reverb" onChange={(v) => update(id, { sends: { ...(d.sends ?? {}), rev: v } })} />
+              </label>
+              <label title="envío al ECO compartido, a tempo (después del EQ, el compresor y el fader). División y EQ: panel del máster › retornos">
+                <span>→eco</span>
+                <Knob value={d.sends?.del ?? 0} min={0} max={1} step={0.01} size={18} defaultValue={0} label="envío al eco" onChange={(v) => update(id, { sends: { ...(d.sends ?? {}), del: v } })} />
+              </label>
               <ChannelEqStrip id={id} data={d} />
               <ChannelCompStrip id={id} data={d} />
             </div>

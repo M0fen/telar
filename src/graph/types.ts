@@ -315,6 +315,7 @@ export interface NodeData {
   chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)
   comp?: ChannelComp; // compresor del canal (Fase 6.1), después del EQ en el mismo orbit
+  sends?: { rev?: number; del?: number }; // envíos a los retornos compartidos de reverb y eco (Fase 6.4), 0..1
   // LOOP AL TEMPO (Fase 5.2): el sample `warp.name` del código es la copia del loop original
   // estirada (Rubber Band) al BPM del tema; ver lib/loopWarp.ts y audio/warpLoops.ts.
   warp?: WarpInfo;

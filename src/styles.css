@@ -336,6 +336,13 @@ body {
 .perf-lufs-nums .over b { color: #e8d16a; }
 .perf-lufs-nums .clip b { color: #e46a6a; }
 .perf-lufs-nums .gr b { color: #6ab0e8; }
+/* RETORNOS COMPARTIDOS (Fase 6.4): reverb y eco con su EQ */
+.perf-ret { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 6px; }
+.perf-ret-head { display: flex; align-items: baseline; gap: 8px; }
+.perf-ret-hint { font-size: 9px; color: var(--faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.perf-ret-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.perf-ret-tag { flex: none; width: 44px; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.perf-ret-row .perf-space-sel { flex: none; width: 92px; }
 /* MARGEN (Fase 6.2): la suma antes del máster. Escala −60…+6 dBFS; 0 dBFS al 90,9 %, −6 al 81,8 % */
 .perf-hr { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 5px; }
 .perf-hr-head { display: flex; align-items: center; gap: 8px; }

@@ -1,6 +1,7 @@
 import { samples, getAudioContext } from '@strudel/web';
 import { ensureEngine } from './engine';
-import { BUILTIN_IRS, registerUserIr, type IrDef } from './irRegistry';
+import { registerUserIr, type IrDef } from './irRegistry';
+import { genIrStereo, IR_SPACES } from '../lib/irGen';
 import { useIrStore } from '../store/useIrStore';
 
 // REVERB POR IMPULSO (IR): superdough soporta `.ir("<sample>")` — carga una muestra
@@ -16,65 +17,9 @@ import { useIrStore } from '../store/useIrStore';
 // La DURACIÓN vive en irRegistry.ts (fuente única) para que el compilador emita el
 // roomsize exacto y no trunque/repita la cola.
 
-export interface IrSpace extends IrDef { decay: number; damp: number; predelay: number }
-
-// Parámetros de generación por espacio (la duración/label salen de BUILTIN_IRS):
-// decay=curva (mayor=cae antes), damp=oscuridad del tail (0..1, LPF de un polo),
-// predelay=hueco inicial (s).
-const GEN: Record<string, { decay: number; damp: number; predelay: number }> = {
-  ir_room: { decay: 1.0, damp: 0.35, predelay: 0.004 },
-  ir_plate: { decay: 0.85, damp: 0.12, predelay: 0.002 },
-  ir_chamber: { decay: 0.95, damp: 0.3, predelay: 0.008 },
-  ir_hall: { decay: 0.9, damp: 0.45, predelay: 0.012 },
-  ir_cathedral: { decay: 0.95, damp: 0.6, predelay: 0.02 },
-  ir_spring: { decay: 1.4, damp: 0.2, predelay: 0.001 },
-};
-
-export const IR_SPACES: IrSpace[] = BUILTIN_IRS.map((b) => ({
-  ...b,
-  ...(GEN[b.name] ?? { decay: 1.0, damp: 0.35, predelay: 0.004 }),
-}));
+export { IR_SPACES, type IrSpace } from '../lib/irGen';
 
 const SR = 44100;
-
-// Genera un canal de IR: ruido * envolvente exp, con amortiguación (LPF de un polo),
-// pre-delay y unas reflexiones tempranas para dar cuerpo.
-function genChannel(sp: IrSpace, seed: number): Float32Array {
-  const n = Math.max(1, Math.floor(sp.duration * SR));
-  const out = new Float32Array(n);
-  // PRNG determinista simple (mulberry32) → IRs reproducibles entre sesiones.
-  let s = seed >>> 0;
-  const rnd = () => {
-    s |= 0; s = (s + 0x6d2b79f5) | 0;
-    let t = Math.imul(s ^ (s >>> 15), 1 | s);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-  const pre = Math.floor(sp.predelay * SR);
-  const k = sp.decay * (6.9 / sp.duration); // -60 dB ≈ al final de la cola
-  const a = 1 - sp.damp; // coef. del LPF de un polo (más damp = tail más oscuro)
-  let lp = 0;
-  // reflexiones tempranas (ms): pequeños picos que dan sensación de espacio
-  const early = [0.007, 0.011, 0.017, 0.023, 0.031].map((t) => Math.floor(t * SR) + pre);
-  for (let i = pre; i < n; i++) {
-    const t = (i - pre) / SR;
-    const env = Math.exp(-k * t);
-    let x = (rnd() * 2 - 1) * env;
-    lp = lp + a * (x - lp); // paso-bajo de un polo (amortigua agudos del tail)
-    x = lp;
-    for (let e = 0; e < early.length; e++) if (i === early[e]) x += (0.5 - e * 0.08) * (rnd() * 2 - 1);
-    out[i] = x;
-  }
-  // fade-in cortito para evitar click en el arranque
-  const f = Math.min(64, n);
-  for (let i = 0; i < f; i++) out[i] *= i / f;
-  // normaliza a un pico razonable
-  let peak = 1e-6;
-  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(out[i]));
-  const g = 0.9 / peak;
-  for (let i = 0; i < n; i++) out[i] *= g;
-  return out;
-}
 
 // WAV estéreo PCM float32 (IEEE) desde dos canales.
 function encodeWavStereo(L: Float32Array, R: Float32Array, sampleRate: number): Blob {
@@ -100,11 +45,9 @@ export async function registerIrReverbs(): Promise<void> {
   if (done) return;
   await ensureEngine();
   const map: Record<string, string> = {};
-  for (let i = 0; i < IR_SPACES.length; i++) {
-    const sp = IR_SPACES[i];
-    const L = genChannel(sp, 1000 + i * 7);
-    const R = genChannel(sp, 5000 + i * 13); // otra semilla → decorrelación estéreo (anchura)
-    map[sp.name] = URL.createObjectURL(encodeWavStereo(L, R, SR));
+  for (const sp of IR_SPACES) {
+    const lr = genIrStereo(sp.name, SR); // dos semillas → decorrelación estéreo (anchura)
+    if (lr) map[sp.name] = URL.createObjectURL(encodeWavStereo(lr[0], lr[1], SR));
   }
   await samples(map);
   done = true;
@@ -144,7 +87,7 @@ export async function registerIrFiles(files: File[] | FileList): Promise<IrDef[]
     }
     const name = irSlug(f.name);
     map[name] = URL.createObjectURL(f);
-    const def: IrDef = { name, label: name.replace(/^ir_u_/, '').replace(/_/g, ' ').slice(0, 22), duration, user: true };
+    const def: IrDef = { name, label: name.replace(/^ir_u_/, '').replace(/_/g, ' ').slice(0, 22), duration, user: true, url: map[name] };
     registerUserIr(def); // registro puro (lo lee el compilador)
     added.push(def);
   }

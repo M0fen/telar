@@ -10,6 +10,7 @@
 //   - getAnalyserById(id) devuelve un AnalyserNode de Web Audio; se crea cuando
 //     un patrón aplica .analyze(id) y suena por primera vez.
 import { ensureCompModule, compModuleReady, createCompNode, setCompParams, getOrbitGr, type CompRoute } from './chanComp';
+import { returnsFor, applyLiveReturns } from './fxReturns';
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames, createLimiterFor } from './masterLimiter';
@@ -886,11 +887,12 @@ export async function getMasterPostLatency(): Promise<number> {
 // y cut, que superdough no ofrece en el patrón. Mismo patrón defensivo que el
 // máster: todo en try/catch, y si el orbit aún no existe (se crea al primer evento)
 // se reintenta tras el siguiente swap.
-interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null }
+interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null; sends?: { rev: number; del: number } }
 export interface SdOrbit { output?: AudioNode }
-export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void }; getOrbit?: (orbit: number, chans: number[]) => SdOrbit }
-// tira de canal: EQ de 3 bandas → compresor (si su procesador está cargado en ese contexto) → salida
-export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; src: AudioNode; ctx: BaseAudioContext }
+export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void; destinationGain?: AudioNode }; getOrbit?: (orbit: number, chans: number[]) => SdOrbit }
+// tira de canal: EQ de 3 bandas → compresor (si su procesador está cargado en ese contexto) → salida,
+// y de la salida, los dos ENVÍOS a los retornos compartidos (6.4: post EQ, compresor y fader)
+export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; rev: GainNode; del: GainNode; src: AudioNode; ctx: BaseAudioContext }
 
 let channelEqRoutes: ChannelEqRouteRT[] = [];
 const chanEqChains = new Map<number, ChanEqChain>();
@@ -923,6 +925,16 @@ export function setChanStrip(st: ChanEqChain, r: ChannelEqRouteRT): void {
   st.mid.frequency.value = r.midFreq;
   st.high.gain.value = r.high;
   if (st.comp) setCompParams(st.comp, r.comp ?? null);
+  // envíos: deslizan (sin «zipper» al girar la perilla)
+  const t = st.ctx.currentTime;
+  for (const [g, v] of [[st.rev, r.sends?.rev ?? 0], [st.del, r.sends?.del ?? 0]] as [GainNode, number][]) {
+    try {
+      g.gain.cancelScheduledValues(t);
+      g.gain.setTargetAtTime(Math.max(0, Math.min(1, v)), t, 0.015);
+    } catch {
+      g.gain.value = v;
+    }
+  }
 }
 
 function getSdController(): SdController | undefined {
@@ -939,6 +951,7 @@ function teardownChanEq(ctrl: SdController, st: ChanEqChain): void {
   try { st.out.disconnect(); } catch { /* */ }
   try { st.low.disconnect(); st.mid.disconnect(); st.high.disconnect(); } catch { /* */ }
   try { st.comp?.disconnect(); } catch { /* */ }
+  try { st.rev.disconnect(); st.del.disconnect(); } catch { /* */ }
   try { ctrl.output?.connectToDestination?.(st.src, [0, 1]); } catch { /* */ }
 }
 
@@ -953,12 +966,18 @@ export function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: Audi
     low.connect(mid); mid.connect(high);
     if (comp) { high.connect(comp); comp.connect(out); } else high.connect(out);
     if (comp) setCompParams(comp, null); // en bypass hasta que la ruta diga otra cosa
+    // envíos a los retornos compartidos de ESTE contexto (en 0 hasta que la ruta diga otra cosa)
+    const ret = returnsFor(ctx);
+    const rev = new GainNode(ctx, { gain: 0 });
+    const del = new GainNode(ctx, { gain: 0 });
+    out.connect(rev); rev.connect(ret.revIn);
+    out.connect(del); del.connect(ret.delIn);
     // el bus estaba conectado src → (panner interno de connectToDestination). Lo
     // desviamos: src → EQ → nueva salida. disconnect() quita SOLO su enlace previo.
     src.disconnect();
     src.connect(low);
     ctrl.output?.connectToDestination?.(out, [0, 1]);
-    return { orbit, low, mid, high, comp, out, src, ctx };
+    return { orbit, low, mid, high, comp, out, rev, del, src, ctx };
   } catch {
     return undefined;
   }
@@ -1013,6 +1032,10 @@ export function applyChannelEqs(): void {
       }
       setChanStrip(st, r);
     }
+    // retornos compartidos (6.4): conectados a la suma solo si alguna pista manda algo
+    const out = ctrl.output;
+    const needed = channelEqRoutes.some((r) => (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005);
+    applyLiveReturns(ctx, out?.destinationGain ?? null, (n) => out?.connectToDestination?.(n, [0, 1]), needed && !!out?.destinationGain);
   } catch {
     /* nunca romper el audio */
   }

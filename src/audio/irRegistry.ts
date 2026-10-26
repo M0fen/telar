@@ -15,6 +15,7 @@ export interface IrDef {
   label: string; // etiqueta en la UI
   duration: number; // segundos — define el roomsize exacto
   user?: boolean; // true si lo cargó el usuario (IR real importado)
+  url?: string; // el archivo del usuario (objectURL de esta sesión): lo usa el retorno de reverb
 }
 
 // Espacios de arranque (sintéticos, generados en irReverb.ts). Son el respaldo
@@ -38,6 +39,10 @@ export function registerUserIr(def: IrDef): void {
 
 export function userIrDefs(): IrDef[] {
   return [...userIrs.values()];
+}
+
+export function userIrDef(name: string): IrDef | undefined {
+  return userIrs.get(name);
 }
 
 export function allIrDefs(): IrDef[] {

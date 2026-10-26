@@ -32,6 +32,8 @@ import {
 } from './engine';
 import type { BakedSection } from '../lib/songBake';
 import { ensureCompModule } from './chanComp';
+import { returnsFor } from './fxReturns';
+import { returnsFromMaster } from '../lib/returns';
 import type { ChannelEqRoute } from '../graph/compile';
 
 // superdough reutiliza nodos (un pool global que no mira el contexto): un nodo del audio en vivo
@@ -63,6 +65,7 @@ export interface OfflineRenderOpts {
   bars: number;
   sections: BakedSection[]; // máster y EQ por canal de cada sección (compases de canción)
   bus: boolean; // false = stem (sin el bus del máster)
+  beatSec?: number; // duración de un pulso (s): el eco del retorno compartido va a tempo (6.4)
   tailMax?: number; // s de cola como máximo (por defecto 10)
   onProgress?: (f: number) => void;
   isCancelled?: () => boolean;
@@ -187,6 +190,16 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
       : null;
     const latency = bus ? bus.latencyFrames : 0;
 
+    // RETORNOS COMPARTIDOS (6.4): solo si alguna pista manda algo en alguna sección
+    const beatSec = o.beatSec && o.beatSec > 0 ? o.beatSec : 1 / (cps * 4);
+    const sendsOn = o.sections.some((s) => s.channelEqs.some((r) => (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005));
+    const rets = sendsOn && ctrl.output?.destinationGain ? returnsFor(off) : null;
+    if (rets) {
+      rets.set(returnsFromMaster(first?.master), beatSec, 0);
+      await rets.ready; // un IR tuyo se decodifica antes de renderizar
+      rets.connectTo(ctrl.output!.destinationGain!, (n) => ctrl.output?.connectToDestination?.(n, [0, 1]));
+    }
+
     // EQ por canal sobre los orbits offline (se crean al primer evento de cada canal)
     const eqChains = new Map<number, ChanEqChain>();
     let eqRoutes: ChannelEqRoute[] = first?.channelEqs ?? [];
@@ -271,6 +284,7 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
         const sec = sectionAt(b);
         if (!sec) return;
         bus?.apply(busFromMaster(sec.master));
+        rets?.set(returnsFromMaster(sec.master), beatSec);
         eqRoutes = sec.channelEqs;
         syncEq();
       });

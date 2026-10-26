@@ -22,6 +22,8 @@ import { sampleDuration } from '../lib/audioMeta';
 import { bareSampleName } from '../lib/sampleFit';
 import { cleanKey, keyScale, type SongKey } from '../lib/songKey';
 import { scaleGains, scaleStateGains } from '../lib/levels';
+import { RETURN_KEYS, returnsFromMaster } from '../lib/returns';
+import { setReturnParams, setReturnsTempoSource } from '../audio/fxReturns';
 import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
@@ -228,7 +230,8 @@ interface GraphState {
 
 // Campos del máster que viven SOLO en el bus Web Audio del motor (applyMasterBus): no
 // tocan el código del patrón → cambiarlos no necesita recompilar.
-const MASTER_BUS_KEYS = new Set(['limit', 'glue', 'sat', 'width', 'punch', 'eqLow', 'eqMid', 'eqHigh', 'filter', 'drive']);
+const MASTER_BUS_KEYS = new Set(['limit', 'glue', 'sat', 'width', 'punch', 'eqLow', 'eqMid', 'eqHigh', 'filter', 'drive', ...RETURN_KEYS]);
+const RETURN_KEY_SET = new Set<string>(RETURN_KEYS);
 
 // parámetros por defecto de una operación; la ESCALA arranca en la tonalidad del tema (5.1)
 function opParams(opId: string): Record<string, number | string> {
@@ -542,6 +545,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         'voice' in patch ||
         'eq' in patch || // EQ por canal: enruta a un orbit + setChannelEqs (antes NO recompilaba → EQ inerte)
         'comp' in patch || // compresor de canal (6.1): igual que el EQ (sin esto, tocarlo no hacía nada hasta otro cambio)
+        'sends' in patch || // envíos a los retornos (6.4): la pista necesita su tira; el valor va a la ruta
         'auto' in patch || // curvas de automatización del DAW (Fase 3.1) → sufijo .withHap
         'perf' in patch || // FX de deck momentáneos (DJ): roll/gate/echo
         'xfa' in patch // asignación de crossfader
@@ -674,7 +678,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // código): se aplican al instante y NO recompilan — antes cada tic de una perilla MIDI
       // re-evaluaba el patrón entero (~14×/s) sin cambiar nada. Lo demás recompila (throttle).
       const keys = Object.keys(patch);
-      if (keys.some((k) => MASTER_BUS_KEYS.has(k)))
+      if (keys.some((k) => MASTER_BUS_KEYS.has(k) && !RETURN_KEY_SET.has(k)))
         setMasterBus({ limit: master.limit ?? 0, glue: master.glue ?? 0, sat: master.sat ?? 0, width: master.width ?? 1, punch: master.punch ?? 0, low: master.eqLow ?? 0, mid: master.eqMid ?? 0, high: master.eqHigh ?? 0, filter: master.filter ?? 0, drive: master.drive ?? 0 });
       if (keys.some((k) => !MASTER_BUS_KEYS.has(k))) scheduleRecompile(); // hot-swap en vivo, coalescido
     },
@@ -1110,4 +1114,15 @@ useSongStore.subscribe((s, p) => {
   if (s.steps !== p.steps && songTotal(s.steps) !== songTotal(p.steps) && useGraphStore.getState().nodes.some((n) => n.data.auto)) {
     useGraphStore.getState().recompile();
   }
+});
+
+// RETORNOS COMPARTIDOS (6.4): el eco sigue el tempo del proyecto (duración de un pulso) y los
+// parámetros salen del máster — al girar una perilla, al cargar un proyecto o al disparar una escena.
+setReturnsTempoSource(() => {
+  const g = useGraphStore.getState();
+  return 1 / ((g.cps || 0.5) * (g.beatsPerCycle || 4));
+});
+setReturnParams(returnsFromMaster(useGraphStore.getState().master));
+useGraphStore.subscribe((s, p) => {
+  if (s.master !== p.master && RETURN_KEYS.some((k) => s.master[k] !== p.master[k])) setReturnParams(returnsFromMaster(s.master));
 });

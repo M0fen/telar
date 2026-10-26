@@ -6,7 +6,7 @@ import { savedProject, startupScenes, readLegacy, LEGACY_SCENES_KEY } from '../l
 
 // Escenas / bancos de patrones disparables (Fase A — performance en vivo). Una
 // escena NO recarga el grafo (eso es la galería): captura el ESTADO de mezcla de
-// cada nodo —mute, solo, gain, filtro, pan, EQ y compresor de canal y params de fx/transform—
+// cada nodo —mute, solo, gain, filtro, pan, EQ, compresor y envíos de canal y params de fx/transform—
 // MÁS el estado del MÁSTER (P2.1: un "drop" puede abrir el filtro del máster o
 // cambiar su groove), y al dispararla lo reaplica de golpe. Teclas 1–9.
 // Son PARTE DEL PROYECTO (estado por nodeId de este grafo): las guarda el autoguardado y
@@ -21,6 +21,7 @@ export interface SceneState {
   chPan?: number;
   eq?: ChannelEq;
   comp?: ChannelComp; // compresor del canal (Fase 6.1)
+  sends?: { rev?: number; del?: number }; // envíos a los retornos (Fase 6.4)
   params?: Record<string, number | string>;
 }
 
@@ -46,6 +47,7 @@ function snapshotState(): Record<string, SceneState> {
     if (typeof d.chPan === 'number') s.chPan = d.chPan;
     if (d.eq) s.eq = { ...d.eq };
     if (d.comp) s.comp = { ...d.comp };
+    if (d.sends) s.sends = { ...d.sends };
     if (d.params && Object.keys(d.params).length) s.params = { ...d.params };
     out[n.id] = s;
   }

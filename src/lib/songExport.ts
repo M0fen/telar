@@ -227,7 +227,8 @@ function prepare(only?: string | null): Prepared {
 
 // mezcla PRE-bus (stems y entrada del máster)
 async function renderPre(p: Prepared, start: number, bars: number, progress?: (f: number) => void): Promise<AudioBuffer | null> {
-  const r = await renderOffline({ code: p.code, cps: p.cps, start, bars, sections: p.sections, bus: false, onProgress: progress, isCancelled: () => cancelFlag });
+  const bpc = useGraphStore.getState().beatsPerCycle || 4;
+  const r = await renderOffline({ code: p.code, cps: p.cps, start, bars, sections: p.sections, bus: false, beatSec: 1 / (p.cps * bpc), onProgress: progress, isCancelled: () => cancelFlag });
   return r ? r.buffer : null;
 }
 
