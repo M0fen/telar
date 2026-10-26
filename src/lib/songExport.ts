@@ -358,6 +358,8 @@ export async function exportWav(start: number, bars: number, part: string): Prom
   try {
     await useGraphStore.getState().stop();
     useSongStore.getState().setLoop(false);
+    // todo lo que el tema necesita para sonar, con los loops ya estirados al BPM (Fase 5.2)
+    await useGraphStore.getState().prepareSounds({ waitWarp: true });
     let blob: Blob | null = null;
     let ext = 'wav';
     try {
@@ -407,6 +409,7 @@ export async function exportStems(tracks: { id: string; name: string }[], bars: 
   try {
     await useGraphStore.getState().stop();
     useSongStore.getState().setLoop(false);
+    await useGraphStore.getState().prepareSounds({ waitWarp: true });
     // OFFLINE: una pasada por pista (sin el bus) + la mezcla (con el bus, alineada); todas del
     // mismo largo (las más cortas se alargan con silencio)
     try {

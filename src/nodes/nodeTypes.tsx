@@ -47,6 +47,10 @@ import { wrapNumberAtCursor } from './sliderWidget';
 import { getEditor } from './highlight';
 import { registerFlowNode, unregisterFlowNode } from './signalFlow';
 import { Vu } from './Vu';
+import { useWarpStore } from '../audio/warpLoops';
+import { retuneWarp, warpExistingSource } from '../lib/warpActions';
+import { songBpmOf, warpLabel, type WarpInfo } from '../lib/loopWarp';
+import { bareSampleName } from '../lib/sampleFit';
 
 // V1a — "el grafo como señal viva": registra el DOM de este nodo para que signalFlow le
 // escriba la variable CSS `--pulse` (0..1) según lo que dispara/propaga el grafo; el CSS
@@ -298,6 +302,16 @@ function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
           <line x1="8.1" y1="15.9" x2="20" y2="4" />
         </svg>
       </ToolBtn>
+      {!data.warp && bareSampleName((data.code ?? '').trim()) && (
+        <ToolBtn onClick={() => void warpExistingSource(id)} title="al tempo del tema: estira este loop (sin cambiar el tono) para que caiga en la rejilla aunque venga de otro BPM">
+          {/* flechas = estirar al tempo */}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 12h18" />
+            <path d="M7 8l-4 4 4 4" />
+            <path d="M17 8l4 4-4 4" />
+          </svg>
+        </ToolBtn>
+      )}
       <ToolBtn active={!!data.showMix} onClick={() => update(id, { showMix: !data.showMix })} title="mezcla: gain + filtro">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
           <line x1="8" y1="3" x2="8" y2="21" />
@@ -468,6 +482,51 @@ function SourcePerfRow({ id, perf }: { id: string; perf: NodeData['perf'] }) {
   );
 }
 
+// LOOP AL TEMPO (Fase 5.2): de qué tempo viene, a cuál suena y cuánto dura. Clic → corregir el
+// tempo original (la detección o el nombre pueden equivocarse por ×2 / ÷2).
+function WarpChip({ id, warp }: { id: string; warp: WarpInfo }) {
+  const cps = useGraphStore((s) => s.cps);
+  const bpc = useGraphStore((s) => s.beatsPerCycle);
+  const busy = useWarpStore((s) => !!s.busy[warp.name]);
+  const missing = useWarpStore((s) => !!s.missing[warp.name]);
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState(String(warp.srcBpm));
+  useEffect(() => setVal(String(warp.srcBpm)), [warp.srcBpm]);
+  const song = songBpmOf(cps, bpc);
+  const apply = (b: number) => { if (b >= 40 && b <= 300) void retuneWarp(id, b); };
+  const text = missing ? 'falta el audio original' : busy ? `estirando… ${warpLabel(warp, song)}` : warpLabel(warp, song);
+  return (
+    <div className="tn-warp nodrag" onMouseDown={(e) => e.stopPropagation()}>
+      <button
+        className={`tn-warp-chip${busy ? ' busy' : ''}${missing ? ' miss' : ''}`}
+        onClick={() => setOpen(!open)}
+        title={missing
+          ? `El audio original de este loop (${warp.file ?? warp.name}) no está guardado en este navegador: vuelve a arrastrarlo.`
+          : `Loop al tempo del tema: ${warp.file ?? warp.name} va a ${warp.srcBpm} bpm y suena a ${Math.round(song * 100) / 100}, estirado con Rubber Band sin cambiar el tono. Siempre cae en la rejilla. Clic = corregir su tempo original.`}
+      >
+        ⇆ {text}
+      </button>
+      {open && (
+        <div className="tn-warp-pop">
+          <span>tempo original</span>
+          <button onClick={() => apply(warp.srcBpm / 2)} title="la mitad (si suena al doble de rápido)">÷2</button>
+          <input
+            type="number"
+            min={40}
+            max={300}
+            step={0.01}
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') apply(Number(val)); }}
+            onBlur={() => { const b = Number(val); if (Math.abs(b - warp.srcBpm) > 0.004) apply(b); }}
+          />
+          <button onClick={() => apply(warp.srcBpm * 2)} title="el doble (si suena a la mitad de rápido)">×2</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SourceNode({ id, data, selected }: NodeProps) {
   const d = data as NodeData;
   const update = useGraphStore((s) => s.updateNodeData);
@@ -494,6 +553,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
     >
       <NodeHeader id={id} data={d} badge="source" live />
       <Vu id={id} className="vu-src" />
+      {d.warp && <WarpChip id={id} warp={d.warp} />}
       {collapsed ? (
         <>
           <CollapsedChip label={d.name?.trim() || d.code?.trim() || 'patrón'} />

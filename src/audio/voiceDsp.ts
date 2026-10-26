@@ -7,7 +7,7 @@
 // Este módulo es el ÚNICO que crea el worker; voiceWorker.ts importa solo las
 // funciones *Data puras (sin ciclo de bundles).
 import { autotuneBuffer as autotuneInline, type AutotuneOpts } from './autotune';
-import { warpBuffer as warpInline, type WarpOpts } from './rubberband';
+import { warpBuffer as warpInline, warpBufferData, type WarpOpts } from './rubberband';
 
 interface JobResult { id: number; channels?: Float32Array[]; error?: string }
 
@@ -42,28 +42,43 @@ function getWorker(): Worker | null {
   return worker;
 }
 
-// ejecuta un trabajo en el worker; null = usar el fallback inline.
-async function runJob(op: 'autotune' | 'warp', buffer: AudioBuffer, opts: AutotuneOpts & WarpOpts): Promise<AudioBuffer | null> {
+// ejecuta un trabajo en el worker sobre canales crudos (se TRANSFIEREN: quedan vacíos); null =
+// usar el fallback inline.
+async function runJobData(op: 'autotune' | 'warp', channels: Float32Array[], sampleRate: number, opts: AutotuneOpts & WarpOpts): Promise<Float32Array[] | null> {
   const w = getWorker();
   if (!w) return null;
-  // copia transferible de los canales (el AudioBuffer original queda intacto para el fallback)
-  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c).slice());
   const id = ++seq;
   const out = await new Promise<Float32Array[] | null>((resolve) => {
     const timer = window.setTimeout(() => { jobs.delete(id); resolve(null); }, 120000); // 2 min: tomas largas con R3
     jobs.set(id, (ch) => { clearTimeout(timer); resolve(ch); });
     try {
-      w.postMessage({ id, op, channels, sampleRate: buffer.sampleRate, opts }, channels.map((c) => c.buffer));
+      w.postMessage({ id, op, channels, sampleRate, opts }, channels.map((c) => c.buffer));
     } catch {
       clearTimeout(timer);
       jobs.delete(id);
       resolve(null);
     }
   });
-  if (!out || !out[0]?.length) return null;
+  return out && out[0]?.length ? out : null;
+}
+
+async function runJob(op: 'autotune' | 'warp', buffer: AudioBuffer, opts: AutotuneOpts & WarpOpts): Promise<AudioBuffer | null> {
+  // copia transferible de los canales (el AudioBuffer original queda intacto para el fallback)
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c).slice());
+  const out = await runJobData(op, channels, buffer.sampleRate, opts);
+  if (!out) return null;
   const buf = new AudioBuffer({ length: out[0].length, numberOfChannels: out.length, sampleRate: buffer.sampleRate });
   out.forEach((c, i) => buf.getChannelData(i).set(c));
   return buf;
+}
+
+// WARP sobre canales crudos (loops al tempo, Fase 5.2): worker y, si no arranca, inline. Los
+// canales de entrada no se tocan (al worker va una copia). null = falló (audio defensivo: el
+// llamador se queda con lo que tenía).
+export async function warpChannels(channels: Float32Array[], sampleRate: number, opts: WarpOpts = {}): Promise<Float32Array[] | null> {
+  const out = await runJobData('warp', channels.map((c) => c.slice()), sampleRate, opts);
+  if (out) return out;
+  return warpBufferData(channels, sampleRate, opts);
 }
 
 // AUTOTUNE REAL sin congelar la UI (worker + R3 por defecto; fallback inline).

@@ -3,6 +3,7 @@ import { listPacks, getPack, putPack, deletePack, registerPack, registerFile, pa
 import { parseSpliceName } from '../lib/splice';
 import { sampleDuration, sampleSourceCode } from '../lib/audioMeta';
 import { useGraphStore } from '../store/useGraphStore';
+import { addLoopToCanvas } from '../lib/warpActions';
 
 // GENERADOR DE PACKS: arrastra .wav → se vuelven s("nombre") en Telar, se guardan
 // (IndexedDB, sobreviven a recargar) y se pueden exportar como strudel.json para
@@ -38,12 +39,21 @@ export function PackGenerator({ open, onClose }: { open: boolean; onClose: () =>
     if (!packName) setPackName('mi_pack');
   };
 
-  // Añade UN archivo al lienzo, listo para sonar. Un LOOP con BPM entra EN TIEMPO y a
-  // pitch natural (pone el proyecto a su tempo y calcula loopAt según su duración); un
-  // one-shot entra como s("nombre"). Es el "de Splice al beat" en un clic.
+  // Añade UN archivo al lienzo, listo para sonar. Un LOOP (BPM en el nombre de Splice) entra
+  // AL TEMPO DEL TEMA sin cambiar el tono (Rubber Band, Fase 5.2): cae en la rejilla aunque el
+  // loop sea de 126 y el tema de 132. Un one-shot entra como s("nombre"). De Splice al beat en
+  // un clic.
   const addToCanvas = async (r: PackFile) => {
     const st = useGraphStore.getState();
     const name = (r.soundName || 'sample').replace(/[^a-z0-9_]/gi, '_');
+    if (r.loop || r.bpm) {
+      const id = await addLoopToCanvas(r.blob, r.fileName, { hintBpm: r.bpm, clean: name }).catch(() => null);
+      if (id) {
+        flash(`«${name}» al lienzo · loop al tempo del tema`);
+        if (!useGraphStore.getState().playing) void useGraphStore.getState().play();
+        return;
+      }
+    }
     const url = await registerFile(name, r.blob);
     const dur = await sampleDuration(url).catch(() => 0);
     // Siempre a TEMPO NATURAL (manda el BPM del sample): sampleSourceCode usa .slow si es

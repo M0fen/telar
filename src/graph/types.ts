@@ -1,6 +1,8 @@
 // Tipos de nodo del grafo. Todo cable transporta un Pattern (cables tipados,
 // master-prompt §3). Los parámetros de un efecto se teclean en el nodo en v1.
 
+import type { WarpInfo } from '../lib/loopWarp';
+
 export type NodeKind = 'source' | 'transform' | 'fx' | 'out';
 
 // EQ paramétrico POR CANAL (3 bandas con ganancia en dB, boost y cut). No se emite
@@ -296,6 +298,9 @@ export interface NodeData {
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
   chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)
+  // LOOP AL TEMPO (Fase 5.2): el sample `warp.name` del código es la copia del loop original
+  // estirada (Rubber Band) al BPM del tema; ver lib/loopWarp.ts y audio/warpLoops.ts.
+  warp?: WarpInfo;
   // --- DJ mode (mixer de performance) ---
   xfa?: 'a' | 'b'; // asignación al crossfader (A/B); undefined = siempre suena (fuera del fader)
   // FX de performance MOMENTÁNEOS por deck (se sostienen mientras pulsas el botón),

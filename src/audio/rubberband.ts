@@ -46,6 +46,10 @@ export interface WarpOpts {
   timeRatio?: number; // duración de salida / entrada (1 = igual; 2 = el doble de largo)
   formant?: boolean; // preservar formantes (voz natural). Por defecto true.
   fine?: boolean; // motor R3/Finer (más limpio, más CPU). Por defecto true.
+  // MAPA DE CUADROS CLAVE (offline): pares [muestra de entrada, muestra de salida] que el
+  // estirador respeta EXACTAMENTE. Sin él, Rubber Band reparte el redondeo de sus saltos y los
+  // golpes de un loop pueden correrse unos ms dentro de la vuelta (Fase 5.2: un cuadro por tiempo).
+  keyFrames?: [number, number][];
 }
 
 // crea la instancia probando R3 (Finer) y cayendo a R2 si el motor la rechaza.
@@ -76,47 +80,74 @@ export async function warpBufferData(channels: Float32Array[], sr: number, opts:
     if (!rb) return null;
 
     const F = 4; // bytes por float
-    const BLOCK = 8192; // frames por bloque de recuperación
+    const BLOCK = 8192; // frames por bloque (entrada y recuperación)
 
     // punteros de heap a liberar al final
     const alloc: number[] = [];
     const malloc = (bytes: number) => { const p = M._malloc(bytes); alloc.push(p); return p; };
 
-    // entrada: un buffer por canal + array de punteros (float* const*)
+    // entrada y salida: un buffer de BLOQUE por canal + arrays de punteros (float* const*)
     const inChan: number[] = [];
-    for (let c = 0; c < nCh; c++) inChan.push(malloc(nframes * F));
+    for (let c = 0; c < nCh; c++) inChan.push(malloc(BLOCK * F));
     const inArr = malloc(nCh * F);
-    // salida: un buffer de bloque por canal + array de punteros
     const outChan: number[] = [];
     for (let c = 0; c < nCh; c++) outChan.push(malloc(BLOCK * F));
     const outArr = malloc(nCh * F);
+    // mapa de cuadros clave (entrada → salida), estrictamente creciente y dentro del audio
+    const keys = (opts.keyFrames ?? [])
+      .map(([a, b]) => [Math.round(a), Math.round(b)] as [number, number])
+      .filter(([a, b], i, arr) => a > 0 && a < nframes && b > 0 && (i === 0 || (a > arr[i - 1][0] && b > arr[i - 1][1])));
+    const kFrom = keys.length ? malloc(keys.length * 4) : 0;
+    const kTo = keys.length ? malloc(keys.length * 4) : 0;
 
-    // escribir datos DESPUÉS de todos los malloc (crecer memoria invalida vistas viejas)
+    // punteros DESPUÉS de todos los malloc (crecer memoria invalida vistas viejas)
     for (let c = 0; c < nCh; c++) {
-      M.HEAPF32.set(channels[c], inChan[c] >> 2);
       M.HEAPU32[(inArr >> 2) + c] = inChan[c];
       M.HEAPU32[(outArr >> 2) + c] = outChan[c];
     }
+    const feed = (pos: number, n: number) => {
+      for (let c = 0; c < nCh; c++) M.HEAPF32.set(channels[c].subarray(pos, pos + n), inChan[c] >> 2);
+    };
 
-    // OFFLINE: estudiar toda la entrada, luego procesarla toda (final=1 en ambas).
-    M._rubberband_set_expected_input_duration(rb, nframes);
-    M._rubberband_study(rb, inArr, nframes, 1);
-    M._rubberband_process(rb, inArr, nframes, 1);
-
-    // recuperar la salida en bloques (avail<=0 → no queda nada)
+    // recuperar la salida disponible (avail<=0 → nada por ahora)
     const chunks: Float32Array[][] = Array.from({ length: nCh }, () => []);
     let total = 0;
-    let avail = 0;
-    while ((avail = M._rubberband_available(rb)) > 0) {
-      const want = Math.min(avail, BLOCK);
-      const got = M._rubberband_retrieve(rb, outArr, want);
-      if (got <= 0) break;
-      for (let c = 0; c < nCh; c++) {
-        const base = outChan[c] >> 2;
-        chunks[c].push(new Float32Array(M.HEAPF32.subarray(base, base + got))); // copia fuera del heap
+    const drain = () => {
+      let avail = 0;
+      while ((avail = M._rubberband_available(rb)) > 0) {
+        const got = M._rubberband_retrieve(rb, outArr, Math.min(avail, BLOCK));
+        if (got <= 0) break;
+        for (let c = 0; c < nCh; c++) {
+          const base = outChan[c] >> 2;
+          chunks[c].push(new Float32Array(M.HEAPF32.subarray(base, base + got))); // copia fuera del heap
+        }
+        total += got;
       }
-      total += got;
+    };
+
+    // OFFLINE: estudiar toda la entrada (por bloques), fijar el mapa de cuadros clave y procesar
+    // por bloques recuperando la salida en cada uno (sin forzar a crecer el buffer interno).
+    M._rubberband_set_expected_input_duration(rb, nframes);
+    M._rubberband_set_max_process_size(rb, BLOCK);
+    for (let pos = 0; pos < nframes; pos += BLOCK) {
+      const n = Math.min(BLOCK, nframes - pos);
+      feed(pos, n);
+      M._rubberband_study(rb, inArr, n, pos + n >= nframes ? 1 : 0);
     }
+    if (keys.length) {
+      for (let i = 0; i < keys.length; i++) {
+        M.HEAPU32[(kFrom >> 2) + i] = keys[i][0];
+        M.HEAPU32[(kTo >> 2) + i] = keys[i][1];
+      }
+      M._rubberband_set_key_frame_map(rb, keys.length, kFrom, kTo);
+    }
+    for (let pos = 0; pos < nframes; pos += BLOCK) {
+      const n = Math.min(BLOCK, nframes - pos);
+      feed(pos, n);
+      M._rubberband_process(rb, inArr, n, pos + n >= nframes ? 1 : 0);
+      drain();
+    }
+    drain();
 
     M._rubberband_delete(rb);
     for (const p of alloc) M._free(p);

@@ -13,6 +13,16 @@ export async function detectBpm(url: string): Promise<number | null> {
   try {
     const ab = await (await fetch(url)).arrayBuffer();
     const buf = await getAudioCtx().decodeAudioData(ab);
+    const t = await detectBpmBuffer(buf);
+    return t == null ? null : Math.round(t);
+  } catch {
+    return null;
+  }
+}
+
+// Lo mismo sobre un audio ya decodificado (loops al tempo, Fase 5.2).
+export async function detectBpmBuffer(buf: AudioBuffer): Promise<number | null> {
+  try {
     const dur = buf.duration;
     const settings = { minTempo: 70, maxTempo: 180 };
     // tramo central: salta ~15% inicial (máx 20s) y analiza hasta 40s
@@ -24,7 +34,7 @@ export async function detectBpm(url: string): Promise<number | null> {
     } catch {
       tempo = await analyze(buf, settings); // respaldo: todo el buffer, mismo rango
     }
-    return isFinite(tempo) && tempo > 0 ? Math.round(tempo) : null;
+    return isFinite(tempo) && tempo > 0 ? Math.round(tempo * 10) / 10 : null;
   } catch {
     return null;
   }

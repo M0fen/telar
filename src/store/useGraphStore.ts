@@ -20,6 +20,8 @@ import { registerCloudBank } from '../lib/cloudBank';
 import { resolveSampleUrl } from '../lib/sampleResolve';
 import { sampleDuration } from '../lib/audioMeta';
 import { bareSampleName } from '../lib/sampleFit';
+import { syncWarpedLoops } from '../audio/warpLoops';
+import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
 import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot } from '../lib/projectStore';
@@ -198,6 +200,9 @@ interface GraphState {
   stop: () => Promise<void>;
   // repara sources que son un sample largo pelado (les pone loopAt para que no se solapen).
   autoFitLongSamples: () => Promise<void>;
+  // registra todo lo que el proyecto necesita para sonar (samples guardados, wavetables, packs,
+  // loops al tempo…). Lo llaman ▶ y exportar (este con `waitWarp`: espera las copias estiradas).
+  prepareSounds: (o?: { waitWarp?: boolean }) => Promise<void>;
   recompile: () => void;
   // menú de proyecto: limpiar a un lienzo nuevo / cargar un proyecto importado.
   // `origin` = qué reemplaza el proyecto (queda escrito en su copia automática).
@@ -846,11 +851,12 @@ export const useGraphStore = create<GraphState>((set, get) => {
       const cps = get().cps || 0.5;
       const updates: { id: string; code: string }[] = [];
       for (const n of get().nodes) {
-        if (n.data.kind !== 'source' || n.data.synthOn) continue;
+        if (n.data.kind !== 'source' || n.data.synthOn || n.data.warp) continue;
         const code = (n.data.code ?? '').trim();
         // un ÚNICO sample pelado (opc. ya con .loopAt/.slow); salta patrones/indexados/cadenas.
+        // Los loops al tempo (wl_…) no se tocan: su loopAt los mantiene en la rejilla.
         const name = bareSampleName(code);
-        if (!name) continue;
+        if (!name || name.startsWith(WARP_PREFIX)) continue;
         const url = resolveSampleUrl(name);
         if (!url) continue;
         const dur = await sampleDuration(url).catch(() => 0);
@@ -871,14 +877,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
       }
     },
 
-    play: async () => {
-      // exportando offline: superdough apunta por ratos al render → no puede sonar nada en vivo
-      if (isOfflineRendering()) { toast.info('Exportando… ▶ vuelve a funcionar al terminar.'); return; }
-      set({ initializing: true });
+    prepareSounds: async (o) => {
       await ensureEngine();
-      // Reanuda el contexto Y espera la carga de los AudioWorklets de efectos
-      // ANTES de sonar (si no, el audio sale sin procesamiento). Gesto de Play.
-      await ensureAudioReady();
       await registerDownloadedSamples(); // re-registra samples de YouTube guardados
       await registerWavetables(); // wavetables propias (wt_telar_* + telar_* de morph)
       // ondas PROPIAS dibujadas (telar_user_<id>) de cada source → suenan aunque no se abra el estudio
@@ -889,7 +889,21 @@ export const useGraphStore = create<GraphState>((set, get) => {
       await registerIrReverbs(); // espacios de reverb por IR (ir_hall, ir_plate…)
       await registerUserPacks(); // packs del usuario guardados (IndexedDB) → s("…")
       await registerCloudBank(); // banco propio en la nube (R2) → s("…") vía proxy
+      // loops al tempo del tema (Fase 5.2): al ▶ suenan ya y se estiran en segundo plano; al
+      // exportar se esperan las copias exactas
+      await syncWarpedLoops(get().nodes, songBpmOf(get().cps, get().beatsPerCycle), { wait: !!o?.waitWarp });
       await get().autoFitLongSamples(); // repara samples largos pelados (evita el solape)
+    },
+
+    play: async () => {
+      // exportando offline: superdough apunta por ratos al render → no puede sonar nada en vivo
+      if (isOfflineRendering()) { toast.info('Exportando… ▶ vuelve a funcionar al terminar.'); return; }
+      set({ initializing: true });
+      await ensureEngine();
+      // Reanuda el contexto Y espera la carga de los AudioWorklets de efectos
+      // ANTES de sonar (si no, el audio sale sin procesamiento). Gesto de Play.
+      await ensureAudioReady();
+      await get().prepareSounds();
       startHighlightLoop(); // resaltado de eventos activos en el código
       const m = get().master; // aplica el bus de máster (EQ+limiter+glue+sat+width+punch) guardado
       setMasterBus({ limit: m.limit ?? 0, glue: m.glue ?? 0, sat: m.sat ?? 0, width: m.width ?? 1, punch: m.punch ?? 0, low: m.eqLow ?? 0, mid: m.eqMid ?? 0, high: m.eqHigh ?? 0, filter: m.filter ?? 0, drive: m.drive ?? 0 });

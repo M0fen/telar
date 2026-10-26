@@ -47,6 +47,8 @@ import { useSamplePacksStore } from './store/useSamplePacksStore';
 import { useDownloadsStore } from './store/useDownloadsStore';
 import { loadSamplePack, registerSample } from './audio/engine';
 import { hydrateUserSounds } from './lib/userPacks';
+import { addLoopToCanvas } from './lib/warpActions';
+import { initWarpSync } from './audio/warpLoops';
 import { setVoiceUrl } from './lib/voiceUrls';
 import { tokens } from './theme/tokens';
 
@@ -244,6 +246,9 @@ export default function App() {
 
   // Recarga los packs de sonidos que el usuario cargó en sesiones anteriores +
   // registra el vocal de la demo "Master show" (s("voxmaster")).
+  // loops al tempo (Fase 5.2): al cambiar el BPM (o los loops del proyecto) se re-estiran solos
+  useEffect(() => initWarpSync(useGraphStore), []);
+
   useEffect(() => {
     for (const p of useSamplePacksStore.getState().packs) void loadSamplePack(p);
     void hydrateUserSounds(); // tus samples guardados aparecen en el secuenciador desde el arranque
@@ -391,11 +396,15 @@ export default function App() {
         // suena mudo) y medir la duración: un sample LARGO va con loopAt(N) para que no
         // se re-dispare cada ciclo y se solape consigo mismo. Los cortos quedan s("name").
         void (async () => {
+          const pos = { x: at.x - 60 + i * 24, y: at.y - 30 + i * 24 };
+          // un LOOP (BPM en el nombre de Splice, o un pulso que encaja con su duración) entra
+          // AL TEMPO DEL TEMA, sin cambiar el tono (Fase 5.2); lo demás, a su tempo natural
+          if (await addLoopToCanvas(f, f.name, { pos }).catch(() => null)) return;
           await registerLocalSample(name, f).catch(() => {});
           const cps = useGraphStore.getState().cps || 0.5;
           const dur = await sampleDuration(URL.createObjectURL(f)).catch(() => 0);
           const code = sampleSourceCode(name, dur, cps);
-          addPattern(code, base, undefined, { x: at.x - 60 + i * 24, y: at.y - 30 + i * 24 });
+          addPattern(code, base, undefined, pos);
         })();
       });
     },
