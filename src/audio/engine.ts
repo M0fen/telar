@@ -888,7 +888,7 @@ export async function getMasterPostLatency(): Promise<number> {
 // se reintenta tras el siguiente swap.
 interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null }
 export interface SdOrbit { output?: AudioNode }
-export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void } }
+export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void }; getOrbit?: (orbit: number, chans: number[]) => SdOrbit }
 // tira de canal: EQ de 3 bandas → compresor (si su procesador está cargado en ese contexto) → salida
 export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; src: AudioNode; ctx: BaseAudioContext }
 
@@ -990,7 +990,12 @@ export function applyChannelEqs(): void {
       }
     }
     for (const r of channelEqRoutes) {
-      const orbitNode = ctrl.nodes[r.orbit];
+      // el orbit se crea YA (superdough lo crearía con la primera nota de la pista): una pista que
+      // entra en una sección posterior quedaba sin su tira (EQ/compresor) hasta el siguiente cambio
+      let orbitNode = ctrl.nodes[r.orbit];
+      if (!orbitNode?.output && ctrl.getOrbit) {
+        try { orbitNode = ctrl.getOrbit(r.orbit, [0, 1]); } catch { /* sin crear: la primera nota lo hará */ }
+      }
       const src = orbitNode?.output;
       if (!src) continue; // orbit aún no creado → se reintenta en el próximo swap
       let st = chanEqChains.get(r.orbit);
