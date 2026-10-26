@@ -13,7 +13,7 @@
 import type { Edge, Node } from '@xyflow/react';
 import { automationSuffix } from '../lib/automation';
 import type { NodeData, SynthParams, VoiceParams } from './types';
-import { channelEqActive, SYNTH_WAVES } from './types';
+import { channelEqActive, channelCompActive, DEFAULT_CHANNEL_COMP, SYNTH_WAVES, type ChannelComp } from './types';
 import { OPS_BY_ID } from './ops';
 import { irRoomsize, knownIr } from '../audio/irRegistry';
 import { isMorphWave, isUserWave, userFrames } from '../audio/wavetables';
@@ -36,12 +36,16 @@ export interface SourceSpan {
 
 // EQ de canal resuelto a un orbit concreto: el motor inserta filtros Biquad reales
 // sobre el bus de ese orbit (ver engine.setChannelEqs).
+// TIRA DE CANAL en el bus de una pista: EQ (M1) + compresor (Fase 6.1). `comp` null = sin
+// compresor en esta sección (el motor lo deja en bypass).
 export interface ChannelEqRoute {
   orbit: number;
+  source: string; // id del Source (para su medidor de compresión)
   low: number;
   mid: number;
   high: number;
   midFreq: number;
+  comp: { thr: number; ratio: number; att: number; rel: number; makeup: number } | null;
 }
 
 export interface CompileResult {
@@ -703,9 +707,25 @@ export function duckSidechainIds(nodes: N[]): string[] {
   return out;
 }
 
-// Sources con EQ por canal activo.
+// Sources con tira de canal activa (EQ o compresor): reciben un orbit propio.
 export function eqSourceIds(nodes: N[]): string[] {
-  return nodes.filter((n) => n.data.kind === 'source' && !!n.data.eq && channelEqActive(n.data.eq)).map((n) => n.id);
+  return nodes.filter((n) => n.data.kind === 'source' && (channelEqActive(n.data.eq) || channelCompActive(n.data.comp))).map((n) => n.id);
+}
+
+const clampN = (x: unknown, a: number, b: number, d: number) => {
+  const v = Number(x);
+  return Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : d;
+};
+function compRoute(c: ChannelComp | undefined): ChannelEqRoute['comp'] {
+  if (!channelCompActive(c)) return null;
+  const d = DEFAULT_CHANNEL_COMP;
+  return {
+    thr: clampN(c!.thr, -60, 0, d.thr),
+    ratio: clampN(c!.ratio, 1, 20, d.ratio),
+    att: clampN(c!.att, 0.05, 500, d.att),
+    rel: clampN(c!.rel, 5, 3000, d.rel),
+    makeup: clampN(c!.makeup, -12, 30, d.makeup),
+  };
 }
 
 // Ganancia de crossfader por lado (curva de potencia constante: ambos a −3 dB en el
@@ -769,20 +789,24 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   const channelEqs: ChannelEqRoute[] = [];
   for (const n of nodes) {
     if (n.data.kind !== 'source') continue;
-    const active = !!n.data.eq && channelEqActive(n.data.eq);
+    const eqOn = channelEqActive(n.data.eq);
+    const comp = compRoute(n.data.comp);
     const planned = plan?.eq.get(n.id);
-    // con plan: TODA pista del plan va a su orbit (EQ plano en las secciones donde no tiene EQ)
-    if (!active && planned == null) continue;
-    const eq = active ? n.data.eq! : { low: 0, mid: 0, high: 0 };
+    // con plan: TODA pista del plan va a su orbit (EQ plano / compresor en bypass en las
+    // secciones donde no lo tiene)
+    if (!eqOn && !comp && planned == null) continue;
+    const eq = eqOn ? n.data.eq! : { low: 0, mid: 0, high: 0 };
     const orbit = planned ?? nextOrbit++;
     eqOrbitBySource.set(n.id, orbit);
     channelEqs.push({
       // min −30 dB permite el KILL del modo DJ (corte casi total de una banda).
       orbit,
+      source: n.id,
       low: Math.max(-30, Math.min(15, eq.low ?? 0)),
       mid: Math.max(-30, Math.min(15, eq.mid ?? 0)),
       high: Math.max(-30, Math.min(15, eq.high ?? 0)),
       midFreq: Math.max(200, Math.min(8000, (eq as { midFreq?: number }).midFreq ?? 1000)),
+      comp,
     });
   }
 

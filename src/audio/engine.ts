@@ -9,6 +9,7 @@
 //     en marcha → es el camino nativo de hot-swap (el reloj no se reinicia).
 //   - getAnalyserById(id) devuelve un AnalyserNode de Web Audio; se crea cuando
 //     un patrón aplica .analyze(id) y suena por primera vez.
+import { ensureCompModule, compModuleReady, createCompNode, setCompParams, getOrbitGr, type CompRoute } from './chanComp';
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames, createLimiterFor } from './masterLimiter';
@@ -257,6 +258,8 @@ export async function ensureAudioReady(): Promise<void> {
   if (ctx.state === 'suspended') await ctx.resume();
   if (!audioReady) audioReady = Promise.resolve(initAudio()).then(() => void 0);
   await audioReady;
+  // compresor por canal (Fase 6.1): su procesador, listo antes de armar las tiras de canal
+  if (await ensureCompModule(ctx)) applyChannelEqs();
 }
 
 export function getAudioState(): AudioContextState | 'uninitialized' {
@@ -866,13 +869,30 @@ export async function getMasterPostLatency(): Promise<number> {
 // y cut, que superdough no ofrece en el patrón. Mismo patrón defensivo que el
 // máster: todo en try/catch, y si el orbit aún no existe (se crea al primer evento)
 // se reintenta tras el siguiente swap.
-interface ChannelEqRouteRT { orbit: number; low: number; mid: number; high: number; midFreq: number }
+interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null }
 export interface SdOrbit { output?: AudioNode }
 export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void } }
-export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; out: GainNode; src: AudioNode; ctx: BaseAudioContext }
+// tira de canal: EQ de 3 bandas → compresor (si su procesador está cargado en ese contexto) → salida
+export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; src: AudioNode; ctx: BaseAudioContext }
 
 let channelEqRoutes: ChannelEqRouteRT[] = [];
 const chanEqChains = new Map<number, ChanEqChain>();
+const sourceOrbit = new Map<string, number>(); // Source → orbit de su tira (medidor de compresión)
+
+// reducción de ganancia del compresor de un Source ahora (dB ≤ 0; 0 = sin compresor o sin señal)
+export function getSourceCompGr(sourceId: string): number {
+  const o = sourceOrbit.get(sourceId);
+  return o == null ? 0 : getOrbitGr(o);
+}
+
+// valores de una tira de canal (EQ + compresor); los usan el audio en vivo y el render offline
+export function setChanStrip(st: ChanEqChain, r: ChannelEqRouteRT): void {
+  st.low.gain.value = r.low; // dB
+  st.mid.gain.value = r.mid;
+  st.mid.frequency.value = r.midFreq;
+  st.high.gain.value = r.high;
+  if (st.comp) setCompParams(st.comp, r.comp ?? null);
+}
 
 function getSdController(): SdController | undefined {
   try {
@@ -887,6 +907,7 @@ function teardownChanEq(ctrl: SdController, st: ChanEqChain): void {
   try { st.src.disconnect(); } catch { /* */ }
   try { st.out.disconnect(); } catch { /* */ }
   try { st.low.disconnect(); st.mid.disconnect(); st.high.disconnect(); } catch { /* */ }
+  try { st.comp?.disconnect(); } catch { /* */ }
   try { ctrl.output?.connectToDestination?.(st.src, [0, 1]); } catch { /* */ }
 }
 
@@ -896,15 +917,28 @@ export function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: Audi
     const mid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, Q: 1.0 });
     const high = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: 4500 });
     const out = new GainNode(ctx, { gain: 1 });
-    low.connect(mid); mid.connect(high); high.connect(out);
+    // compresor del canal (6.1) detrás del EQ; sin su procesador cargado, la tira queda solo con EQ
+    const comp = createCompNode(ctx, orbit, ctx === liveCtxOrNull());
+    low.connect(mid); mid.connect(high);
+    if (comp) { high.connect(comp); comp.connect(out); } else high.connect(out);
+    if (comp) setCompParams(comp, null); // en bypass hasta que la ruta diga otra cosa
     // el bus estaba conectado src → (panner interno de connectToDestination). Lo
     // desviamos: src → EQ → nueva salida. disconnect() quita SOLO su enlace previo.
     src.disconnect();
     src.connect(low);
     ctrl.output?.connectToDestination?.(out, [0, 1]);
-    return { orbit, low, mid, high, out, src, ctx };
+    return { orbit, low, mid, high, comp, out, src, ctx };
   } catch {
     return undefined;
+  }
+}
+
+// el contexto en vivo (sin crearlo); el de un render offline es otro
+function liveCtxOrNull(): BaseAudioContext | null {
+  try {
+    return repl && !offlineDepth ? getAudioContext() : null;
+  } catch {
+    return null;
   }
 }
 
@@ -929,8 +963,9 @@ export function applyChannelEqs(): void {
       const src = orbitNode?.output;
       if (!src) continue; // orbit aún no creado → se reintenta en el próximo swap
       let st = chanEqChains.get(r.orbit);
-      if (st && st.src !== src) {
-        // el bus se recreó (reset del motor) → reconstruir sobre el nuevo nodo.
+      // el bus se recreó (reset del motor), o la tira se armó sin compresor y ahora hay uno
+      // pedido y su procesador ya cargó → reconstruir
+      if (st && (st.src !== src || (r.comp && !st.comp && compModuleReady(ctx)))) {
         teardownChanEq(ctrl, st);
         chanEqChains.delete(r.orbit);
         st = undefined;
@@ -940,10 +975,7 @@ export function applyChannelEqs(): void {
         if (!st) continue;
         chanEqChains.set(r.orbit, st);
       }
-      st.low.gain.value = r.low;                 // dB
-      st.mid.gain.value = r.mid;
-      st.mid.frequency.value = r.midFreq;
-      st.high.gain.value = r.high;
+      setChanStrip(st, r);
     }
   } catch {
     /* nunca romper el audio */
@@ -952,6 +984,8 @@ export function applyChannelEqs(): void {
 
 export function setChannelEqs(routes: ChannelEqRouteRT[]): void {
   channelEqRoutes = routes;
+  sourceOrbit.clear();
+  for (const r of routes) if (r.source && r.comp) sourceOrbit.set(r.source, r.orbit);
   applyChannelEqs();
   // reintentos: los orbits se crean perezosamente al primer evento de cada canal.
   window.setTimeout(applyChannelEqs, 220);

@@ -26,10 +26,12 @@ import {
   createOfflineMasterBus,
   busFromMaster,
   buildChanEq,
+  setChanStrip,
   type ChanEqChain,
   type SdController,
 } from './engine';
 import type { BakedSection } from '../lib/songBake';
+import { ensureCompModule } from './chanComp';
 import type { ChannelEqRoute } from '../graph/compile';
 
 // superdough reutiliza nodos (un pool global que no mira el contexto): un nodo del audio en vivo
@@ -176,6 +178,7 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
     const ctrl = getSuperdoughAudioController() as unknown as SdController & { output?: { destinationGain?: AudioNode } }; // uno nuevo, de este contexto
     setMaxPolyphony(1_000_000); // offline se agendan muchas voces juntas: sin robo de voces
     await loadWorklets();
+    await ensureCompModule(off); // compresor por canal (6.1) en este contexto
 
     // bus del máster (o nada, para los stems)
     const first = sectionAt(o.start);
@@ -197,10 +200,7 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
           if (!st) continue;
           eqChains.set(r.orbit, st);
         }
-        st.low.gain.value = r.low;
-        st.mid.gain.value = r.mid;
-        st.mid.frequency.value = r.midFreq;
-        st.high.gain.value = r.high;
+        setChanStrip(st, r); // EQ + compresor de la sección (6.1)
       }
     };
 

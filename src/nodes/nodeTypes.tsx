@@ -4,7 +4,9 @@ import type { NodeData } from '../graph/types';
 import { registerScope, unregisterScope } from './scopeEngine';
 import { registerActivity, unregisterActivity } from './meterEngine';
 import { registerTiles, unregisterTiles } from './tilesEngine';
-import { DEFAULT_SYNTH, DEFAULT_VOICE, DEFAULT_CHANNEL_EQ, type ChannelEq } from '../graph/types';
+import { DEFAULT_SYNTH, DEFAULT_VOICE, DEFAULT_CHANNEL_EQ, DEFAULT_CHANNEL_COMP, type ChannelEq, type ChannelComp } from '../graph/types';
+import { getSourceCompGr } from '../audio/engine';
+import { COMP_PRESETS } from '../lib/compCurve';
 import { OPS, OPS_BY_ID } from '../graph/ops';
 import { isPlainNumber } from '../graph/compile';
 import { Knob } from '../ui/Knob';
@@ -661,6 +663,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
                 eco
               </button>
               <ChannelEqStrip id={id} data={d} />
+              <ChannelCompStrip id={id} data={d} />
             </div>
           )}
         </>
@@ -696,6 +699,50 @@ function ChannelEqStrip({ id, data }: { id: string; data: NodeData }) {
           <label><span>frec</span><Knob value={eq.midFreq ?? 1000} min={300} max={6000} step={10} size={22} defaultValue={1000} label="frecuencia medios (Hz)" scale="exp" onChange={(v) => setEq({ midFreq: Math.round(v) })} /></label>
           {flat && <span className="tn-cheq-hint">plano · sube/baja una banda</span>}
         </div>
+      )}
+    </div>
+  );
+}
+
+// COMPRESOR DEL CANAL (Fase 6.1): en el bus de la pista, después del EQ, sin latencia. Ajustes de
+// partida por uso, cinco perillas y el medidor de reducción de ganancia en vivo.
+function ChannelCompStrip({ id, data }: { id: string; data: NodeData }) {
+  const update = useGraphStore((s) => s.updateNodeData);
+  const c = { ...DEFAULT_CHANNEL_COMP, ...(data.comp ?? {}) };
+  const on = !!c.on;
+  const set = (patch: Partial<ChannelComp>) => update(id, { comp: { ...c, ...patch } });
+  const [gr, setGr] = useState(0);
+  useEffect(() => {
+    if (!on) { setGr(0); return; }
+    let raf = 0;
+    const tick = () => { setGr(getSourceCompGr(id)); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [on, id]);
+  return (
+    <div className={`tn-cheq tn-comp${on ? ' on' : ''}`}>
+      <button className="tn-cheq-toggle" onClick={() => set({ on: !on })} title="compresor del canal: controla los picos y da pegada (después del EQ, sin retrasar la pista)">
+        COMP{on ? ' •' : ''}
+      </button>
+      {on && (
+        <>
+          <div className="tn-comp-presets">
+            {COMP_PRESETS.map((p) => (
+              <button key={p.id} title={p.title} onClick={() => set({ on: true, ...p.p })}>{p.label}</button>
+            ))}
+          </div>
+          <div className="tn-cheq-bands">
+            <label><span>umbral</span><Knob value={c.thr} min={-48} max={0} step={0.5} size={22} defaultValue={-18} label="umbral dB" onChange={(v) => set({ thr: v })} /></label>
+            <label><span>ratio</span><Knob value={c.ratio} min={1} max={20} step={0.1} size={22} defaultValue={4} label="ratio" scale="exp" onChange={(v) => set({ ratio: v })} /></label>
+            <label><span>ataque</span><Knob value={c.att} min={0.1} max={100} step={0.1} size={22} defaultValue={10} label="ataque ms" scale="exp" onChange={(v) => set({ att: v })} /></label>
+            <label><span>release</span><Knob value={c.rel} min={10} max={1000} step={1} size={22} defaultValue={120} label="release ms" scale="exp" onChange={(v) => set({ rel: v })} /></label>
+            <label><span>makeup</span><Knob value={c.makeup} min={0} max={24} step={0.5} size={22} defaultValue={0} label="makeup dB" onChange={(v) => set({ makeup: v })} /></label>
+          </div>
+          <div className="tn-comp-gr" title="reducción de ganancia ahora (dB)">
+            <span style={{ width: `${Math.min(100, (-gr / 20) * 100)}%` }} />
+            <b>{gr < -0.05 ? gr.toFixed(1) : '0'} dB</b>
+          </div>
+        </>
       )}
     </div>
   );

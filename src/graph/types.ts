@@ -23,6 +23,21 @@ export function channelEqActive(eq: ChannelEq | undefined): boolean {
   return Math.abs(eq.low ?? 0) > 0.1 || Math.abs(eq.mid ?? 0) > 0.1 || Math.abs(eq.high ?? 0) > 0.1;
 }
 
+// COMPRESOR POR CANAL (Fase 6.1): va en el bus de la pista (su orbit), después del EQ; el motor
+// lo inserta como AudioWorklet (audio/chanComp.ts, sin latencia). Entra en escenas y exportar.
+export interface ChannelComp {
+  on?: boolean;
+  thr?: number; // umbral dBFS (−48…0)
+  ratio?: number; // 1…20
+  att?: number; // ataque ms (0,1…100)
+  rel?: number; // release ms (10…1000)
+  makeup?: number; // dB (0…24)
+}
+export const DEFAULT_CHANNEL_COMP: Required<ChannelComp> = { on: false, thr: -18, ratio: 4, att: 10, rel: 120, makeup: 0 };
+export function channelCompActive(c: ChannelComp | undefined): boolean {
+  return !!c && c.on === true && (c.ratio ?? DEFAULT_CHANNEL_COMP.ratio) > 1.01;
+}
+
 // Catálogo de operaciones para Transform y Filter/FX. Cada def describe cómo
 // llamar al método sobre el Pattern de entrada y qué params teclea el usuario.
 export interface OpParam {
@@ -299,6 +314,7 @@ export interface NodeData {
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
   chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)
+  comp?: ChannelComp; // compresor del canal (Fase 6.1), después del EQ en el mismo orbit
   // LOOP AL TEMPO (Fase 5.2): el sample `warp.name` del código es la copia del loop original
   // estirada (Rubber Band) al BPM del tema; ver lib/loopWarp.ts y audio/warpLoops.ts.
   warp?: WarpInfo;
