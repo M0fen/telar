@@ -84,6 +84,26 @@ export function fmtBarPos(bar: number, beats: number): string {
   const q = barParts(bar, beats);
   return `${q.bar}.${q.beat}.${q.six}`;
 }
+// reloj «0:42.1» (minutos:segundos.décimas) para el contador del transporte (8.2)
+export function fmtClock(sec: number): string {
+  const t = Math.max(0, Number.isFinite(sec) ? sec : 0);
+  const d = Math.floor(t * 10 + 1e-6);
+  const m = Math.floor(d / 600);
+  const s = Math.floor((d % 600) / 10);
+  return `${m}:${String(s).padStart(2, '0')}.${d % 10}`;
+}
+// lo que se escribe en el contador para saltar: «33», «33.3» o «33.3.2» → compás desde 0
+export function parseBarPos(txt: string, beats: number): number | null {
+  const m = /^\s*(\d+)(?:[.,:](\d+))?(?:[.,:](\d+))?\s*$/.exec(txt);
+  if (!m) return null;
+  const b = safeBeats(beats);
+  const bar = Number(m[1]);
+  const beat = m[2] ? Number(m[2]) : 1;
+  const six = m[3] ? Number(m[3]) : 1;
+  if (bar < 1 || beat < 1 || beat > b || six < 1 || six > 4) return null;
+  return bar - 1 + (beat - 1) / b + (six - 1) / (4 * b);
+}
+
 // corto: «25» en el compás justo, «25.3» en un pulso, «25.3.2» si cae entre pulsos
 export function fmtBarShort(bar: number, beats: number): string {
   const q = barParts(bar, beats);

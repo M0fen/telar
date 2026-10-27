@@ -2,7 +2,7 @@
 // con cada zoom.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoGrid, effectiveGrid, fmtBarPos, fmtBarShort, gridBars, laneBackground, rulerPlan, snapTo } from '../src/lib/dawGrid.ts';
+import { autoGrid, effectiveGrid, fmtBarPos, fmtBarShort, fmtClock, gridBars, laneBackground, parseBarPos, rulerPlan, snapTo } from '../src/lib/dawGrid.ts';
 import { cleanTransitions } from '../src/lib/transitions.ts';
 
 test('posición musical: compás.pulso.semicorchea desde 1', () => {
@@ -55,4 +55,19 @@ test('transiciones: el compás puede caer en la rejilla fina (hasta tresillos)',
   assert.equal(it.at, 24.5);
   const [tr] = cleanTransitions([{ kind: 'riser', at: 24 + 1 / 3, bars: 4 }]);
   assert.ok(Math.abs(tr.at - (24 + 1 / 3)) < 1e-9);
+});
+
+test('contador del transporte (8.2): reloj y lo que se escribe para saltar', () => {
+  assert.equal(fmtClock(0), '0:00.0');
+  assert.equal(fmtClock(42.15), '0:42.1');
+  assert.equal(fmtClock(61.99), '1:01.9');
+  assert.equal(fmtClock(-3), '0:00.0');
+  // 140 BPM en 4/4: un compás = 60/140·4 s → el compás 25 (desde 0: 24) empieza en 41,1 s
+  assert.equal(fmtClock(24 / (140 / 60 / 4)), '0:41.1');
+  assert.equal(parseBarPos('33', 4), 32);
+  assert.equal(parseBarPos('33.3', 4), 32.5);
+  assert.equal(parseBarPos('1.1.2', 4), 1 / 16);
+  assert.equal(parseBarPos('0', 4), null);
+  assert.equal(parseBarPos('33.5', 4), null); // no hay quinto pulso en 4/4
+  assert.equal(parseBarPos('hola', 4), null);
 });

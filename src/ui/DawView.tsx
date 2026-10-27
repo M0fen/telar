@@ -6,7 +6,7 @@ import { useScenesStore } from '../store/useScenesStore';
 import { buildDawModel, playheadAt, toggleBlockCode, type DawBlock, type DawTrack } from '../lib/dawModel';
 import { playSong, playFrom, setRegionLoop } from '../lib/songTransport';
 import { timelinePos } from '../lib/songClock';
-import { getScheduler } from '../audio/engine';
+import { heardCycle } from '../audio/engine';
 import { DawSectionBar } from './DawSectionBar';
 import { DawBlockMenu } from './DawBlockMenu';
 import { DawAutoLane } from './DawAutoLane';
@@ -250,7 +250,7 @@ export function DawView() {
     let lastSec = -2;
     const tick = () => {
       // + from: tras «tocar desde aquí» el reloj arrancó en 0 pero suena el compás from + 1
-      const { pos, section } = playheadAt(timelinePos(Number(getScheduler()?.now?.() ?? 0), useSongStore.getState()), total, sections);
+      const { pos, section } = playheadAt(timelinePos(heardCycle(), useSongStore.getState()), total, sections);
       const x = pos * px;
       const t = `translateX(${x}px)`;
       for (const m of marks) if (m) m.style.transform = t;

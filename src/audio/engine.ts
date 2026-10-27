@@ -353,6 +353,22 @@ export function getScheduler(): Scheduler | undefined {
   return repl?.scheduler;
 }
 
+// CICLO QUE SE OYE (Fase 8.2): scheduler.now() va por delante de lo que sale por los parlantes
+// (la latencia fija del cyclist, 0,1 s, menos la duración de su tic, 0,05 s) más la latencia de
+// salida del contexto. Para DIBUJAR el cabezal y el contador; lo que agenda (escenas, grabación)
+// sigue usando now().
+export function heardCycle(): number {
+  const sch = repl?.scheduler as (Scheduler & { cps?: number }) | undefined;
+  if (!sch) return 0;
+  const now = Number(sch.now?.() ?? 0);
+  let lead = 0.05;
+  try {
+    const ctx = getAudioContext() as AudioContext;
+    lead += Number(ctx.outputLatency || ctx.baseLatency || 0);
+  } catch { /* sin contexto: solo la del cyclist */ }
+  return Math.max(0, now - lead * (Number(sch.cps) || 0.5));
+}
+
 // El visualizador lee de este AnalyserNode. En vez del control `analyze` (que es
 // único por evento y entraría en conflicto con los scopes por instrumento),
 // tomamos la señal del nodo suma de la salida (`destinationGain`, que va a

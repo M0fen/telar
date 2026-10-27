@@ -1311,7 +1311,7 @@ body {
 .sub { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: var(--textDim, var(--dim)); }
 
 .transport {
-  display: flex; align-items: center; gap: 14px;
+  display: flex; align-items: center; gap: 10px;
   background: var(--panel); backdrop-filter: blur(10px);
   border: 1px solid var(--line); padding: 7px 12px; border-radius: 3px;
   box-shadow: var(--hud-shadow);
@@ -1319,7 +1319,7 @@ body {
 .transport .play {
   background: #04070a; border: 1px solid var(--accent-dim); color: var(--accent);
   font-family: var(--mono); font-weight: 600; letter-spacing: 0.1em;
-  padding: 6px 14px; cursor: pointer; border-radius: 1px;
+  padding: 6px 14px; cursor: pointer; border-radius: 1px; white-space: nowrap;
 }
 .transport .play.on { background: var(--accent); color: #02110e; border-color: var(--accent); }
 .transport .play:hover { border-color: var(--accent); }
@@ -1338,6 +1338,11 @@ body {
 .tap:hover, .tap:active { border-color: var(--accent); color: var(--accent); }
 .tap:active { background: var(--accent); color: #04201c; }
 .status { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; min-width: 70px; max-width: 320px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* pantallas medianas: el estado queda en su símbolo (el texto va en el title) para que el transporte quepa */
+@media (max-width: 1440px) {
+  .status { min-width: 0; max-width: 200px; }
+  .status .status-txt { display: none; }
+}
 .status.ok { color: var(--accent-dim); }
 .status.err { color: var(--warn); }
 
@@ -1961,7 +1966,7 @@ button.pal-item { width: 100%; }
 .pm-btn {
   background: var(--panel); border: 1px solid var(--line); color: var(--dim);
   font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; padding: 6px 10px;
-  border-radius: 2px; cursor: pointer; backdrop-filter: blur(8px);
+  border-radius: 2px; cursor: pointer; backdrop-filter: blur(8px); white-space: nowrap;
 }
 .pm-btn:hover, .pm-btn.on { color: var(--accent); border-color: var(--accent-dim); }
 .pm-note { font-size: 10px; letter-spacing: 0.1em; color: var(--accent-dim); }
@@ -2132,20 +2137,32 @@ button.pal-item { width: 100%; }
 .tempo-bpm input {
   width: 46px; background: #04070a; border: 1px solid var(--line); color: var(--text);
   font-family: var(--mono); font-size: 13px; padding: 2px 5px; border-radius: 1px;
+  -moz-appearance: textfield; appearance: textfield; /* sin flechas: «140» cabe entero */
 }
+.tempo-bpm input::-webkit-outer-spin-button, .tempo-bpm input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .tempo-bpm span { font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
-/* "/N" opcional: tiempos por ciclo (compás) */
-.tempo-beats { display: flex; align-items: baseline; gap: 1px; }
-.tempo-beats .slash { color: var(--faint); font-size: 13px; }
-.tempo-beats input {
-  width: 26px; background: #04070a; border: 1px solid var(--line); color: var(--dim);
-  font-family: var(--mono); font-size: 13px; padding: 2px 3px; border-radius: 1px; text-align: center;
+/* compás del tema «4/4» (8.2) */
+.tsig {
+  background: #04070a; border: 1px solid var(--line); color: var(--text); font-family: var(--mono);
+  font-size: 12px; padding: 2px 2px; border-radius: 1px; cursor: pointer;
 }
-.tempo-beats-add {
-  background: none; border: 1px solid var(--line); color: var(--faint);
-  font-family: var(--mono); font-size: 12px; line-height: 1; padding: 1px 5px; border-radius: 1px; cursor: pointer;
+.tsig:hover, .tsig:focus-visible { border-color: var(--accent-dim); outline: none; }
+/* contador de posición (8.2) */
+.pos-counter {
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px;
+  min-width: 86px; padding: 1px 10px; background: none; border: none;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  font-family: var(--mono); line-height: 1.05; cursor: text; text-align: left;
 }
-.tempo-beats-add:hover { color: var(--accent); border-color: var(--accent-dim); }
+.pos-counter b { font-size: 17px; font-weight: 600; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: 0.03em; }
+.pos-counter i { font-style: normal; font-size: 10px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.pos-counter:hover b { text-decoration: underline dotted; text-underline-offset: 3px; }
+.pos-counter:focus-visible { outline: 1px solid var(--accent); }
+.pos-counter.editing input {
+  width: 76px; background: #04070a; border: 1px solid var(--accent-dim); color: var(--accent);
+  font-family: var(--mono); font-size: 15px; padding: 1px 5px; border-radius: 1px;
+}
+.pos-counter.editing i { font-size: 8px; color: var(--faint); }
 
 /* --- Tono (transposición global en semitonos) --- */
 .tono { display: flex; align-items: stretch; gap: 0; border: 1px solid var(--line); border-radius: 2px; overflow: hidden; background: #04070a; }

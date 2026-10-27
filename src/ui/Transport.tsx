@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
+import { useSongStore } from '../store/useSongStore';
 import { tapTempo } from '../lib/tapTempo';
+import { timelinePos } from '../lib/songClock';
+import { playFrom } from '../lib/songTransport';
+import { heardCycle } from '../audio/engine';
+import { fmtBarPos, fmtClock, parseBarPos } from '../lib/dawGrid';
 import { ROOT_NAMES, keyLong, keyShort, suggestKey } from '../lib/songKey';
 import type { WarpInfo } from '../lib/loopWarp';
 import { Knob } from './Knob';
@@ -58,9 +63,74 @@ function KeyPicker({ onClose }: { onClose: () => void }) {
   );
 }
 
-// Transporte: Play/Stop + tempo (perilla + BPM editable + tap) + tono. setcps
-// controla la velocidad del scheduler. BPM ≈ cps · 60 · tiempos_por_ciclo. El "/N"
-// (tiempos por ciclo) es opcional: por defecto se oculta y se asume 4. (master-prompt §5)
+// CONTADOR DE POSICIÓN (Fase 8.2): «25.2.3» (compás.pulso.semicorchea) y «0:42.1» de lo que suena,
+// el mismo reloj que la línea del DAW (ciclo del scheduler → compás de la canción). Un rAF escribe el
+// texto directo en el DOM (no re-renderiza 60×/s). Parado muestra dónde arrancará ▶. Clic = escribir
+// un compás («33», «33.3») y Enter = tocar desde ese compás.
+function PositionCounter() {
+  const playing = useGraphStore((s) => s.playing);
+  const beats = useGraphStore((s) => s.beatsPerCycle) || 4;
+  const cps = useGraphStore((s) => s.cps) || 0.5;
+  const from = useSongStore((s) => s.from);
+  const region = useSongStore((s) => s.region);
+  const regionOn = useSongStore((s) => s.regionOn);
+  const barRef = useRef<HTMLElement>(null);
+  const timeRef = useRef<HTMLElement>(null);
+  const [edit, setEdit] = useState<string | null>(null);
+  useEffect(() => {
+    if (edit !== null) return;
+    const write = (pos: number) => {
+      const a = fmtBarPos(pos, beats);
+      const t = fmtClock(pos / cps);
+      if (barRef.current && barRef.current.textContent !== a) barRef.current.textContent = a;
+      if (timeRef.current && timeRef.current.textContent !== t) timeRef.current.textContent = t;
+    };
+    // parado: dónde arrancará ▶ (el compás elegido o el inicio de la región en bucle)
+    if (!playing) { write(timelinePos(0, { from, region, regionOn })); return; }
+    let raf = 0;
+    const tick = () => {
+      write(Math.max(0, timelinePos(heardCycle(), useSongStore.getState())));
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, beats, cps, from, region, regionOn, edit]);
+  const go = () => {
+    const bar = edit === null ? null : parseBarPos(edit, beats);
+    setEdit(null);
+    if (bar !== null) void playFrom(Math.floor(bar));
+  };
+  if (edit !== null) {
+    return (
+      <span className="pos-counter editing">
+        <input
+          autoFocus
+          value={edit}
+          onChange={(e) => setEdit(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') go(); else if (e.key === 'Escape') setEdit(null); e.stopPropagation(); }}
+          onBlur={() => setEdit(null)}
+          aria-label="compás desde el que tocar"
+          inputMode="decimal"
+        />
+        <i>Enter: tocar desde aquí</i>
+      </span>
+    );
+  }
+  return (
+    <button
+      className="pos-counter"
+      onClick={() => setEdit(String(Math.floor(Number((barRef.current?.textContent ?? '1').split('.')[0]) || 1)))}
+      title="posición: compás.pulso.semicorchea · minutos:segundos — clic: escribe un compás para tocar desde ahí"
+    >
+      <b ref={barRef}>1.1.1</b>
+      <i ref={timeRef}>0:00.0</i>
+    </button>
+  );
+}
+
+// Transporte: Play/Stop + posición + tempo (perilla + BPM editable + tap) + compás + tono. setcps
+// controla la velocidad del scheduler. BPM = cps · 60 · tiempos_por_compás (1 ciclo = 1 compás).
+// El compás del tema se ve como «4/4» (8.2): el pulso es la negra; cambiarlo conserva el BPM.
 export function Transport() {
   const playing = useGraphStore((s) => s.playing);
   const initializing = useGraphStore((s) => s.initializing);
@@ -77,9 +147,6 @@ export function Transport() {
   const stop = useGraphStore((s) => s.stop);
   const setCpsValue = useGraphStore((s) => s.setCpsValue);
 
-  // El "/N" se muestra si el usuario lo activa o si ya no es el 4 por defecto.
-  const [showBeats, setShowBeats] = useState(beatsPerCycle !== 4);
-
   const error = compileError ?? runtimeError;
   const bpm = Math.round(cps * 60 * beatsPerCycle);
   const setBpm = (b: number) => setCpsValue(Math.max(40, Math.min(300, b)) / (60 * beatsPerCycle));
@@ -89,6 +156,7 @@ export function Transport() {
       <button className={`play ${playing ? 'on' : ''}`} onClick={() => (playing ? stop() : play())}>
         {playing ? '■ stop' : '▶ play'}
       </button>
+      <PositionCounter />
       <div className="tempo">
         <Knob
           value={bpm}
@@ -102,35 +170,26 @@ export function Transport() {
           onChange={(v) => setBpm(v)}
         />
         <div className="tempo-read">
-          <div className="tempo-bpm">
+          <div className="tempo-bpm" title={`tempo · ${cps.toFixed(3)} ciclos por segundo (1 ciclo = 1 compás)`}>
             <input
               type="number"
               value={bpm}
               min={40}
               max={300}
               onChange={(e) => setBpm(Number(e.target.value))}
+              aria-label="tempo en BPM"
             />
-            {/* "/N" opcional: chip para mostrarlo, luego input de tiempos por ciclo. */}
-            {showBeats ? (
-              <div className="tempo-beats" title="tiempos por ciclo (compás). doble-clic = ocultar">
-                <span className="slash">/</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={16}
-                  value={beatsPerCycle}
-                  onChange={(e) => setBeatsPerCycle(Number(e.target.value))}
-                  onDoubleClick={() => beatsPerCycle === 4 && setShowBeats(false)}
-                />
-              </div>
-            ) : (
-              <button className="tempo-beats-add" title="añadir compás (/N)" onClick={() => setShowBeats(true)}>
-                /
-              </button>
-            )}
             <span>bpm</span>
           </div>
-          <span className="cps">cps {cps.toFixed(3)}</span>
+          <select
+            className="tsig"
+            value={beatsPerCycle}
+            onChange={(e) => setBeatsPerCycle(Number(e.target.value))}
+            title="compás del tema: tiempos por compás (el pulso es la negra). Cambiarlo conserva el BPM."
+            aria-label="compás del tema"
+          >
+            {Array.from({ length: 15 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n}/4</option>)}
+          </select>
         </div>
         <button
           className="tap"
@@ -156,8 +215,13 @@ export function Transport() {
         </div>
         {keyOpen && <KeyPicker onClose={() => setKeyOpen(false)} />}
       </div>
-      <div className={`status ${error ? 'err' : 'ok'}`} title={error ?? undefined}>
-        {error ? `⚠ ${error}` : initializing ? '◌ init audio…' : playing ? '● live' : '○ idle'}
+      <div className={`status ${error ? 'err' : 'ok'}`} title={error ?? (initializing ? 'iniciando el audio' : playing ? 'sonando' : 'en pausa')}>
+        {error ? `⚠ ${error}` : (
+          <>
+            {initializing ? '◌' : playing ? '●' : '○'}
+            <span className="status-txt"> {initializing ? 'init audio…' : playing ? 'live' : 'idle'}</span>
+          </>
+        )}
       </div>
     </div>
   );
