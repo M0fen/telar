@@ -114,3 +114,12 @@ test('3.3: al exportar, pasado stopAt no arranca nada nuevo (la cola suena, la v
     `((${code}\n).early(8)).filterHaps((h)=>!h.whole||h.whole.begin<16)`,
   );
 });
+
+test('9.3: tiempo propio de una sección — vuelta 1 y vuelta 2 del arrange', async () => {
+  const { armTime } = await import('../src/lib/songClock.ts');
+  const arm = { start: 24, bars: 16, total: 80 };
+  assert.equal(armTime(30.5, arm), 6.5); // drop, compás 7
+  assert.ok(Number.isNaN(armTime(10, arm))); // otra sección
+  assert.equal(armTime(80 + 24 + 1, arm), 17); // segunda vuelta: sigue después de los 16 de la primera
+  assert.ok(Number.isNaN(armTime(-1, arm))); // cuenta previa
+});

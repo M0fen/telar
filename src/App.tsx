@@ -498,7 +498,7 @@ export default function App() {
 
   return (
     <div
-      className={`app${docked ? ' docked' : ''}`}
+      className={`app${docked ? ' docked' : ''}${docked && detailH > 0 ? ' with-detail' : ''}`}
       style={{
         background: tokens.bg,
         ['--viz-h' as string]: `${vizVisible ? vizHeight : VIZ_STRIP}px`,

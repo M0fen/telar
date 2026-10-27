@@ -8,9 +8,9 @@ export const DETAIL_MIN = 180;
 const readH = () => {
   try {
     const v = Number(localStorage.getItem(KEY));
-    return v >= DETAIL_MIN && v <= 900 ? v : 320;
+    return v >= DETAIL_MIN && v <= 900 ? v : 380;
   } catch {
-    return 320;
+    return 380;
   }
 };
 

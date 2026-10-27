@@ -1202,7 +1202,7 @@ body {
 
 /* --- Nod-IA: botón flotante --- */
 .nodia-fab {
-  position: fixed; right: calc(var(--dock-r, 0px) + 16px); bottom: calc(var(--viz-h, 0px) + var(--detail-h, 0px) + 16px); z-index: 60;
+  position: fixed; right: calc(var(--dock-r, 0px) + 16px); bottom: calc(var(--viz-h, 0px) + 16px); z-index: 60;
   display: flex; align-items: center; gap: 8px; padding: 9px 14px 9px 11px;
   background: rgba(10,16,22,0.92); color: var(--accent); border: 1px solid var(--accent-dim);
   border-radius: 22px; cursor: pointer; font-family: var(--tech); font-size: 12px; letter-spacing: 0.06em;
@@ -1250,9 +1250,14 @@ body {
 .tools-song { background: rgba(127,220,160,0.08); border-color: rgba(127,220,160,0.4); color: #9fe6b8; }
 .tools-song:hover { background: rgba(127,220,160,0.16); border-color: #7fdca0; }
 
+/* con el panel de detalle abierto (9.2+): Nod-IA se encoge a la cabecera del panel (no tapa ni el
+   editor ni las pistas) y el secuenciador global se esconde (el panel ya es el editor de pasos) */
+.app.with-detail .nodia-fab { bottom: calc(var(--viz-h, 0px) + var(--detail-h, 0px) - 27px); right: calc(var(--dock-r, 0px) + 44px); padding: 3px 10px 3px 8px; font-size: 10px; border-radius: 12px; gap: 6px; }
+.app.with-detail .nodia-fab svg { width: 13px; height: 13px; }
+.app.with-detail .seq-open:not(.on) { display: none; }
 /* --- Secuenciador de pasos (drum machine) --- */
 .seq-open {
-  position: fixed; left: calc(var(--dock-l, 0px) + 12px); bottom: calc(var(--viz-h, 0px) + var(--detail-h, 0px) + 12px); z-index: 40; display: inline-flex; align-items: center; gap: 6px;
+  position: fixed; left: calc(var(--dock-l, 0px) + 12px); bottom: calc(var(--viz-h, 0px) + 12px); z-index: 40; display: inline-flex; align-items: center; gap: 6px;
   background: #04070a; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono);
   font-size: 11px; letter-spacing: 0.06em; padding: 6px 11px; border-radius: 3px; cursor: pointer;
 }
@@ -2943,6 +2948,56 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .seqs-condsegs i { flex: 1; border-radius: 1px; background: rgba(255,255,255,0.08); }
 .seqs-condsegs i.on { background: var(--tc, var(--accent)); opacity: 0.8; }
 .seqs-bars.big.cond .seqs-bar { cursor: pointer; }
+/* 9.4 — PIANO ROLL GRANDE (panel de detalle) */
+.proll .proll-ctl { flex-wrap: wrap; row-gap: 6px; }
+.proll .proll-ctl .seqs-tag { flex: 0 1 auto; }
+.seqs-viewinline { display: inline-flex; align-items: center; gap: 4px; margin-left: 14px; padding-left: 12px; border-left: 1px solid var(--line); }
+.proll-key-chip { font-size: 10px; padding: 2px 9px; border: 1px solid var(--tc, var(--accent)); color: var(--tc, var(--accent)); border-radius: 10px; white-space: nowrap; letter-spacing: 0.04em; }
+.proll-key-chip.off { border-color: var(--line); color: var(--faint); }
+.proll-tools { display: inline-flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.proll-tools button, .proll-tog, .proll-zoom button { background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 10px; padding: 3px 8px; border-radius: 2px; cursor: pointer; }
+.proll-tools button.on, .proll-tog.on { color: var(--tc, var(--accent)); border-color: var(--tc, var(--accent)); background: color-mix(in srgb, var(--tc, #3df0d0) 10%, #0a1016); }
+.proll-tools button:hover, .proll-tog:hover, .proll-zoom button:hover { color: var(--accent); border-color: var(--accent-dim); }
+.proll-zoom { display: inline-flex; gap: 2px; }
+.proll-scroll { position: relative; height: 260px; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--line); border-radius: 3px; background: #05080b; scrollbar-gutter: stable; overscroll-behavior: contain; }
+/* en el panel de detalle el piano roll llena el alto que quede (mínimo 170 px; si no cabe, el panel se desplaza) */
+.detail-body { display: flex; flex-direction: column; }
+.detail-body > .seqs-secs { flex: 1 0 auto; }
+.detail .seqs.proll { flex: 1 0 auto; }
+.detail .proll-scroll { flex: 1 1 0; height: auto; min-height: 170px; }
+.proll-body { position: relative; display: flex; }
+.proll-keys { flex: 0 0 54px; box-sizing: border-box; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: #0b1015; position: relative; z-index: 2; }
+.proll-key { position: relative; flex: none; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding: 0 5px 0 0; background: #b9c2c8; border: none; border-bottom: 1px solid rgba(0,0,0,0.35); color: #1a2228; font-family: var(--mono); font-size: 8px; cursor: pointer; }
+.proll-key.blk { background: #161c22; color: #7d8a93; width: 68%; border-bottom-color: #000; }
+.proll-key.in { box-shadow: inset 3px 0 0 color-mix(in srgb, var(--tc, #3df0d0) 60%, transparent); }
+.proll-key.root { box-shadow: inset 4px 0 0 var(--tc, var(--accent)); font-weight: 700; }
+.proll-key.lit { background: var(--tc, var(--accent)); color: #02110e; }
+.proll-key:hover { filter: brightness(1.18); }
+.proll-grid { position: relative; flex: 1; min-width: 0; cursor: crosshair; touch-action: none; }
+.proll-rows { position: absolute; inset: 0; display: flex; flex-direction: column; pointer-events: none; }
+.proll-row { flex: none; box-sizing: border-box; border-bottom: 1px solid rgba(255,255,255,0.035); }
+.proll-row.blk { background: rgba(0,0,0,0.3); }
+.proll-row.in { background: color-mix(in srgb, var(--tc, #3df0d0) 6%, transparent); }
+.proll-row.blk.in { background: color-mix(in srgb, var(--tc, #3df0d0) 5%, rgba(0,0,0,0.22)); }
+.proll-row.root { background: color-mix(in srgb, var(--tc, #3df0d0) 13%, transparent); }
+.proll-cols, .proll-vel {
+  background-image: linear-gradient(to right, rgba(255,255,255,0.24) 0 1px, transparent 1px), linear-gradient(to right, rgba(255,255,255,0.1) 0 1px, transparent 1px), linear-gradient(to right, rgba(255,255,255,0.035) 0 1px, transparent 1px);
+  background-size: calc(100% / var(--nbars)) 100%, calc(100% / var(--nbeats)) 100%, calc(100% / var(--steps)) 100%;
+}
+.proll-cols { position: absolute; inset: 0; pointer-events: none; }
+.proll-ghost { position: absolute; box-sizing: border-box; border: 1px solid color-mix(in srgb, var(--gc) 75%, transparent); background: color-mix(in srgb, var(--gc) 16%, transparent); border-radius: 2px; pointer-events: none; }
+.proll-note { position: absolute; box-sizing: border-box; display: flex; align-items: center; overflow: hidden; z-index: 1; cursor: grab; border-radius: 2px; background: var(--tc, var(--accent)); border: 1px solid rgba(0,0,0,0.5); box-shadow: 0 0 0 1px color-mix(in srgb, var(--tc, #3df0d0) 35%, transparent), 0 1px 4px rgba(0,0,0,0.5); }
+.proll-note:active { cursor: grabbing; }
+.proll-note.out { background-image: repeating-linear-gradient(135deg, rgba(0,0,0,0.28) 0 2px, transparent 2px 5px); }
+.proll-nname { font-size: 8px; line-height: 1; color: #02110e; padding-left: 3px; pointer-events: none; white-space: nowrap; }
+.proll-handle { position: absolute; right: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+.proll-handle:hover { background: rgba(255,255,255,0.4); }
+.proll-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #e8d16a; box-shadow: 0 0 6px rgba(232,209,106,0.6); pointer-events: none; z-index: 3; display: none; }
+.proll-velrow { display: flex; height: 46px; margin-top: 4px; overflow-y: hidden; scrollbar-gutter: stable; border: 1px solid transparent; }
+.proll-vel-tag { flex: 0 0 54px; box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; padding-right: 6px; font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.proll-vel { position: relative; flex: 1; min-width: 0; background-color: #05080b; box-shadow: inset 0 0 0 1px var(--line); border-radius: 2px; cursor: ns-resize; touch-action: none; }
+.proll-lolli { position: absolute; bottom: 0; width: 2px; margin-left: -1px; background: var(--tc, var(--accent)); pointer-events: none; }
+.proll-lolli::before { content: ''; position: absolute; top: -3px; left: -3px; width: 8px; height: 8px; border-radius: 50%; background: var(--tc, var(--accent)); }
 /* 64 pasos: los valores del carril solo al pasar por encima (no caben) */
 .detail .seqs.dense .seqs-bar-val { display: none; }
 .detail .seqs.dense .seqs-bar:hover .seqs-bar-val { display: block; }

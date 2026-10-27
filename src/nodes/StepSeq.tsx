@@ -2,7 +2,8 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { SeqBigContext } from './seqBig';
 import { fillEvery, rotateLane, euclidLane, invertLane, clearLane } from '../lib/laneTools';
 import { useGraphStore } from '../store/useGraphStore';
-import { getScheduler, heardCycle } from '../audio/engine';
+import { getScheduler } from '../audio/engine';
+import { heardPatternTime, type ArmPos } from './patternClock';
 import { useSongStore } from '../store/useSongStore';
 import { timelinePos } from '../lib/songClock';
 import { useUiFocusStore } from '../store/useUiFocusStore';
@@ -13,6 +14,7 @@ import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
 import { ACCENT, COND_CYCLE, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
+import { PianoRoll } from './PianoRoll';
 import { importMidiIntoSource, useMidiImportPrefs } from '../lib/midiActions';
 import { splitVariation, joinVariation, setVariation, fillFor, VARIATION_EVERY } from '../lib/variation';
 
@@ -110,7 +112,6 @@ const PERC_PALETTE: { s: string; label: string }[] = [
 // `headOff`: apaga el playhead cuando la sección editada no es la que está sonando.
 // `armPos` (9.3): dónde cae la sección en su arrange (compás de inicio, compases, total) — con
 // patrones de varios compases el playhead sigue la vuelta propia del patrón, no el compás.
-export interface ArmPos { start: number; bars: number; total: number }
 
 // polimetría (9.3): la fila repite sus primeros `len` pasos; todos sus arreglos se rellenan
 // repitiéndolos hasta `n` pasos (lo que se ve como «fantasmas» y lo que se recorta/estira)
@@ -190,23 +191,10 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff, armPos }: { 
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      let h = -1;
       // headOff: la sección que se edita NO es la que suena → sin playhead (marcaría
       // pasos que no corresponden a lo que se oye). En preview (loop de la sección) sí.
-      if (useGraphStore.getState().playing && !(headOff && !preview)) {
-        // lo que SE OYE (8.2), en compases de la canción; en un arrange, el brazo toca su patrón
-        // desde su inicio y en la vuelta m sigue donde quedó (m·compases + lo que lleva)
-        const t = timelinePos(heardCycle(), useSongStore.getState());
-        let s = t;
-        if (armPos && !preview) {
-          const T = Math.max(1, armPos.total);
-          const m = Math.floor(t / T);
-          const w = t - m * T - armPos.start;
-          s = w >= 0 && w < armPos.bars ? m * armPos.bars + w : NaN;
-        }
-        if (Number.isFinite(s) && s >= 0) h = Math.floor((s / Math.max(1, bars)) * steps + 1e-6);
-      }
-      setHeadAbs(h);
+      const s = headOff && !preview ? NaN : heardPatternTime(armPos, preview);
+      setHeadAbs(Number.isFinite(s) && s >= 0 ? Math.floor((s / Math.max(1, bars)) * steps + 1e-6) : -1);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -862,7 +850,10 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
   // VISTA para melodías: la REJILLA (pasos + afinar arrastrando + «afinar todo») es la
   // por defecto — el flujo preferido del usuario en todas partes; el piano roll queda
   // como disposición alternativa del MISMO código (toggle).
-  const [view, setView] = useState<'grid' | 'roll'>('grid');
+  // (se recuerda en este navegador: quien escribe con el piano roll lo vuelve a encontrar)
+  const [view, setViewState] = useState<'grid' | 'roll'>(() => { try { return localStorage.getItem('telar.seq.view') === 'roll' ? 'roll' : 'grid'; } catch { return 'grid'; } });
+  const setView = (v: 'grid' | 'roll') => { setViewState(v); try { localStorage.setItem('telar.seq.view', v); } catch { /* solo esta sesión */ } };
+  const big = useContext(SeqBigContext); // en el panel de detalle: piano roll grande (9.4)
   // qué sección está SONANDO ahora en el arreglo (punto en la pestaña): posición del
   // reloj módulo el total de compases del arrange → el "entra después" se VE.
   const [live, setLive] = useState(-1);
@@ -904,6 +895,7 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
               {VARIATION_EVERY.map((n) => (
                 <button key={n} onClick={() => { emitVar(setVariation(c, n, 'copy')); setVarPart('fill'); }} title={`el último compás de cada ${n} toca un fill (empieza como copia del patrón: edítala)`}>＋ cada {n}</button>
               ))}
+              {big && viewTabs(c)}
             </div>
           )}
           {plainEditor(c, wrapFn, seedFrom, previewCode, headOff)}
@@ -929,6 +921,7 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
             <button onClick={() => emitVar(joinVariation({ ...v, fill: fillFor(v.base, 'roll') }))} title="roll: cada golpe del patrón ×2">roll</button>
             <button onClick={() => { emitVar(v.base); setVarPart('base'); }} title="quitar la variación (queda el patrón)">×</button>
           </span>
+          {big && viewTabs(varPart === 'fill' ? v.fill : v.base)}
         </div>
         {varPart === 'fill' && v.fill.trim() === 'silence'
           ? <p className="seqs-seedline">fill = <b>corte</b>: la pista calla en el último compás de cada {v.every}. «copia» para editarlo como patrón.</p>
@@ -936,11 +929,23 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
       </>
     );
   };
+  // vista rejilla / piano roll de una melodía; en el panel de detalle va en la fila de variación
+  // (una fila menos: más alto para el piano roll)
+  const viewTabs = (c: string) => (isMelodicCode(c) ? (
+    <span className="seqs-viewinline">
+      <span className="seqs-sectag">vista</span>
+      <button className={view === 'grid' ? 'on' : ''} onClick={() => setView('grid')} title="rejilla de pasos: afinar arrastrando ↕ · afinar todo · escala/acorde · rolls · probabilidad">▦ rejilla</button>
+      <button className={view === 'roll' ? 'on' : ''} onClick={() => setView('roll')} title="piano roll: notas sobre el teclado, notas largas, acordes en tono y las demás pistas de fantasma">🎹 piano roll</button>
+    </span>
+  ) : null);
   const plainEditor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, previewCode?: string, headOff?: boolean) => {
     const melodic = isMelodicCode(c);
+    const plain = c.trim();
+    // en grande la vista ya está en la fila de variación (si esa fila se muestra)
+    const inlineView = big && !!plain && plain !== 'silence';
     return (
       <>
-        {melodic && (
+        {melodic && !inlineView && (
           <div className="seqs-sectabs seqs-viewtabs">
             <span className="seqs-sectag" title="misma melodía, dos disposiciones: la rejilla afina cada paso arrastrando ↕ (con «afinar todo», escala y acorde); el piano roll coloca notas sobre el teclado.">vista</span>
             <button className={view === 'grid' ? 'on' : ''} onClick={() => setView('grid')} title="rejilla de pasos: afinar arrastrando ↕ · afinar todo · escala/acorde · rolls · probabilidad">▦ rejilla</button>
@@ -948,7 +953,9 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
           </div>
         )}
         {melodic && view === 'roll'
-          ? <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} />
+          ? (big
+            ? <PianoRoll id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />
+            : <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} />)
           : <StepGrid id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} previewCode={previewCode} headOff={headOff} armPos={armPos} />}
       </>
     );

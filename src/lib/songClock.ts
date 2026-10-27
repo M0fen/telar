@@ -81,3 +81,19 @@ export function timelinePos(now: number, t: TimelineLike): number {
   }
   return n + (Number.isFinite(t.from) && t.from > 0 ? t.from : 0);
 }
+
+// TIEMPO PROPIO DE UNA SECCIÓN (9.3/9.4): en un arrange([n, pat], …) el brazo toca su patrón desde
+// su inicio y, en la vuelta m del arrange, sigue donde quedó (m·n + lo que lleva). Dada la posición
+// `t` en la línea de tiempo, los compases que lleva el patrón del brazo; NaN si no está sonando.
+export interface ArmSpan {
+  start: number; // compás (desde 0) donde empieza el brazo dentro de su arrange
+  bars: number; // compases del brazo
+  total: number; // compases de todo el arrange
+}
+export function armTime(t: number, arm: ArmSpan): number {
+  if (!Number.isFinite(t) || t < 0) return NaN;
+  const T = Math.max(1, arm.total);
+  const m = Math.floor(t / T);
+  const w = t - m * T - arm.start;
+  return w >= 0 && w < arm.bars ? m * arm.bars + w : NaN;
+}

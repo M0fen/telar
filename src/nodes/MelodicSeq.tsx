@@ -3,8 +3,9 @@ import { useGraphStore } from '../store/useGraphStore';
 import type { NodeData } from '../graph/types';
 import { playSynthNote, playDrumHit } from '../audio/playNote';
 import { getScheduler } from '../audio/engine';
-import { ACCIDENTAL, midiToName, noteToMidi } from '../ui/pianoRollHelpers';
+import { ACCIDENTAL, midiToName } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
+import { alignNums, buildMel, chordMidis, chordTok, fmtNum, parseMel } from './melCode';
 import { MiniSlider } from './MiniSlider';
 
 // Secuenciador MELÓDICO por source (unifica con el synth): piano roll inline monofónico
@@ -19,92 +20,8 @@ import { MiniSlider } from './MiniSlider';
 // se MULTIPLICA con el del canal, así que compone bien). Se ocultan por defecto para no
 // saturar; se abren con «vel/dur».
 
-// formatea un número para la mini-notación (sin ceros de más): 1 → "1", 0.5 → "0.5".
-function fmt(n: number): string {
-  if (!isFinite(n)) return '1';
-  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
-}
-// alinea un array de números a `len` pasos (rellena con `def`, recorta el sobrante).
-function alignNums(src: number[] | null | undefined, len: number, def: number): number[] {
-  const out = (src ?? []).slice(0, len);
-  while (out.length < len) out.push(def);
-  return out;
-}
-// extrae un patrón por-paso `.method("a b c")` (entrecomillado). Devuelve los tokens y
-// el código SIN esa llamada. Un `.gain(0.5)` escalar (sin comillas) NO se toca.
-function extractPat(code: string, method: string): { code: string; toks: number[] | null } {
-  const re = new RegExp('\\.' + method + '\\(\\s*"([^"]*)"\\s*\\)');
-  const m = re.exec(code);
-  if (!m) return { code, toks: null };
-  const toks = m[1].trim() ? m[1].trim().split(/\s+/).map((t) => (t === '~' ? 1 : Number(t))).map((n) => (isFinite(n) ? n : 1)) : [];
-  return { code: code.slice(0, m.index) + code.slice(m.index + m[0].length), toks: toks.length ? toks : null };
-}
-const SLIDE_MAX = 7; // semitonos de pitch-env con el mando "slide" al 100%
-// extrae un `.method(<número>)` ESCALAR (p.ej. `.penv(6)`, `.pdecay(0.12)`). Devuelve el
-// valor y el código sin esa llamada.
-function extractScalar(code: string, method: string): { code: string; val: number } {
-  const re = new RegExp('\\.' + method + '\\(\\s*([0-9.]+)\\s*\\)');
-  const m = re.exec(code);
-  if (!m) return { code, val: 0 };
-  const val = Number(m[1]);
-  return { code: code.slice(0, m.index) + code.slice(m.index + m[0].length), val: isFinite(val) ? val : 0 };
-}
-
-interface MelParsed { pre: string; post: string; sName: string | null; bank: string; wave: string | null; tokens: string[]; vels: number[] | null; gates: number[] | null; slide: number; cycles: number }
-
-// ACORDES (Fase 5.5: los .mid de Splice): un paso puede ser «[c3,eb3,g3]» → sus notas MIDI
-function chordMidis(tok: string): number[] {
-  const t = (tok || '').trim();
-  if (!t || t === '~' || t === '-') return [];
-  const inner = t.startsWith('[') && t.endsWith(']') ? t.slice(1, -1) : t;
-  return inner.split(',').map((x) => noteToMidi(x.trim())).filter((m): m is number => m != null);
-}
-const chordTok = (midis: number[]) => {
-  const u = [...new Set(midis)].sort((a, b) => a - b);
-  return !u.length ? '~' : u.length === 1 ? midiToName(u[0]) : `[${u.map(midiToName).join(',')}]`;
-};
-
-function parseMel(code: string): MelParsed | null {
-  // primero retira nuestros patrones de vel/dur (van al final); luego parsea la nota.
-  const g = extractPat(code, 'gain');
-  const c = extractPat(g.code, 'clip');
-  // "slide" de 808 = pitch-envelope (penv/pdecay), que superdough SÍ aplica. Reconstruye
-  // el valor del mando desde penv (0..SLIDE_MAX semitonos → 0..1) y retira penv+pdecay.
-  const pe = extractScalar(c.code, 'penv');
-  const pd = extractScalar(pe.code, 'pdecay');
-  const base = pd.code;
-  const om = /(?:\.)?\b(?:note|n)\(\s*["'`]/.exec(base);
-  if (!om) return null;
-  const cs = om.index + om[0].length;
-  const q = base[cs - 1];
-  const ce = base.indexOf(q, cs);
-  if (ce < 0) return null;
-  const content = base.slice(cs, ce);
-  const pre = base.slice(0, cs);
-  let post = base.slice(ce);
-  // VARIOS COMPASES (5.5): un `.slow(N)` detrás de las notas → los pasos ocupan N ciclos. Se
-  // retira y se vuelve a poner AL FINAL (después de .gain/.clip, que así quedan alineados).
-  let cycles = 1;
-  const sm = /\.slow\(\s*([0-9.]+)\s*\)/.exec(post);
-  if (sm && Number(sm[1]) > 0) { cycles = Number(sm[1]); post = post.slice(0, sm.index) + post.slice(sm.index + sm[0].length); }
-  const sM = /\bs(?:ound)?\(\s*["'`]([^"'`]+)/.exec(base);
-  const sName = sM ? (sM[1].match(/[A-Za-z0-9_]+/)?.[0] ?? null) : null;
-  const bankM = /\.bank\(\s*["'`]([^"'`]+)/.exec(base);
-  const bank = bankM ? bankM[1] : '';
-  const wave = sName && ['sawtooth', 'square', 'triangle', 'sine', 'supersaw'].includes(sName) ? sName : null;
-  const tokens = content.trim() ? content.trim().split(/\s+/) : [];
-  return { pre, post, sName, bank, wave, tokens, vels: g.toks, gates: c.toks, slide: Math.max(0, Math.min(1, pe.val / SLIDE_MAX)), cycles };
-}
-function buildMel(p: MelParsed, cells: string[], vels: number[], gates: number[], slide: number): string {
-  const body = cells.some((c) => c !== '~') ? cells.join(' ') : '~';
-  let out = p.pre + body + p.post;
-  if (vels.some((v) => Math.abs(v - 1) > 0.001)) out += `.gain("${vels.map(fmt).join(' ')}")`;
-  if (gates.some((g) => Math.abs(g - 1) > 0.001)) out += `.clip("${gates.map(fmt).join(' ')}")`;
-  // 808 slide: pitch-env que desliza cada nota hasta su tono (penv semitonos + pdecay s).
-  if (slide > 0.02) out += `.penv(${(slide * SLIDE_MAX).toFixed(2)}).pdecay(${(0.05 + slide * 0.11).toFixed(3)})`;
-  if (Math.abs(p.cycles - 1) > 1e-9) out += `.slow(${fmt(p.cycles)})`;
-  return out;
-}
+// el código de la melodía (parse/build, acordes) vive en melCode.ts (módulo puro, con tests)
+const fmt = fmtNum;
 
 interface Row { val: string; midi: number; acc: boolean; root: boolean }
 
