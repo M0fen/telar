@@ -1,6 +1,25 @@
 # Telar · plan DAW visual (Fases 8–12)
 
-Estado: **propuesto, esperando el OK de Carlos.** No se toca código hasta que lo apruebe.
+Estado (26-10-2026): **8.1–9.5 hechas** (desplegadas en main). **Pausado por Carlos** («deja una
+etapa funcional y el resto pendiente»): 9.6, 9.7 y las Fases 10–12 siguen pendientes, sin tocar.
+Cualquier cosa de aquí en adelante: plan corto y esperar su OK.
+
+| Hecho | Commit |
+|---|---|
+| 8.1 regla y rejilla · 8.2 transporte · 8.3 metrónomo y cuenta previa · 8.4 navegación | 219f35c · b761268 · 4779afe · cc1280a |
+| 8.5 color por pista · 8.6 paneles acoplados · 8.7 grafo legible | 2f5a2f8 · bef0b56 · 2a31972 |
+| 9.1 contenido en los bloques · 9.2 panel de detalle | ff8d9dc · 0c0ef6b |
+| 9.3 patrones de 1/2/4 compases, polimetría, condiciones por vuelta | 753865b |
+| 9.4 piano roll grande | e2deec5 |
+| 9.5 editor de loops y samples | 7361bd1 |
+
+**Pendiente:** 9.6 cabeceras de pista · 9.7 pads de batería · Fase 10 (clips libres, editar clips,
+pista de arreglo que mueve curvas y transiciones, biblioteca al compás, marcadores y minimapa) ·
+Fase 11 (mezclador, EQ visual, compresor visible, análisis del máster, cadena y macros, escenario
+espacial) · Fase 12 (atajos y Ctrl+K, ayuda contextual, historial de deshacer, CPU, lanzador de clips).
+**A revisar al retomar:** en el DAW, el bloque de un loop por secciones a veces dibuja cajas en vez
+de su onda (¿la onda aún cargando?); el piano roll pequeño del nodo no tiene notas fantasma ni
+acordes en tono (solo el grande); las rebanadas movidas a mano se marcan como «golpes».
 Informe completo (capturas, comparación de 116 ayudas en 15 áreas, maqueta, fuentes):
 https://claude.ai/artifact/GsngUdVTPAPHDSMoHrxxuF
 
