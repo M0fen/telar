@@ -115,7 +115,13 @@
 .daw-blk.click { cursor: pointer; }
 .daw-blk.click:hover { box-shadow: inset 0 0 0 1px var(--tc, var(--accent, #3df0d0)); }
 .daw-blk.click:focus-visible { outline: 2px solid var(--accent, #3df0d0); outline-offset: 1px; }
-.daw-blk-l { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--tc, #d4dee6); font-weight: 600; }
+.daw-blk-l {
+  position: relative; z-index: 2; /* encima del dibujo del contenido (9.1) */
+  font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--tc, #d4dee6); font-weight: 600;
+  background: rgba(4, 6, 9, 0.72); padding: 0 3px; border-radius: 2px; align-self: flex-start; margin-top: 1px;
+}
+/* 9.1 · contenido de los bloques: un canvas por pista sobre la parte visible */
+.daw-lc { position: absolute; top: 4px; height: calc(100% - 8px); pointer-events: none; z-index: 1; }
 .daw-blk.off .daw-blk-l, .daw-blk.empty .daw-blk-l, .daw-blk.plain .daw-blk-l { color: var(--dim, #6b7a88); font-weight: 400; }
 
 @media (max-width: 560px) {

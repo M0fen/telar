@@ -23,6 +23,7 @@ import { GRID_OPTIONS, effectiveGrid, laneBackground, rulerBackground, rulerPlan
 import { useDawUiStore } from '../store/useDawUiStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { TrackColorButton } from './TrackColor';
+import { DawLaneContent } from './DawLaneContent';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
 // La canción entera de un vistazo. Pistas en filas,
@@ -81,6 +82,7 @@ export function DawView() {
   const scenes = useScenesStore((s) => s.scenes);
   const playing = useGraphStore((s) => s.playing);
   const beats = useGraphStore((s) => s.beatsPerCycle) || 4; // tiempos por compás (el 4 de 4/4)
+  const cps = useGraphStore((s) => s.cps) || 0.5;
   const grid = useDawUiStore((s) => s.grid);
   const setGrid = useDawUiStore((s) => s.setGrid);
   const follow = useDawUiStore((s) => s.follow);
@@ -414,6 +416,26 @@ export function DawView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasBody]);
+  // PARTE VISIBLE de la línea de tiempo (9.1): el contenido de los bloques se dibuja solo ahí
+  const [view, setView] = useState({ x0: 0, w: 1200 });
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    let raf = 0;
+    const upd = () => {
+      raf = 0;
+      const w = Math.max(0, body.clientWidth - nameWOf(body));
+      const x0 = body.scrollLeft;
+      setView((v) => (Math.abs(v.x0 - x0) < 1 && Math.abs(v.w - w) < 1 ? v : { x0, w }));
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(upd); };
+    body.addEventListener('scroll', onScroll, { passive: true });
+    const ro = new ResizeObserver(onScroll);
+    ro.observe(body);
+    upd();
+    return () => { body.removeEventListener('scroll', onScroll); ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBody]);
   const width = total * px;
   const mism = tracks.filter((t) => t.mismatch);
   // REGLA Y REJILLA (8.1): compases → pulsos → semicorcheas según el zoom, sombra cada 4 compases
@@ -654,6 +676,7 @@ export function DawView() {
                       })()}
                     </div>
                   ))}
+                  <DawLaneContent blocks={t.blocks} px={px} x0={view.x0} w={view.w} color={colors[t.id] ?? '#3df0d0'} beats={beats} cps={cps} plain={t.plain} />
                   {t.sceneMuted.map((m, i) => (
                     <div key={`m${i}`} className="daw-scmute" style={{ left: m.start * px, width: Math.max(2, m.bars * px - 2) }} />
                   ))}

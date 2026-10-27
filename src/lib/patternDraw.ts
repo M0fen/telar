@@ -63,3 +63,22 @@ export function patternFigure(ev: PreviewEvent[], span: number, maxRows = 5): Pa
     shapes: ev.map((e) => ({ x: e.t / L, w: Math.min(0.9 * Math.max(e.d, 1 / 64) / L, 1 / (16 * L)), y: rowOf(e.snd) * h, h, a: Math.max(0.3, Math.min(1, e.gain)) })),
   };
 }
+
+// CADA CUÁNTOS COMPASES SE REPITE un patrón dentro de un tramo de `n` compases (para las marcas de
+// vuelta en los bloques del DAW, 9.1): el menor p tal que cada compás suena igual que el compás
+// i mod p. Un 4×4 → 1; un fill cada 8 → 8; si no se repite dentro del tramo → n.
+export function patternPeriod(ev: PreviewEvent[], n: number): number {
+  const N = Math.max(1, Math.floor(n));
+  const sig: string[] = Array.from({ length: N }, () => '');
+  for (const e of ev) {
+    const i = Math.floor(e.t + 1e-9);
+    if (i < 0 || i >= N) continue;
+    sig[i] += `${Math.round((e.t - i) * 192)}:${e.snd}:${e.note ?? ''}:${Math.round(e.gain * 100)}|`;
+  }
+  for (let p = 1; p < N; p++) {
+    let ok = true;
+    for (let i = p; i < N && ok; i++) ok = sig[i] === sig[i % p];
+    if (ok) return p;
+  }
+  return N;
+}

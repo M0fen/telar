@@ -34,3 +34,14 @@ test('nombres de nota a MIDI', () => {
   assert.equal(noteNumber(52), 52);
   assert.equal(noteNumber('hola'), null);
 });
+
+test('vueltas del patrón: cada cuántos compases se repite', async () => {
+  const { patternPeriod } = await import('../src/lib/patternDraw.ts');
+  const kick = Array.from({ length: 16 }, (_, b) => [0, 0.25, 0.5, 0.75].map((x) => ev(b + x, 'bd'))).flat();
+  assert.equal(patternPeriod(kick, 16), 1);
+  // fill en el último compás de cada 8
+  const fill = Array.from({ length: 16 }, (_, b) => (b % 8 === 7 ? [0, 0.5, 0.625, 0.75, 0.875] : [0, 0.5]).map((x) => ev(b + x, 'sd'))).flat();
+  assert.equal(patternPeriod(fill, 16), 8);
+  // nada se repite dentro del tramo
+  assert.equal(patternPeriod([ev(0, 'bd'), ev(1.5, 'bd'), ev(2.25, 'sd')], 3), 3);
+});
