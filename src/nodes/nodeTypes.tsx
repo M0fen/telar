@@ -1,4 +1,5 @@
 import { TrackColorButton } from '../ui/TrackColor';
+import { PatternThumb } from '../ui/PatternThumb';
 import { useTrackColor } from '../store/useTrackColorStore';
 import { useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
@@ -691,7 +692,9 @@ function SourceNode({ id, data, selected }: NodeProps) {
       ) : collapsed ? (
         <>
           <CollapsedChip label={d.name?.trim() || d.code?.trim() || 'patrón'} />
-          {/* plegado: se ve el VISUAL del instrumento (onda en vivo) para guiarse */}
+          {/* plegado (8.7): la miniatura de lo que toca en un compás, en su color */}
+          <PatternThumb code={d.code ?? ''} color={tc} />
+          {/* y el VISUAL del instrumento (onda en vivo) para guiarse */}
           <InstrumentViz nodeId={id} code={d.code ?? ''} />
         </>
       ) : (

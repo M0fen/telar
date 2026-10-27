@@ -3,6 +3,8 @@ import {
   ReactFlow,
   Background,
   BackgroundVariant,
+  MiniMap,
+  Panel,
   SelectionMode,
   type Edge,
   type ReactFlowInstance,
@@ -27,6 +29,7 @@ import { type PaletteDrag } from './ui/Palette';
 import { MidiLive } from './ui/MidiLive';
 import { LeftDock, RightDock } from './ui/Docks';
 import { useDockStore, dockWidth } from './store/useDockStore';
+import { useTrackColorStore } from './store/useTrackColorStore';
 import { useUiFocusStore } from './store/useUiFocusStore';
 import { DjMixer } from './ui/DjMixer';
 import { DawView } from './ui/DawView';
@@ -56,6 +59,9 @@ import { tokens } from './theme/tokens';
 
 const MAGNET_RADIUS = 85; // radio del "imán" al cable (px en coords de flujo)
 const VIZ_STRIP = 30; // visualizador plegado: una franja con su barra (8.6)
+// encuadre del grafo (8.7): nunca tan lejos que no se lea (el minimapa ayuda a moverse)
+// (arriba deja libre la barra de arriba y los botones ordenar / ver todo)
+const FIT = { padding: { top: '116px', right: '48px', bottom: '40px', left: '48px' }, minZoom: 0.8, maxZoom: 1.1 } as const;
 
 // distancia punto→segmento, para decidir si un drop cae sobre un cable.
 function distToSeg(p: XYPosition, a: XYPosition, b: XYPosition): number {
@@ -110,6 +116,7 @@ export default function App() {
   const dl = useDockStore((s) => dockWidth(s, dockView, 'l'));
   const dr = useDockStore((s) => dockWidth(s, dockView, 'r'));
   const docked = mode !== 'dj';
+  const trackColors = useTrackColorStore((s) => s.map); // minimapa (8.7)
   const rfRef = useRef<ReactFlowInstance<GNode> | null>(null);
   // arrastre del Out: cachea su posición previa + el conjunto aguas arriba.
   const outDrag = useRef<{ x: number; y: number; ids: Set<string> } | null>(null);
@@ -300,7 +307,7 @@ export default function App() {
   useEffect(() => {
     if (loadNonce === 0) return;
     const t = setTimeout(() => {
-      void rfRef.current?.fitView({ padding: 0.2, duration: 400, maxZoom: 1.2 });
+      void rfRef.current?.fitView({ ...FIT, duration: 400 });
     }, 80);
     return () => clearTimeout(t);
   }, [loadNonce]);
@@ -518,6 +525,7 @@ export default function App() {
               defaultEdgeOptions={{ animated: true, style: { stroke: tokens.edge, strokeWidth: 1.4 } }}
               proOptions={{ hideAttribution: true }}
               fitView
+              fitViewOptions={FIT}
               minZoom={0.3}
               maxZoom={2}
               /* clic izq (sobre vacío) = seleccionar por área; botón central/derecho =
@@ -528,6 +536,20 @@ export default function App() {
               multiSelectionKeyCode="Shift"
             >
               <Background variant={BackgroundVariant.Dots} gap={26} size={1.4} color={tokens.grid} />
+              {/* 8.7: ordenar (fuentes → efectos → salida) y ver todo; minimapa con el color de cada pista */}
+              <Panel position="top-left" className="graph-tools">
+                <button onClick={() => { useGraphStore.getState().arrangeGraph(); setTimeout(() => void rfRef.current?.fitView({ ...FIT, duration: 350 }), 60); }} title="ordenar el grafo: fuentes a la izquierda, efectos en el medio, la salida a la derecha (Ctrl+Z lo deshace)">⇶ ordenar</button>
+                <button onClick={() => void rfRef.current?.fitView({ ...FIT, duration: 350 })} title="encuadrar el grafo">⤢ ver todo</button>
+              </Panel>
+              <MiniMap
+                className="graph-minimap"
+                pannable
+                zoomable
+                ariaLabel="minimapa del grafo"
+                nodeColor={(n) => trackColors[n.id] ?? (n.data?.kind === 'out' ? '#e0633a' : '#2c3b49')}
+                nodeStrokeWidth={0}
+                maskColor="rgba(3, 5, 8, 0.62)"
+              />
             </ReactFlow>
           </div>
         </>

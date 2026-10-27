@@ -26,6 +26,7 @@ import { RETURN_KEYS, returnsFromMaster } from '../lib/returns';
 import { setReturnParams, setReturnsTempoSource } from '../audio/fxReturns';
 import { setEngineAutomation, setAutoPositionSource } from '../audio/autoRunner';
 import { withMetronome } from '../lib/metronome';
+import { layeredLayout, pushApart } from '../lib/graphLayout';
 import { useMetroStore, onMetroChange } from './useMetroStore';
 import { engineAutomation } from '../lib/automation';
 import { isJamRecording } from '../lib/jamRecorder';
@@ -188,6 +189,8 @@ interface GraphState {
   // desplaza un conjunto de nodos por (dx,dy). Lo usa el arrastre del Out, que
   // mueve todo su grafo aguas arriba como una unidad.
   moveNodesBy: (ids: string[] | Set<string>, dx: number, dy: number) => void;
+  // «ordenar» (8.7): columnas fuentes → efectos → salida, con los tamaños medidos. Un paso de deshacer.
+  arrangeGraph: () => void;
   // aplica un mapa nodeId→parche de data (lo usan las escenas) en un solo paso.
   applyNodeStates: (states: Record<string, Partial<NodeData>>) => void;
   // EDICIÓN DEL ARREGLO (DAW, Fase 2.1): código nuevo de varias pistas + secciones de la
@@ -370,7 +373,18 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // borrar nodos (tecla Supr de React Flow) es undoable y debe recompilar.
       const removes = changes.some((c) => c.type === 'remove');
       if (removes) pushPast(true);
-      set({ nodes: applyNodeChanges(changes, get().nodes) as GNode[] });
+      let next = applyNodeChanges(changes, get().nodes) as GNode[];
+      // NADA SE MONTA (8.7): un nodo que cambia de tamaño (se abre su secuenciador, uno nuevo que se
+      // mide por primera vez) empuja hacia abajo a los que tapa. Nunca mientras arrastras.
+      const sized = changes.filter((c) => c.type === 'dimensions').map((c) => (c as { id: string }).id);
+      if (sized.length && !next.some((n) => n.dragging)) {
+        const boxes = next
+          .filter((n) => n.measured?.width && n.measured?.height)
+          .map((n) => ({ id: n.id, kind: n.data.kind, x: n.position.x, y: n.position.y, w: n.measured!.width!, h: n.measured!.height! }));
+        const moved = pushApart(boxes, sized);
+        if (Object.keys(moved).length) next = next.map((n) => (moved[n.id] ? { ...n, position: { x: n.position.x, y: moved[n.id].y } } : n));
+      }
+      set({ nodes: next });
       if (removes) get().recompile();
     },
     onEdgesChange: (changes) => {
@@ -801,6 +815,14 @@ export const useGraphStore = create<GraphState>((set, get) => {
       });
       get().recompile();
       return id;
+    },
+
+    arrangeGraph: () => {
+      const nodes = get().nodes;
+      const boxes = nodes.map((n) => ({ id: n.id, kind: n.data.kind, x: n.position.x, y: n.position.y, w: n.measured?.width ?? 200, h: n.measured?.height ?? 90 }));
+      const pos = layeredLayout(boxes, get().edges);
+      pushPast(true);
+      set({ nodes: nodes.map((n) => (pos[n.id] ? { ...n, position: pos[n.id] } : n)) });
     },
 
     moveNodesBy: (ids, dx, dy) => {
