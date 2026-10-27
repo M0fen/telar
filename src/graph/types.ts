@@ -284,6 +284,7 @@ export interface NodeData {
   params?: Record<string, number | string>;
   // presentación: nombre a gusto del usuario + estado plegado (ahorra espacio).
   name?: string;
+  color?: string; // color de la pista (#rrggbb, Fase 8.5); sin él, el automático por tipo (lib/trackColor)
   collapsed?: boolean;
   showMix?: boolean; // muestra el mini-mezclador (gain + filtro) en el Source
   showTrim?: boolean; // muestra el recortador de forma de onda en el Source

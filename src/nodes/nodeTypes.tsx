@@ -1,3 +1,5 @@
+import { TrackColorButton } from '../ui/TrackColor';
+import { useTrackColor } from '../store/useTrackColorStore';
 import { useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { NodeData } from '../graph/types';
@@ -665,16 +667,20 @@ function SourceNode({ id, data, selected }: NodeProps) {
   // la pista de TRANSICIONES (7.4) no tiene código propio: se ve su resumen y su mezcla
   const trans = Array.isArray(d.transitions) ? cleanTransitions(d.transitions) : null;
   const glowRef = useFlowGlow(id);
+  const tc = useTrackColor(id); // color de la pista (8.5): franja a la izquierda del nodo
   return (
     <div
       ref={glowRef}
+      style={tc && !trans ? { ['--tc' as string]: tc } : undefined}
       className={`tn tn-source${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}${d.solo ? ' is-solo' : ''}${dimmed ? ' is-dim' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
         update(id, { mute: !d.mute });
       }}
     >
-      <NodeHeader id={id} data={d} badge="source" live />
+      <NodeHeader id={id} data={d} badge="source" live>
+        {!trans && <TrackColorButton id={id} className="tcolor-node" />}
+      </NodeHeader>
       <Vu id={id} className="vu-src" />
       {d.warp && <WarpChip id={id} warp={d.warp} />}
       {trans ? (

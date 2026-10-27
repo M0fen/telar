@@ -78,7 +78,7 @@
 .daw-row.muted .daw-tn { color: var(--faint, #44515c); }
 .daw-tname {
   position: sticky; left: 0; z-index: 2; flex: none; width: var(--daw-name-w);
-  display: flex; align-items: center; gap: 4px; padding: 0 6px 0 10px;
+  display: flex; align-items: center; gap: 4px; padding: 0 6px 0 7px;
   background: var(--panel-solid, #0a0d12); border-right: 1px solid var(--line, #202c38);
 }
 .daw-tn { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
@@ -101,18 +101,20 @@
   position: absolute; top: 4px; bottom: 4px; border-radius: 2px; overflow: hidden;
   display: flex; align-items: center; padding: 0 5px; cursor: default;
 }
-.daw-blk.on { background: rgba(61, 240, 208, 0.55); border: 1px solid var(--accent, #3df0d0); }
-.daw-blk.plain { background: rgba(61, 240, 208, 0.22); border: 1px dashed rgba(61, 240, 208, 0.6); }
+/* 8.5 · cada pista con su color (--tc): bloque oscuro teñido, borde y rótulo en su color */
+.daw-row { --tc: var(--accent, #3df0d0); }
+.daw-blk.on { background: color-mix(in srgb, var(--tc) 30%, #0b1016); border: 1px solid color-mix(in srgb, var(--tc) 85%, transparent); }
+.daw-blk.plain { background: color-mix(in srgb, var(--tc) 14%, transparent); border: 1px dashed color-mix(in srgb, var(--tc) 60%, transparent); }
 .daw-blk.off {
-  border: 1px solid rgba(61, 240, 208, 0.5);
-  background: repeating-linear-gradient(135deg, rgba(61, 240, 208, 0.16) 0 4px, transparent 4px 8px);
+  border: 1px solid color-mix(in srgb, var(--tc) 38%, transparent);
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--tc) 13%, transparent) 0 4px, transparent 4px 8px);
 }
 .daw-blk.empty { border: 1px dashed var(--line, #2a3846); background: transparent; }
 .daw-blk.ghost { opacity: 0.45; }
 .daw-blk.click { cursor: pointer; }
-.daw-blk.click:hover { box-shadow: inset 0 0 0 1px var(--accent, #3df0d0); }
+.daw-blk.click:hover { box-shadow: inset 0 0 0 1px var(--tc, var(--accent, #3df0d0)); }
 .daw-blk.click:focus-visible { outline: 2px solid var(--accent, #3df0d0); outline-offset: 1px; }
-.daw-blk-l { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #02110e; font-weight: 600; }
+.daw-blk-l { font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--tc, #d4dee6); font-weight: 600; }
 .daw-blk.off .daw-blk-l, .daw-blk.empty .daw-blk-l, .daw-blk.plain .daw-blk-l { color: var(--dim, #6b7a88); font-weight: 400; }
 
 @media (max-width: 560px) {
@@ -242,9 +244,9 @@
 }
 .daw-auto-svg { position: absolute; left: 0; top: 0; cursor: crosshair; touch-action: none; overflow: visible; }
 .daw-auto-neutral { stroke: var(--faint, #44515c); stroke-dasharray: 3 4; stroke-width: 1; }
-.daw-auto-line { fill: none; stroke: var(--accent, #3df0d0); stroke-width: 1.6; }
-.daw-auto-pt { fill: var(--bg, #040506); stroke: var(--accent, #3df0d0); stroke-width: 1.6; cursor: grab; }
-.daw-auto-pt:hover, .daw-auto-pt.drag, .daw-auto-pt:focus-visible { fill: var(--accent, #3df0d0); outline: none; }
+.daw-auto-line { fill: none; stroke: var(--tc, var(--accent, #3df0d0)); stroke-width: 1.6; }
+.daw-auto-pt { fill: var(--bg, #040506); stroke: var(--tc, var(--accent, #3df0d0)); stroke-width: 1.6; cursor: grab; }
+.daw-auto-pt:hover, .daw-auto-pt.drag, .daw-auto-pt:focus-visible { fill: var(--tc, var(--accent, #3df0d0)); outline: none; }
 .daw-auto-pt.drag { cursor: grabbing; }
 
 /* Fase 3.3 · exportar */
@@ -300,3 +302,6 @@
 .daw-titem.impact { background: #e8a33d; }
 .daw-titem.sweep { background: repeating-linear-gradient(135deg, rgba(232, 163, 61, 0.55) 0 4px, rgba(232, 163, 61, 0.2) 4px 8px); color: #e8a33d; }
 .daw-tmenu .daw-ctx-var span { white-space: nowrap; }
+
+/* 8.5 · botón de color en la cabecera de la pista */
+.tcolor-daw { width: 6px; height: 22px; border-radius: 2px; }

@@ -21,6 +21,8 @@ import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
 import { TrackMeter } from './TrackMeter';
 import { GRID_OPTIONS, effectiveGrid, laneBackground, rulerBackground, rulerPlan, type GridId } from '../lib/dawGrid';
 import { useDawUiStore } from '../store/useDawUiStore';
+import { useTrackColorStore } from '../store/useTrackColorStore';
+import { TrackColorButton } from './TrackColor';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
 // La canción entera de un vistazo. Pistas en filas,
@@ -82,6 +84,7 @@ export function DawView() {
   const grid = useDawUiStore((s) => s.grid);
   const setGrid = useDawUiStore((s) => s.setGrid);
   const follow = useDawUiStore((s) => s.follow);
+  const colors = useTrackColorStore((s) => s.map); // color de cada pista (8.5)
   const setFollow = useDawUiStore((s) => s.setFollow);
   const [px, setPx] = useState<number>(readZoom);
   const pxRef = useRef(px);
@@ -595,8 +598,9 @@ export function DawView() {
             )}
             {tracks.map((t) => (
               <Fragment key={t.id}>
-              <div className={`daw-row${t.audible ? '' : ' muted'}`}>
+              <div className={`daw-row${t.audible ? '' : ' muted'}`} style={{ ['--tc' as string]: colors[t.id] }}>
                 <div className="daw-tname">
+                  <TrackColorButton id={t.id} className="tcolor-daw" />
                   <span className="daw-tn" title={t.name}>{t.name}</span>
                   {t.mismatch && <span className="daw-tw" title={`su arrange dura ${t.bars} compases (la línea de tiempo ${total})`}>⚠{t.bars}</span>}
                   <button className={`daw-ms${t.mute ? ' on mute' : ''}`} onClick={() => update(t.id, { mute: !t.mute })} title="mute de la pista">M</button>
@@ -676,7 +680,7 @@ export function DawView() {
                   label = AUTO_RANGE[param].label;
                 }
                 return (
-                  <div className="daw-row auto" key={`${t.id}-auto`}>
+                  <div className="daw-row auto" key={`${t.id}-auto`} style={{ ['--tc' as string]: colors[t.id] }}>
                     <div className="daw-tname daw-autoname">
                       <select value={fx ? sel : param} onChange={(e) => setAutoOpen((o) => ({ ...o, [t.id]: e.target.value }))} aria-label="parámetro automatizado">
                         {TRACK_PARAMS.map((p) => <option key={p} value={p}>{AUTO_RANGE[p].label}{isActive(au[p], p) ? ' ●' : ''}</option>)}

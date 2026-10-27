@@ -2717,3 +2717,25 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .ref-c-mix { color: var(--accent); font-weight: 500; }
 .ref-c-ref { color: #e8a33d; font-weight: 500; }
 .ml-refab.on { background: #e8a33d; color: #02110e; }
+
+/* COLOR POR PISTA (Fase 8.5): botón con el color y su paleta (en un portal: va sobre todo) */
+.tcolor-btn { flex: none; padding: 0; border: 1px solid rgba(0, 0, 0, 0.45); cursor: pointer; border-radius: 50%; }
+.tcolor-btn:hover { box-shadow: 0 0 0 1px var(--text); }
+.tcolor-btn:focus-visible { outline: 1px solid var(--text); outline-offset: 1px; }
+.tcolor-node { width: 10px; height: 10px; }
+.tcolor-pop {
+  position: fixed; z-index: 400; width: 188px; padding: 8px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel-solid, #0a0d12); border: 1px solid var(--line); border-radius: 3px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.6); font-family: var(--mono);
+}
+.tcolor-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.tcolor-sw { height: 24px; border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 3px; cursor: pointer; padding: 0; }
+.tcolor-sw:hover { transform: scale(1.08); }
+.tcolor-sw.on { box-shadow: 0 0 0 2px var(--text); }
+.tcolor-auto {
+  background: transparent; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono);
+  font-size: 10px; padding: 5px 6px; border-radius: 2px; cursor: pointer; text-align: left;
+}
+.tcolor-auto:hover, .tcolor-auto.on { border-color: var(--accent-dim); color: var(--accent); }
+/* el nodo lleva su color en una franja a la izquierda */
+.tn-source[style*='--tc'] { border-left: 3px solid var(--tc); }

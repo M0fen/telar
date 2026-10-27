@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import './MidiLive.css';
+import { useTrackColorStore } from '../store/useTrackColorStore';
 import { startMidiInput, setLiveFx, releaseAllLiveFx, getScheduler, type LiveFxKey } from '../audio/engine';
 import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
 import { toggleAB, useRefStore } from '../audio/refTrack';
@@ -190,6 +191,7 @@ export function MidiLive() {
   const master = useGraphStore((s) => s.master);
   const nodes = useGraphStore((s) => s.nodes);
   const sources = nodes.filter((n) => n.data.kind === 'source');
+  const colors = useTrackColorStore((s) => s.map); // color de cada pista (8.5)
   const srcSig = sources.map((s) => s.id).join('|');
 
   // minimizar: persiste en localStorage, uno por vista (el panel puede seguir montado al pasar
@@ -418,7 +420,7 @@ export function MidiLive() {
               const muteKey = midiKeyFor(muteSlot);
               const muted = !!s.data.mute;
               return (
-                <div className="ml-track" key={id}>
+                <div className="ml-track" key={id} style={colors[id] ? { borderLeft: `3px solid ${colors[id]}` } : undefined}>
                   <span className="ml-tname" title={s.data.name || id}>{s.data.name || 'pista'}</span>
                   <button
                     className={`ml-mute${muted ? ' on' : ''}${pick === muteSlot ? ' pick' : ''}`}
