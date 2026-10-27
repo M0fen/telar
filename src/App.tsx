@@ -23,9 +23,10 @@ import { useVizFlagsStore } from './store/useVizFlagsStore';
 import { DevPanel } from './dev/DevPanel';
 import { Visualizer } from './viz/Visualizer';
 import { Transport } from './ui/Transport';
-import { Palette, type PaletteDrag } from './ui/Palette';
-import { Performance } from './ui/Performance';
+import { type PaletteDrag } from './ui/Palette';
 import { MidiLive } from './ui/MidiLive';
+import { LeftDock, RightDock } from './ui/Docks';
+import { useDockStore, dockWidth } from './store/useDockStore';
 import { useUiFocusStore } from './store/useUiFocusStore';
 import { DjMixer } from './ui/DjMixer';
 import { DawView } from './ui/DawView';
@@ -54,6 +55,7 @@ import { setVoiceUrl } from './lib/voiceUrls';
 import { tokens } from './theme/tokens';
 
 const MAGNET_RADIUS = 85; // radio del "imán" al cable (px en coords de flujo)
+const VIZ_STRIP = 30; // visualizador plegado: una franja con su barra (8.6)
 
 // distancia punto→segmento, para decidir si un drop cae sobre un cable.
 function distToSeg(p: XYPosition, a: XYPosition, b: XYPosition): number {
@@ -102,6 +104,12 @@ export default function App() {
   const canRedo = useGraphStore((s) => s.future.length > 0);
   const hasSelection = useGraphStore((s) => s.nodes.some((n) => n.selected && n.data.kind !== 'out'));
   const [rightOpen, setRightOpen] = useState(true);
+  // PANELES ACOPLADOS (8.6): en standard y DAW la biblioteca y el panel derecho ocupan su franja;
+  // el modo DJ sigue como estaba (pantalla completa con el panel MIDI flotante)
+  const dockView = mode === 'daw' ? 'daw' : 'std';
+  const dl = useDockStore((s) => dockWidth(s, dockView, 'l'));
+  const dr = useDockStore((s) => dockWidth(s, dockView, 'r'));
+  const docked = mode !== 'dj';
   const rfRef = useRef<ReactFlowInstance<GNode> | null>(null);
   // arrastre del Out: cachea su posición previa + el conjunto aguas arriba.
   const outDrag = useRef<{ x: number; y: number; ids: Set<string> } | null>(null);
@@ -478,7 +486,15 @@ export default function App() {
   useEffect(() => { setBranchMeteringEnabled(branchMetering); }, [branchMetering]);
 
   return (
-    <div className="app" style={{ background: tokens.bg, ['--viz-h' as string]: `${vizVisible ? vizHeight : 0}px` }}>
+    <div
+      className={`app${docked ? ' docked' : ''}`}
+      style={{
+        background: tokens.bg,
+        ['--viz-h' as string]: `${vizVisible ? vizHeight : VIZ_STRIP}px`,
+        ['--dock-l' as string]: `${docked ? dl : 0}px`,
+        ['--dock-r' as string]: `${docked ? dr : 0}px`,
+      }}
+    >
       {/* Standard: lienzo de grafo para crear. DJ: canales lado a lado para mezclar.
           El visualizador vive en su pantalla acoplada abajo (bisel Pioneer). */}
       {mode === 'standard' ? (
@@ -514,9 +530,6 @@ export default function App() {
               <Background variant={BackgroundVariant.Dots} gap={26} size={1.4} color={tokens.grid} />
             </ReactFlow>
           </div>
-          <ErrorBoundary variant="panel" label="paleta"><Palette /></ErrorBoundary>
-          <ErrorBoundary variant="panel" label="máster"><Performance /></ErrorBoundary>
-          <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
         </>
       ) : mode === 'dj' ? (
         <>
@@ -526,7 +539,12 @@ export default function App() {
       ) : (
         <>
           <ErrorBoundary variant="panel" label="vista DAW" onClose={() => setMode('standard')}><DawView /></ErrorBoundary>
-          <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
+        </>
+      )}
+      {docked && (
+        <>
+          <LeftDock />
+          <RightDock />
         </>
       )}
       {/* motor de la canción: UNO, fuera de las vistas → sigue disparando escenas en cualquiera */}

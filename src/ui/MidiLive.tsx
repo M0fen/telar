@@ -182,7 +182,7 @@ function MidiMonitor() {
   );
 }
 
-export function MidiLive() {
+export function MidiLive({ docked = false }: { docked?: boolean } = {}) {
   const refB = useRefStore((s) => s.ab === 'B'); // A/B con la referencia (6.3)
   const { on, learn, pick, inputs, err, map, lit } = useMidiStore(
     useShallow((s) => ({ on: s.on, learn: s.learn, pick: s.pick, inputs: s.inputs, err: s.err, map: s.map, lit: s.lit })),
@@ -321,7 +321,7 @@ export function MidiLive() {
     );
   };
 
-  if (collapsed) {
+  if (collapsed && !docked) {
     return (
       <div className="ml-panel collapsed">
         <button className="ml-toggle" onClick={toggleCollapsed} title="Expandir el panel MIDI en vivo">🎛 MIDI en vivo ▸</button>
@@ -330,9 +330,9 @@ export function MidiLive() {
   }
 
   return (
-    <div className="ml-panel">
+    <div className={`ml-panel${docked ? ' docked' : ''}`}>
       <div className="ml-head">
-        <button className="ml-min" onClick={toggleCollapsed} title="Minimizar el panel">▾</button>
+        {!docked && <button className="ml-min" onClick={toggleCollapsed} title="Minimizar el panel">▾</button>}
         <button className={`ml-midibtn${on ? ' on' : ''}${learn ? ' learn' : ''}`} onClick={() => void onMidiBtn()}>
           {on ? (learn ? '✓ Terminar' : '⌨ Aprender') : 'Conectar MIDI'}
         </button>

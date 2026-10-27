@@ -550,6 +550,15 @@ export function Visualizer() {
   const isNodes = vizMode === NODOS;
   const milkTelar = isMilk && vizMilkStyle === 'telar';
   return (
+    <>
+    {/* plegado (8.6): queda una franja con su nombre; clic = abrir la pantalla */}
+    {!vizVisible && (
+      <div className="viz-strip">
+        <button className="viz-strip-btn" onClick={() => setVizVisible(true)} title="mostrar la pantalla de visualizadores">
+          <span className="viz-led" /> ▴ visualizador · {VIZ_MODES[vizMode]?.toLowerCase()}
+        </button>
+      </div>
+    )}
     <div className={`viz-dock${!vizVisible ? ' is-hidden' : ''}${vizHeadless ? ' is-headless' : ''}`}>
       <div className="viz-resize" onPointerDown={onResizeDown} title="arrastra para redimensionar la pantalla">
         <span className="viz-grip" />
@@ -621,5 +630,6 @@ export function Visualizer() {
         </div>
       </div>
     </div>
+    </>
   );
 }

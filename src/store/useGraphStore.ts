@@ -359,7 +359,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     djShowCode: false, // decks arrancan en ONDAS (compacto); el editor es opt-in por deck
     vizMode: saved?.vizMode ?? 0,
     vizHeight: saved?.vizHeight ?? 236,
-    vizVisible: saved?.vizVisible ?? true,
+    vizVisible: saved?.vizVisible ?? false, // 8.6: de entrada plegado a una franja (más lienzo)
     vizHeadless: saved?.vizHeadless ?? false,
     vizMilkStyle: saved?.vizMilkStyle ?? 'telar',
     title: typeof saved?.title === 'string' ? saved.title.slice(0, 60) : '',
