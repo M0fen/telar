@@ -36,7 +36,7 @@ export function cleanTransitions(x: unknown): TransItem[] {
   for (const it of x) {
     const o = it as Partial<TransItem> | null;
     if (!o || !KINDS.includes(o.kind as TransKind)) continue;
-    const at = Math.round(Number(o.at));
+    const at = Math.round(Number(o.at) * 48) / 48; // la rejilla del DAW llega a 1/16 y a tresillos (8.1)
     const bars = o.kind === 'impact' ? 1 : Math.round(Number(o.bars));
     if (!Number.isFinite(at) || at < 0 || !(bars >= 1 && bars <= 32)) continue;
     out.push({ kind: o.kind as TransKind, at, bars });

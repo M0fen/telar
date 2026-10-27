@@ -2,16 +2,18 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { dawTransitions } from '../lib/dawActions';
 import { TRANS_DEF, cleanTransitions, packTransitions, type TransItem, type TransKind } from '../lib/transitions';
+import { fmtBarShort, snapTo } from '../lib/dawGrid';
 
 // FILA DE TRANSICIONES del DAW (Fase 7.4): riser, reverso, impacto y barrido a tempo. Clic en la
 // fila (también encima de otro) = menú para colocar uno en ese compás (los que suben TERMINAN ahí;
 // el impacto EMPIEZA ahí) y, si caíste sobre uno, quitarlo; clic derecho o doble clic sobre uno =
-// quitarlo directo. «＋ en cada sección» pone un riser y un impacto en cada cambio de sección.
+// quitarlo directo. «＋ en cada sección» pone un riser y un impacto en cada cambio de sección. El compás
+// del clic se ajusta a la rejilla magnética (8.1).
 // Todo es deshacible (Ctrl+Z).
 const KIND_ORDER: TransKind[] = ['riser', 'reverse', 'impact', 'sweep'];
 const keyOf = (it: TransItem) => `${it.kind}@${it.at}`;
 
-export function DawTransitions({ total, px, width, gridBg }: { total: number; px: number; width: number; gridBg: CSSProperties }) {
+export function DawTransitions({ total, px, width, gridBg, snap = 1, beats = 4 }: { total: number; px: number; width: number; gridBg: CSSProperties; snap?: number; beats?: number }) {
   const node = useGraphStore((s) => s.nodes.find((n) => n.data.kind === 'source' && Array.isArray(n.data.transitions)));
   const update = useGraphStore((s) => s.updateNodeData);
   const items = cleanTransitions(node?.data.transitions);
@@ -49,7 +51,7 @@ export function DawTransitions({ total, px, width, gridBg }: { total: number; px
           const el = (e.target as Element).closest('.daw-titem') as HTMLElement | null;
           const item = el ? items.find((it) => keyOf(it) === el.dataset.k) : undefined;
           const r = e.currentTarget.getBoundingClientRect();
-          const bar = Math.max(0, Math.min(total, Math.round((e.clientX - r.left) / px)));
+          const bar = Math.max(0, Math.min(total, snapTo((e.clientX - r.left) / px, snap)));
           setPick({ bar, x: e.clientX, y: e.clientY, item });
         }}
         title="clic: poner una transición en este compás"
@@ -65,7 +67,7 @@ export function DawTransitions({ total, px, width, gridBg }: { total: number; px
               data-k={keyOf(it)}
               className={`daw-titem ${it.kind}`}
               style={{ left, width: w, top: 4 + row * (subH + 2), height: subH, bottom: 'auto' }}
-              title={`${d.label}${it.kind === 'impact' ? '' : ` · ${it.bars} compás${it.bars === 1 ? '' : 'es'}`} · ${it.kind === 'impact' ? 'en' : 'termina en'} el compás ${it.at + 1}\nclic: menú · clic derecho o doble clic: quitar`}
+              title={`${d.label}${it.kind === 'impact' ? '' : ` · ${it.bars} compás${it.bars === 1 ? '' : 'es'}`} · ${it.kind === 'impact' ? 'en' : 'termina en'} el compás ${fmtBarShort(it.at, beats)}\nclic: menú · clic derecho o doble clic: quitar`}
               onContextMenu={(e) => { e.preventDefault(); dawTransitions.remove(it); }}
               onDoubleClick={() => dawTransitions.remove(it)}
             >
@@ -76,7 +78,7 @@ export function DawTransitions({ total, px, width, gridBg }: { total: number; px
       </div>
       {pick && (
         <div className="daw-menu daw-ctx daw-tmenu" ref={menuRef} role="menu" style={{ position: 'fixed', left: Math.min(pick.x, window.innerWidth - 270), top: Math.min(pick.y, window.innerHeight - 220) }}>
-          <span className="daw-ctx-h">compás {pick.bar + 1}</span>
+          <span className="daw-ctx-h">compás {fmtBarShort(pick.bar, beats)}</span>
           {pick.item && (
             <button role="menuitem" className="daw-tdel" onClick={() => { dawTransitions.remove(pick.item!); setPick(null); }}>
               quitar {TRANS_DEF[pick.item.kind].icon} {TRANS_DEF[pick.item.kind].label}{pick.item.kind === 'impact' ? '' : ` de ${pick.item.bars}c`} <kbd>clic der.</kbd>

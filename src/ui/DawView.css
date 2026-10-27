@@ -30,7 +30,14 @@
 .daw-btn.on:hover:not(:disabled) { color: #02110e; } /* sin esto el texto se volvía del mismo color que el fondo */
 .daw-info { color: var(--dim, #6b7a88); letter-spacing: 0.06em; }
 .daw-warn { color: var(--warn, #e0633a); border: 1px solid var(--warn, #e0633a); padding: 2px 7px; border-radius: 2px; cursor: help; }
-.daw-zoom { margin-left: auto; display: inline-flex; gap: 4px; }
+.daw-zoom { display: inline-flex; gap: 4px; }
+/* 8.1 · rejilla magnética */
+.daw-gridsel { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; color: var(--dim, #6b7a88); letter-spacing: 0.06em; }
+.daw-gridsel select {
+  background: var(--bg, #040506); color: var(--text, #d4dee6); border: 1px solid var(--line, #202c38);
+  border-radius: 2px; font-family: inherit; font-size: 11px; padding: 3px 4px;
+}
+.daw-gridsel select:focus-visible { outline: 1px solid var(--accent, #3df0d0); }
 
 .daw-empty, .daw-hint { padding: 18px 16px; color: var(--dim, #6b7a88); }
 .daw-hint { padding: 10px 16px; position: sticky; left: 0; }
@@ -47,9 +54,12 @@
   background: var(--bg, #040506); border-right: 1px solid var(--line, #202c38);
 }
 .daw-ruler-lane { flex: none; position: relative; }
-.daw-bars { position: relative; height: 18px; cursor: pointer; }
+.daw-bars { position: relative; height: 22px; cursor: pointer; }
 .daw-bars:hover { background-color: rgba(61, 240, 208, 0.06); }
-.daw-barn { position: absolute; top: 3px; padding-left: 3px; font-size: 9px; color: var(--dim, #6b7a88); font-variant-numeric: tabular-nums; }
+/* 8.1: número sobre la raya donde empieza su compás; cada 4 más claro; los pulsos «25.2» más tenues */
+.daw-barn { position: absolute; top: 2px; padding-left: 3px; font-size: 10px; color: var(--dim, #6b7a88); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.daw-barn.phr { color: var(--text, #d4dee6); font-weight: 600; }
+.daw-beatn { position: absolute; top: 4px; padding-left: 3px; font-size: 8px; color: var(--faint, #44515c); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; z-index: 2; }
 .daw-secs { position: relative; height: 22px; }
 .daw-sec {
   position: absolute; top: 2px; bottom: 3px;

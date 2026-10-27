@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
-import { AUTO_RANGE, addPoint, movePoint, removePoint, snapBar, sortPoints, type AutoParam, type AutoPoint } from '../lib/automation';
+import { AUTO_RANGE, addPoint, movePoint, removePoint, sortPoints, type AutoParam, type AutoPoint } from '../lib/automation';
+import { fmtBarShort, snapTo } from '../lib/dawGrid';
 
 // CARRIL DE AUTOMATIZACIÓN (Modo DAW, Fase 3.1; 7.2 cualquier perilla) bajo una pista o el máster:
 // la curva del parámetro elegido sobre los compases. Clic en vacío = punto (y arrástralo) · arrastrar un punto = moverlo
-// (¼ de compás) · doble clic = quitarlo. Con un punto enfocado: ← → mueven ¼ de compás,
-// ↑ ↓ cambian el valor, Supr lo quita. Cada cambio va al nodo (data.auto) → Ctrl+Z.
+// (a la rejilla magnética, 8.1) · doble clic = quitarlo. Con un punto enfocado: ← → lo mueven un hueco de la
+// rejilla, ↑ ↓ cambian el valor, Supr lo quita. Cada cambio va al nodo (data.auto) → Ctrl+Z.
 const H = 56;
 const PAD = 5;
 
@@ -13,15 +14,18 @@ const PAD = 5;
 export interface LaneRange { min: number; max: number; neutral: number; label: string; scale?: 'exp'; unit?: string }
 
 export function DawAutoLane({
-  points, param, range, total, px, onChange,
+  points, param, range, total, px, snap = 0.25, beats = 4, onChange,
 }: {
   points: AutoPoint[];
   param?: AutoParam;
   range?: LaneRange;
   total: number;
   px: number;
+  snap?: number; // hueco de la rejilla magnética en compases (0 = libre)
+  beats?: number; // tiempos por compás (para leer la posición «25.2»)
   onChange: (pts: AutoPoint[]) => void;
 }) {
+  const keyStep = snap > 0 ? snap : 1 / (4 * beats); // ← → sin imán: una semicorchea
   const rg: LaneRange = range ?? (param ? AUTO_RANGE[param] : { min: 0, max: 1, neutral: 0, label: '' });
   const bounds = { min: rg.min, max: rg.max };
   const svgRef = useRef<SVGSVGElement>(null);
@@ -37,7 +41,7 @@ export function DawAutoLane({
   const at = (e: { clientX: number; clientY: number }) => {
     const r = svgRef.current!.getBoundingClientRect();
     const raw = v(e.clientY - r.top);
-    return { bar: Math.min(total, snapBar((e.clientX - r.left) / px)), val: exp || Math.abs(rg.max - rg.min) > 50 ? Math.round(raw) : raw };
+    return { bar: Math.max(0, Math.min(total, snapTo((e.clientX - r.left) / px, snap))), val: exp || Math.abs(rg.max - rg.min) > 50 ? Math.round(raw) : raw };
   };
   const line = pts.length
     ? [`0,${y(pts[0][1])}`, ...pts.map(([b, val]) => `${b * px},${y(val)}`), `${width},${y(pts[pts.length - 1][1])}`].join(' ')
@@ -95,12 +99,12 @@ export function DawAutoLane({
             if (e.key === 'Delete' || e.key === 'Backspace') next = removePoint(pts, i);
             else if (e.key === 'ArrowUp') next = movePoint(pts, i, bounds, b, nudge(val, 1));
             else if (e.key === 'ArrowDown') next = movePoint(pts, i, bounds, b, nudge(val, -1));
-            else if (e.key === 'ArrowLeft') next = movePoint(pts, i, bounds, Math.max(0, b - 0.25), val);
-            else if (e.key === 'ArrowRight') next = movePoint(pts, i, bounds, Math.min(total, b + 0.25), val);
+            else if (e.key === 'ArrowLeft') next = movePoint(pts, i, bounds, Math.max(0, snapTo(b - keyStep, keyStep)), val);
+            else if (e.key === 'ArrowRight') next = movePoint(pts, i, bounds, Math.min(total, snapTo(b + keyStep, keyStep)), val);
             if (next) { e.preventDefault(); e.stopPropagation(); onChange(next); }
           }}
         >
-          <title>{`compás ${(b + 1).toFixed(2).replace(/\.00$/, '')} · ${fmt(val)} — doble clic: quitar`}</title>
+          <title>{`compás ${fmtBarShort(b, beats)} · ${fmt(val)} — doble clic: quitar`}</title>
         </circle>
       ))}
     </svg>

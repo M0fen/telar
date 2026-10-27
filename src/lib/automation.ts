@@ -46,6 +46,8 @@ export const MASTER_PARAMS: MasterParam[] = ['mfilt', 'mdrive', 'mroom', 'mdelay
 const ALL_PARAMS = [...TRACK_PARAMS, ...MASTER_PARAMS] as AutoParam[];
 
 const r3 = (x: number) => Math.round(x * 1000) / 1000;
+// el compás de un punto: exacto en la rejilla del DAW (1/16 y tresillos caben en 1/192 de compás, 8.1)
+const rb = (x: number) => Math.round(x * 192) / 192;
 // rango de una curva: un parámetro conocido o el de una perilla de FX ({min, max}, 7.2)
 export type RangeLike = AutoParam | { min: number; max: number };
 const rangeOf = (p: RangeLike) => (typeof p === 'string' ? AUTO_RANGE[p] : p);
@@ -58,7 +60,7 @@ export function sortPoints(pts: AutoPoint[]): AutoPoint[] {
 
 // Añade (o reemplaza, si ya hay uno en ese compás) un punto.
 export function addPoint(pts: AutoPoint[] | undefined, p: RangeLike, bar: number, val: number): AutoPoint[] {
-  const b = r3(Math.max(0, bar));
+  const b = rb(Math.max(0, bar));
   const out = (pts ?? []).filter((x) => Math.abs(x[0] - b) > 1e-6);
   out.push([b, r3(clampV(p, val))]);
   return sortPoints(out);
@@ -98,7 +100,7 @@ export function cleanPoints(pts: unknown, p: RangeLike): AutoPoint[] {
     const b = Number(x[0]);
     const v = Number(x[1]);
     if (!Number.isFinite(b) || !Number.isFinite(v) || b < 0) continue;
-    out.push([r3(b), r3(clampV(p, v))]);
+    out.push([rb(b), r3(clampV(p, v))]);
     if (out.length >= MAX_POINTS) break;
   }
   const s = sortPoints(out);

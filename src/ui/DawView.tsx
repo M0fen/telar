@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import './DawView.css';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
@@ -19,6 +19,8 @@ import { dawSection, dawBlock, blockVariation, createStructure, createFromTempla
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
 import { TrackMeter } from './TrackMeter';
+import { GRID_OPTIONS, effectiveGrid, laneBackground, rulerBackground, rulerPlan, type GridId } from '../lib/dawGrid';
+import { useDawUiStore } from '../store/useDawUiStore';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
 // La canción entera de un vistazo. Pistas en filas,
@@ -28,7 +30,7 @@ import { TrackMeter } from './TrackMeter';
 
 const ZOOM_KEY = 'telar.daw.zoom';
 const ZOOM_MIN = 10;
-const ZOOM_MAX = 96;
+const ZOOM_MAX = 480; // 8.1: con zoom se ven pulsos y semicorcheas
 const ZOOM_DEF = 28; // px por compás
 
 function readZoom(): number {
@@ -76,6 +78,9 @@ export function DawView() {
   const setLoop = useSongStore((s) => s.setLoop);
   const scenes = useScenesStore((s) => s.scenes);
   const playing = useGraphStore((s) => s.playing);
+  const beats = useGraphStore((s) => s.beatsPerCycle) || 4; // tiempos por compás (el 4 de 4/4)
+  const grid = useDawUiStore((s) => s.grid);
+  const setGrid = useDawUiStore((s) => s.setGrid);
   const [px, setPx] = useState<number>(readZoom);
   const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
   const [sel, setSel] = useState(-1); // sección seleccionada (Fase 2.2: su barra de edición)
@@ -263,11 +268,19 @@ export function DawView() {
   }, [playing, total, px, sections]);
   const width = total * px;
   const mism = tracks.filter((t) => t.mismatch);
-  const every = px >= 22 ? 1 : px >= 12 ? 4 : 8; // números de compás legibles con poco zoom
-  const gridBg = {
-    backgroundImage: 'linear-gradient(to right, var(--line-soft, #161f28) 1px, transparent 1px), linear-gradient(to right, var(--line, #202c38) 1px, transparent 1px)',
-    backgroundSize: `${px}px 100%, ${px * 4}px 100%`,
-  };
+  // REGLA Y REJILLA (8.1): compases → pulsos → semicorcheas según el zoom, sombra cada 4 compases
+  const plan = rulerPlan(px, beats);
+  const gridBg = useMemo(() => laneBackground(px, beats), [px, beats]);
+  const rulerBg = useMemo(() => rulerBackground(px, beats), [px, beats]);
+  const snap = effectiveGrid(grid, px, beats);
+  const rulerLabels = useMemo(() => {
+    const out: ReactElement[] = [];
+    for (let i = 0; i < total; i++) {
+      if (i % plan.labelEvery === 0) out.push(<span key={`b${i}`} className={`daw-barn${i % 4 === 0 ? ' phr' : ''}`} style={{ left: i * px }}>{i + 1}</span>);
+      if (plan.beatLabels) for (let q = 1; q < beats; q++) out.push(<span key={`q${i}.${q}`} className="daw-beatn" style={{ left: i * px + (q * px) / beats }}>{i + 1}.{q + 1}</span>);
+    }
+    return out;
+  }, [total, px, beats, plan.labelEvery, plan.beatLabels]);
 
   return (
     <div className="daw">
@@ -347,6 +360,14 @@ export function DawView() {
           const stemTracks = tracks.filter((t) => t.blocks.some((b) => b.code)).map((t) => ({ id: t.id, name: t.name, muted: !t.audible, silent: !t.audible && !scenesMix }));
           return <DawExport total={total} fromSong={fromSong} tracks={stemTracks} />;
         })()}
+        <label className="daw-gridsel" title={`rejilla magnética: a qué se ajustan los puntos de automatización y las transiciones · ahora: ${snap.label}${grid === 'auto' ? ' (auto: la más fina que se lee con este zoom)' : ''}`}>
+          <span>rejilla</span>
+          <select value={grid} onChange={(e) => setGrid(e.target.value as GridId)} aria-label="rejilla magnética">
+            {GRID_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id} title={o.title}>{o.id === 'auto' ? `auto · ${snap.label}` : o.label}</option>
+            ))}
+          </select>
+        </label>
         <span className="daw-zoom">
           <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar">−</button>
           <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>
@@ -367,7 +388,7 @@ export function DawView() {
                 <div className="daw-ph-mark" ref={phRulerRef} style={{ display: 'none' }} />
                 <div
                   className="daw-bars"
-                  style={gridBg}
+                  style={rulerBg}
                   onPointerDown={onBarsDown}
                   onPointerMove={onBarsMove}
                   onPointerUp={onBarsUp}
@@ -380,11 +401,7 @@ export function DawView() {
                       style={{ left: shownRegion.start * px, width: Math.max(2, shownRegion.bars * px) }}
                     />
                   )}
-                  {Array.from({ length: total }, (_, i) =>
-                    i % every === 0 ? (
-                      <span key={i} className="daw-barn" style={{ left: i * px }}>{i + 1}</span>
-                    ) : null,
-                  )}
+                  {rulerLabels}
                 </div>
                 <div className="daw-secs">
                   {sections.map((s, i) => (
@@ -512,9 +529,9 @@ export function DawView() {
                     </div>
                     <div className="daw-lane" style={{ width, ...gridBg }}>
                       {fx ? (
-                        <DawAutoLane points={pts} range={{ min: fx.min, max: fx.max, neutral: fx.value, label: fx.label, scale: fx.scale, unit: fx.key === 'cutoff' ? 'Hz' : undefined }} total={total} px={px} onChange={setPts} />
+                        <DawAutoLane points={pts} range={{ min: fx.min, max: fx.max, neutral: fx.value, label: fx.label, scale: fx.scale, unit: fx.key === 'cutoff' ? 'Hz' : undefined }} total={total} px={px} snap={snap.bars} beats={beats} onChange={setPts} />
                       ) : (
-                        <DawAutoLane points={pts} param={param} total={total} px={px} onChange={setPts} />
+                        <DawAutoLane points={pts} param={param} total={total} px={px} snap={snap.bars} beats={beats} onChange={setPts} />
                       )}
                     </div>
                   </div>
@@ -522,7 +539,7 @@ export function DawView() {
               })()}
             </Fragment>
             ))}
-            {fromSong && <DawTransitions total={total} px={px} width={width} gridBg={gridBg} />}
+            {fromSong && <DawTransitions total={total} px={px} width={width} gridBg={gridBg} snap={snap.bars} beats={beats} />}
             {fromSong && outNode && (() => {
               // MÁSTER (7.2): filtro DJ, drive, reverb/eco/crush del máster y nivel de los retornos
               const au = cleanAuto(outNode.data.auto);
@@ -556,7 +573,7 @@ export function DawView() {
                         <button className="daw-ms" onClick={() => setPts([])} disabled={!pts.length} title={`borrar la curva de ${AUTO_RANGE[param].label}`}>✕</button>
                       </div>
                       <div className="daw-lane" style={{ width, ...gridBg }}>
-                        <DawAutoLane points={pts} param={param} total={total} px={px} onChange={setPts} />
+                        <DawAutoLane points={pts} param={param} total={total} px={px} snap={snap.bars} beats={beats} onChange={setPts} />
                       </div>
                     </div>
                   )}
