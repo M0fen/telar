@@ -25,6 +25,7 @@ export interface WarpInfo {
   key?: { root: number; minor: boolean | null }; // tonalidad del original (nombre de Splice)
   follow?: boolean; // sigue la tonalidad del tema (por defecto sí, si se conoce la suya)
   oct?: number; // octavas de más/menos (−2…+2)
+  st?: number; // semitonos de más/menos a mano (−12…+12, 9.5: tono del clip, sin cambiar el tempo)
   formant?: boolean; // conservar formantes al transponer (voces)
   // semitonos que se APLICAN: no se guarda en el nodo, sale de key/follow/oct y la tonalidad del
   // tema al sincronizar (effectiveSemis); entra en la clave del caché
@@ -192,12 +193,49 @@ export function warpNameIn(code: string): string | null {
 }
 
 // Cambia el loop del código (otro nombre y/o largo): `s("viejo").slow(x)` → `s("nuevo").slow(c)`
-// en todos los brazos (un arrange puede repetirlo) y cualquier otra mención del nombre.
+// en todos los brazos (un arrange puede repetirlo) y cualquier otra mención del nombre. Un clip con
+// tramo (9.5: `.begin(0.5).end(1)…`) conserva su parte de la vuelta: `.slow(c · (fin − inicio))`.
 export function replaceWarpInCode(code: string, oldName: string, newName: string, cycles: number): string {
   const esc = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return code
-    .replace(new RegExp(`(s(?:ound)?\\(\\s*["'\`])${esc}(["'\`]\\s*\\))((?:\\.slice\\([^)]*\\))?)\\.(?:slow|loopAt)\\(\\s*[0-9.]+\\s*\\)`, 'g'), `$1${newName}$2$3.slow(${fmt(cycles)})`)
-    .replace(new RegExp(`(["'\`])${esc}(["'\`])`, 'g'), `$1${newName}$2`);
+  const head = new RegExp(`s(?:ound)?\\(\\s*(["'\`])${esc}\\1\\s*\\)`, 'g');
+  let out = '';
+  let last = 0;
+  for (const m of code.matchAll(head)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    const stop = chainEnd(code, end);
+    let chain = code.slice(end, stop);
+    const calls = [...chain.matchAll(/\.(slow|loopAt|begin|end|slice)\(\s*([^)]*?)\s*\)/g)];
+    const val = (k: string, d: number) => { const c = calls.filter((x) => x[1] === k).pop(); const v = c ? Number(c[2]) : NaN; return Number.isFinite(v) ? v : d; };
+    const sliced = calls.some((c) => c[1] === 'slice');
+    const frac = sliced ? 1 : Math.max(0.001, Math.min(1, val('end', 1)) - Math.max(0, val('begin', 0)));
+    const lastLen = [...chain.matchAll(/\.(?:slow|loopAt)\(\s*[0-9.]+\s*\)/g)].pop();
+    if (lastLen && lastLen.index != null) chain = `${chain.slice(0, lastLen.index)}.slow(${fmt(cycles * frac)})${chain.slice(lastLen.index + lastLen[0].length)}`;
+    out += `${code.slice(last, start)}s(${m[1]}${newName}${m[1]})${chain}`;
+    last = stop;
+  }
+  out += code.slice(last);
+  return out.replace(new RegExp(`(["'\`])${esc}(["'\`])`, 'g'), `$1${newName}$2`);
+}
+// fin de la cadena de métodos `.a(…).b(…)` que empieza en `i` (respeta paréntesis, corchetes y comillas)
+function chainEnd(s: string, i: number): number {
+  let k = i;
+  for (;;) {
+    const m = /^\s*\.[A-Za-z_$][\w$]*\s*\(/.exec(s.slice(k));
+    if (!m) return k;
+    let j = k + m[0].length;
+    let depth = 1;
+    let q: string | null = null;
+    for (; j < s.length && depth > 0; j++) {
+      const c = s[j];
+      if (q) { if (c === '\\') j++; else if (c === q) q = null; continue; }
+      if (c === '"' || c === "'" || c === '`') q = c;
+      else if (c === '(' || c === '[') depth++;
+      else if (c === ')' || c === ']') depth--;
+    }
+    if (depth !== 0) return k;
+    k = j;
+  }
 }
 
 // Nombre visible a partir del nombre del sample (wl_top_loop_ab12 → top_loop)
@@ -216,7 +254,7 @@ export function keySemis(from: { root: number; minor: boolean | null }, to: { ro
 }
 export function effectiveSemis(w: WarpInfo, song: { root: number; minor: boolean } | null, transpose = 0): number {
   const base = w.key && w.follow !== false && song ? keySemis(w.key, song, transpose) : 0;
-  return base + 12 * Math.max(-2, Math.min(2, Math.round(w.oct ?? 0)));
+  return base + 12 * Math.max(-2, Math.min(2, Math.round(w.oct ?? 0))) + Math.max(-12, Math.min(12, Math.round(w.st ?? 0)));
 }
 // ¿Es una voz? (por el nombre) → al transponer, Rubber Band conserva los formantes
 export const isVoiceName = (name: string) => /(vox|vocal|voice|voz|acapella|acappella|chant|choir|adlib|phrase|singer|sung)/i.test(name || '');

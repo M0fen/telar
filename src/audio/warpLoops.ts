@@ -326,7 +326,7 @@ export async function syncWarpedLoops(
 }
 
 // firma de los loops de un proyecto (para saber si hay que sincronizar al cambiar los nodos)
-export const warpSignature = (nodes: WarpNode[]) => warpsIn(nodes).map((w) => `${warpKey(w, 0)}${w.name}|${w.follow !== false}|${w.oct ?? 0}`).join(',');
+export const warpSignature = (nodes: WarpNode[]) => warpsIn(nodes).map((w) => `${warpKey(w, 0)}${w.name}|${w.follow !== false}|${w.oct ?? 0}|${w.st ?? 0}`).join(',');
 
 // Un archivo como loop al tempo del tema. null = no es un loop limpio (sin BPM en el nombre ni
 // un pulso que encaje con su duración) → el llamador lo deja a su tempo natural.

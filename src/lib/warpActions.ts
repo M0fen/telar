@@ -129,13 +129,14 @@ export async function retuneWarp(id: string, srcBpm: number): Promise<boolean> {
 
 // ¿Sigue la tonalidad del tema? ¿Una octava arriba/abajo? (5.3) Nombre nuevo: si el Source estaba
 // duplicado, la copia conserva lo suyo.
-export async function setWarpKeyOpts(id: string, patch: { follow?: boolean; oct?: number }): Promise<boolean> {
+export async function setWarpKeyOpts(id: string, patch: { follow?: boolean; oct?: number; st?: number }): Promise<boolean> {
   const g = useGraphStore.getState();
   const n = g.nodes.find((x) => x.id === id);
   const w = n?.data.warp as WarpInfo | undefined;
   if (!n || !w) return false;
   const next: WarpInfo = { ...w, ...patch, name: warpName(warpClean(w.name)) };
   if (next.oct != null) next.oct = Math.max(-2, Math.min(2, Math.round(next.oct)));
+  if (next.st != null) next.st = Math.max(-12, Math.min(12, Math.round(next.st)));
   const { bpm, bpc } = clock();
   if (!(await startWarp(eff(next), bpm))) {
     toast.warn('Falta el audio original de este sample en este navegador.');

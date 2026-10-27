@@ -15,6 +15,8 @@ import { DRUM_MACHINES } from '../docs/catalog';
 import { ACCENT, COND_CYCLE, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 import { PianoRoll } from './PianoRoll';
+import { SampleEditor } from './SampleEditor';
+import { isClipCode } from '../lib/clipCode';
 import { importMidiIntoSource, useMidiImportPrefs } from '../lib/midiActions';
 import { splitVariation, joinVariation, setVariation, fillFor, VARIATION_EVERY } from '../lib/variation';
 
@@ -854,6 +856,9 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
   const [view, setViewState] = useState<'grid' | 'roll'>(() => { try { return localStorage.getItem('telar.seq.view') === 'roll' ? 'roll' : 'grid'; } catch { return 'grid'; } });
   const setView = (v: 'grid' | 'roll') => { setViewState(v); try { localStorage.setItem('telar.seq.view', v); } catch { /* solo esta sesión */ } };
   const big = useContext(SeqBigContext); // en el panel de detalle: piano roll grande (9.4)
+  // un loop o un sample solo (9.5): su onda (editor de loops) o la rejilla; en grande, la onda
+  const [clipView, setClipViewState] = useState<'wave' | 'grid'>(() => { try { return localStorage.getItem('telar.seq.clipview') === 'grid' ? 'grid' : 'wave'; } catch { return 'wave'; } });
+  const setClipView = (v: 'wave' | 'grid') => { setClipViewState(v); try { localStorage.setItem('telar.seq.clipview', v); } catch { /* solo esta sesión */ } };
   // qué sección está SONANDO ahora en el arreglo (punto en la pestaña): posición del
   // reloj módulo el total de compases del arrange → el "entra después" se VE.
   const [live, setLive] = useState(-1);
@@ -937,6 +942,12 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
       <button className={view === 'grid' ? 'on' : ''} onClick={() => setView('grid')} title="rejilla de pasos: afinar arrastrando ↕ · afinar todo · escala/acorde · rolls · probabilidad">▦ rejilla</button>
       <button className={view === 'roll' ? 'on' : ''} onClick={() => setView('roll')} title="piano roll: notas sobre el teclado, notas largas, acordes en tono y las demás pistas de fantasma">🎹 piano roll</button>
     </span>
+  ) : isClipCode(c) ? (
+    <span className="seqs-viewinline">
+      <span className="seqs-sectag">vista</span>
+      <button className={clipView === 'wave' ? 'on' : ''} onClick={() => setClipView('wave')} title="la onda del sample: tramo, fundidos, rebanadas, tempo, al revés y tono">〰 onda</button>
+      <button className={clipView === 'grid' ? 'on' : ''} onClick={() => setClipView('grid')} title="rejilla de pasos (para tocar el sample en golpes)">▦ rejilla</button>
+    </span>
   ) : null);
   const plainEditor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, previewCode?: string, headOff?: boolean) => {
     const melodic = isMelodicCode(c);
@@ -952,7 +963,9 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
             <button className={view === 'roll' ? 'on' : ''} onClick={() => setView('roll')} title="piano roll: notas sobre el teclado · vel/dur · slide 808">🎹 piano roll</button>
           </div>
         )}
-        {melodic && view === 'roll'
+        {big && clipView === 'wave' && isClipCode(c)
+          ? <SampleEditor id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />
+          : melodic && view === 'roll'
           ? (big
             ? <PianoRoll id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />
             : <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} />)

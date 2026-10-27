@@ -183,3 +183,19 @@ test('5.3 a la tonalidad del tema: camino más corto, relativas, tono y octava',
   assert.equal(warpLabel({ ...w, shot: true, srcBpm: 0, beats: 0 }, 132, -12), 'Fm -1 8va');
   assert.equal(warpLabel({ ...w, key: undefined, shot: true }, 132, 12), '+1 8va');
 });
+
+test('9.5 corregir el tempo conserva el tramo del clip (su parte de la vuelta) y lo demás', () => {
+  const code = 'arrange([8, s("wl_a_ab12").begin(0.5).speed(-1).attack(0.01).slow(2)], [8, s("wl_a_ab12").slow(4).room(0.2)])';
+  assert.equal(
+    replaceWarpInCode(code, 'wl_a_ab12', 'wl_a_cd34', 8),
+    'arrange([8, s("wl_a_cd34").begin(0.5).speed(-1).attack(0.01).slow(4)], [8, s("wl_a_cd34").slow(8).room(0.2)])',
+  );
+});
+
+test('9.5 semitonos a mano (tono del clip) se suman a la tonalidad y la octava', async () => {
+  const { effectiveSemis } = await import('../src/lib/loopWarp.ts');
+  const w = { name: 'wl_x', orig: 'o', srcBpm: 120, beats: 16 };
+  assert.equal(effectiveSemis({ ...w, st: 3 }, null), 3);
+  assert.equal(effectiveSemis({ ...w, st: -2, oct: 1 }, null), 10);
+  assert.equal(effectiveSemis({ ...w, st: 40 }, null), 12); // acotado
+});

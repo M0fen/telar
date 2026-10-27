@@ -13,6 +13,9 @@ export interface PreviewEvent {
   snd: string; // sonido («bd», «hh:2», «sawtooth»…)
   note: number | null; // altura MIDI si es una nota
   gain: number;
+  begin?: number; // tramo del sample (9.5: editor de loops), si el código lo recorta
+  end?: number;
+  speed?: number; // negativo = al revés
 }
 
 type Hap = {
@@ -81,7 +84,11 @@ export function eventsOf(pat: Pat, a: number, b: number): PreviewEvent[] {
     const s = typeof v.s === 'string' ? v.s : '';
     const snd = note == null && v.n != null && s ? `${s}:${v.n}` : s;
     const gain = (typeof v.gain === 'number' ? v.gain : 1) * (typeof v.velocity === 'number' ? v.velocity : 1);
-    out.push({ t: t0 - a, d: Math.max(0, t1 - t0), snd, note, gain });
+    const ev: PreviewEvent = { t: t0 - a, d: Math.max(0, t1 - t0), snd, note, gain };
+    if (typeof v.begin === 'number') ev.begin = v.begin;
+    if (typeof v.end === 'number') ev.end = v.end;
+    if (typeof v.speed === 'number') ev.speed = v.speed;
+    out.push(ev);
     if (out.length > 4000) break;
   }
   return out.sort((x, y) => x.t - y.t);

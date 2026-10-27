@@ -17,6 +17,7 @@ interface BlockData {
   period: number;
   wave?: WaveInfo | null; // loops: la onda del sample
   waveBars?: number; // compases que dura el sample
+  region?: { b: number; e: number; rev: boolean; rate: number }; // 9.5: el tramo que suena (y si va al revés)
 }
 
 const MAX_BARS = 64;
@@ -39,6 +40,14 @@ function blockData(code: string, bars: number, cps: number): Promise<BlockData |
       const name = ev[0].snd.replace(/:.*$/, '');
       out.wave = await getWaveInfo(name, 600).catch(() => null);
       if (out.wave) out.waveBars = out.wave.duration * (cps > 0 ? cps : 0.5);
+      const e0 = ev[0];
+      const sp = e0.speed ?? 1;
+      if (e0.begin != null || e0.end != null || sp < 0 || Math.abs(sp - 1) > 1e-3) {
+        // superdough voltea el buffer antes de recortar: el tramo del original es el espejo
+        const b = Math.max(0, Math.min(1, e0.begin ?? 0));
+        const e = Math.max(0, Math.min(1, e0.end ?? 1));
+        out.region = sp < 0 ? { b: 1 - e, e: 1 - b, rev: true, rate: Math.abs(sp) || 1 } : { b, e, rev: false, rate: Math.abs(sp) || 1 };
+      }
     }
     return out;
   })();
@@ -117,14 +126,18 @@ export function DawLaneContent({
         if (d.fig.kind === 'loop' && d.wave) {
           const pk = d.wave.peaks;
           const lb = d.waveBars ?? d.n;
+          const rg = d.region ?? { b: 0, e: 1, rev: false, rate: 1 };
+          const segPx = Math.max(1, ((rg.e - rg.b) * lb * px) / rg.rate); // lo que dura el tramo al sonar
           for (const s of d.fig.shapes) {
             const sx = ox + s.x * span;
-            const sw = Math.min(s.w * span, lb * px);
+            const sw = Math.min(s.w * span, segPx);
             const x1 = Math.max(0, sx);
             const x2 = Math.min(W, sx + sw);
             g.globalAlpha = 0.85 * base;
             for (let x = x1; x < x2; x += 1) {
-              const v = pk[Math.min(pk.length - 1, Math.floor(((x - sx) / Math.max(1, lb * px)) * pk.length))] ?? 0;
+              const f = (x - sx) / segPx;
+              const at = rg.rev ? rg.e - f * (rg.e - rg.b) : rg.b + f * (rg.e - rg.b);
+              const v = pk[Math.max(0, Math.min(pk.length - 1, Math.floor(at * pk.length)))] ?? 0;
               const a = Math.max(0.5, v * (H / 2 - 2));
               g.fillRect(x, H / 2 - a, 1, 2 * a);
             }
