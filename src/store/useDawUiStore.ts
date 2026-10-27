@@ -7,6 +7,7 @@ const KEY = 'telar.daw.ui';
 
 interface Saved {
   grid?: GridId;
+  follow?: boolean;
 }
 
 function read(): Saved {
@@ -31,9 +32,13 @@ const saved = read();
 interface DawUiState {
   grid: GridId; // rejilla magnética (8.1)
   setGrid: (g: GridId) => void;
+  follow: boolean; // la vista sigue al cabezal mientras suena (8.4)
+  setFollow: (on: boolean) => void;
 }
 
 export const useDawUiStore = create<DawUiState>((set) => ({
   grid: GRID_OPTIONS.some((o) => o.id === saved.grid) ? (saved.grid as GridId) : 'auto',
   setGrid: (grid) => { set({ grid }); write({ grid }); },
+  follow: saved.follow !== false,
+  setFollow: (follow) => { set({ follow }); write({ follow }); },
 }));

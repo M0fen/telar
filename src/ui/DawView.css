@@ -43,7 +43,7 @@
 .daw-hint { padding: 10px 16px; position: sticky; left: 0; }
 
 /* cuerpo con scroll; la regla queda arriba y los nombres a la izquierda */
-.daw-body { flex: 1; min-height: 0; overflow: auto; position: relative; }
+.daw-body { flex: 1; min-height: 0; overflow: auto; position: relative; touch-action: pan-x pan-y; /* el pellizco es zoom del DAW, no de la página (8.4) */ }
 .daw-grid { position: relative; min-width: 100%; }
 
 .daw-ruler { position: sticky; top: 0; z-index: 3; display: flex; background: var(--bg, #040506); border-bottom: 1px solid var(--line, #202c38); }
@@ -54,12 +54,12 @@
   background: var(--bg, #040506); border-right: 1px solid var(--line, #202c38);
 }
 .daw-ruler-lane { flex: none; position: relative; }
-.daw-bars { position: relative; height: 22px; cursor: pointer; }
+.daw-bars { position: relative; height: 28px; cursor: pointer; }
 .daw-bars:hover { background-color: rgba(61, 240, 208, 0.06); }
 /* 8.1: número sobre la raya donde empieza su compás; cada 4 más claro; los pulsos «25.2» más tenues */
-.daw-barn { position: absolute; top: 2px; padding-left: 3px; font-size: 10px; color: var(--dim, #6b7a88); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.daw-barn { position: absolute; top: 8px; padding-left: 3px; font-size: 10px; color: var(--dim, #6b7a88); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .daw-barn.phr { color: var(--text, #d4dee6); font-weight: 600; }
-.daw-beatn { position: absolute; top: 4px; padding-left: 3px; font-size: 8px; color: var(--faint, #44515c); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; z-index: 2; }
+.daw-beatn { position: absolute; top: 10px; padding-left: 3px; font-size: 8px; color: var(--faint, #44515c); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; z-index: 2; }
 .daw-secs { position: relative; height: 22px; }
 .daw-sec {
   position: absolute; top: 2px; bottom: 3px;
@@ -207,6 +207,21 @@
   background: rgba(61, 240, 208, 0.05); border-left: 1px dashed rgba(61, 240, 208, 0.45); border-right: 1px dashed rgba(61, 240, 208, 0.45);
 }
 .daw-regionctl { display: inline-flex; gap: 2px; }
+/* 8.4 · llave del bucle: barra arriba de la regla con asas en los bordes */
+.daw-loop {
+  position: absolute; top: 1px; height: 6px; z-index: 3; cursor: grab; border-radius: 1px;
+  background: rgba(212, 222, 230, 0.32); color: rgba(212, 222, 230, 0.75);
+}
+.daw-loop:hover { background: rgba(212, 222, 230, 0.48); }
+.daw-loop.on { background: var(--accent, #3df0d0); color: var(--accent, #3df0d0); }
+.daw-loop.drag { cursor: grabbing; }
+.daw-loop-h { position: absolute; top: -2px; bottom: -2px; width: 10px; cursor: ew-resize; }
+.daw-loop-h.l { left: -5px; }
+.daw-loop-h.r { right: -5px; }
+.daw-loop-h::after { content: ''; position: absolute; top: 0; bottom: 0; left: 4px; width: 2px; background: currentColor; border-radius: 1px; }
+/* 8.4 · interruptor (seguir): borde de color en vez de relleno */
+.daw-btn.tog.on { background: transparent; color: var(--accent, #3df0d0); border-color: var(--accent, #3df0d0); font-weight: 400; }
+.daw-btn.tog.on:hover:not(:disabled) { color: var(--accent, #3df0d0); }
 .daw-barn { pointer-events: none; z-index: 2; }
 
 /* Fase 2.5 · grabar el jam */

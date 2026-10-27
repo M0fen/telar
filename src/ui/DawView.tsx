@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import './DawView.css';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
@@ -29,7 +29,7 @@ import { useDawUiStore } from '../store/useDawUiStore';
 // que ves es lo que suena. Las pistas sin arrange suenan igual en todos los compases.
 
 const ZOOM_KEY = 'telar.daw.zoom';
-const ZOOM_MIN = 10;
+const ZOOM_MIN = 4; // 8.4: «toda la canción» cabe aunque sea larga
 const ZOOM_MAX = 480; // 8.1: con zoom se ven pulsos y semicorcheas
 const ZOOM_DEF = 28; // px por compás
 
@@ -81,7 +81,11 @@ export function DawView() {
   const beats = useGraphStore((s) => s.beatsPerCycle) || 4; // tiempos por compás (el 4 de 4/4)
   const grid = useDawUiStore((s) => s.grid);
   const setGrid = useDawUiStore((s) => s.setGrid);
+  const follow = useDawUiStore((s) => s.follow);
+  const setFollow = useDawUiStore((s) => s.setFollow);
   const [px, setPx] = useState<number>(readZoom);
+  const pxRef = useRef(px);
+  pxRef.current = px;
   const [secNow, setSecNow] = useState(-1); // sección que suena (resaltada)
   const [sel, setSel] = useState(-1); // sección seleccionada (Fase 2.2: su barra de edición)
   // carriles de automatización abiertos (Fase 3.1): pista → parámetro que se edita
@@ -95,12 +99,47 @@ export function DawView() {
   const phRulerRef = useRef<HTMLDivElement>(null);
   const phRowsRef = useRef<HTMLDivElement>(null);
 
-  const zoom = (dir: 1 | -1) =>
-    setPx((p) => {
-      const v = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(p * (dir > 0 ? 1.25 : 0.8))));
-      try { localStorage.setItem(ZOOM_KEY, String(v)); } catch { /* sin almacenamiento: solo esta sesión */ }
-      return v;
-    });
+  // ZOOM (8.4): siempre anclado — el compás bajo el ratón (o el centro de la vista) se queda donde
+  // está. La rueda con Ctrl/⌘ (o el pellizco del trackpad, que llega igual) y los dedos en pantallas
+  // táctiles; − + y las teclas − + anclan al centro. El desplazamiento nuevo se aplica tras pintar.
+  const pendingScroll = useRef<number | null>(null);
+  const userScrollAt = useRef(0); // última vez que TÚ moviste la vista (el seguir espera un poco)
+  const nameWOf = (el: HTMLElement) => parseFloat(getComputedStyle(el).getPropertyValue('--daw-name-w')) || 168;
+  const zoomTo = (target: number, clientX?: number) => {
+    const v = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(target * 10) / 10));
+    const cur = pxRef.current;
+    if (Math.abs(v - cur) < 0.05) return;
+    const body = bodyRef.current;
+    if (body) {
+      const r = body.getBoundingClientRect();
+      const nameW = nameWOf(body);
+      const xIn = clientX != null ? Math.max(0, clientX - r.left - nameW) : (body.clientWidth - nameW) / 2;
+      const bar = (xIn + body.scrollLeft) / cur;
+      pendingScroll.current = Math.max(0, bar * v - xIn);
+    }
+    pxRef.current = v;
+    setPx(v);
+    try { localStorage.setItem(ZOOM_KEY, String(v)); } catch { /* sin almacenamiento: solo esta sesión */ }
+  };
+  const zoom = (dir: 1 | -1) => zoomTo(pxRef.current * (dir > 0 ? 1.25 : 0.8));
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (body && pendingScroll.current != null) body.scrollLeft = pendingScroll.current;
+    pendingScroll.current = null;
+  }, [px]);
+  // ZOOM A UN TRAMO: que esos compases llenen la vista (la canción entera, la región o la sección)
+  const fitBars = (start: number, bars: number) => {
+    const body = bodyRef.current;
+    if (!body || bars <= 0) return;
+    const vis = body.clientWidth - nameWOf(body) - 24;
+    const v = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.floor((vis / bars) * 10) / 10));
+    pendingScroll.current = Math.max(0, start * v - 12);
+    userScrollAt.current = performance.now();
+    if (Math.abs(v - pxRef.current) < 0.05) { body.scrollLeft = pendingScroll.current; pendingScroll.current = null; return; }
+    pxRef.current = v;
+    setPx(v);
+    try { localStorage.setItem(ZOOM_KEY, String(v)); } catch { /* solo esta sesión */ }
+  };
 
   // Solo lo que cambia el modelo: id, nombre, código, mute y solo de cada pista (mover una
   // perilla de ganancia o un nodo en el lienzo no lo recalcula).
@@ -186,16 +225,69 @@ export function DawView() {
     else void playFrom(drag.a);
     setDrag(null);
   };
-  const shownRegion = drag?.moved ? { start: Math.min(drag.a, drag.b), bars: Math.abs(drag.b - drag.a) + 1 } : region;
+  // LLAVE DE BUCLE (8.4): arriba de la regla; el centro la mueve, los bordes cambian su largo (en
+  // compases enteros) y un clic sin arrastrar la activa o la quita (como L). Si está sonando en
+  // bucle, el cambio entra sin cortar (recompila).
+  const [brace, setBrace] = useState<{ mode: 'move' | 'l' | 'r'; x0: number; start0: number; bars0: number; start: number; bars: number; moved: boolean } | null>(null);
+  const braceDown = (e: { button: number; clientX: number; pointerId: number; currentTarget: Element; stopPropagation: () => void }, mode: 'move' | 'l' | 'r') => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const r = useSongStore.getState().region;
+    if (!r) return;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    setBrace({ mode, x0: e.clientX, start0: r.start, bars0: r.bars, start: r.start, bars: r.bars, moved: false });
+  };
+  const braceMove = (e: { clientX: number }) => {
+    if (!brace) return;
+    const d = Math.round((e.clientX - brace.x0) / px);
+    let { start, bars } = brace;
+    if (brace.mode === 'move') start = Math.max(0, Math.min(total - brace.bars0, brace.start0 + d));
+    else if (brace.mode === 'l') { start = Math.max(0, Math.min(brace.start0 + brace.bars0 - 1, brace.start0 + d)); bars = brace.start0 + brace.bars0 - start; }
+    else bars = Math.max(1, Math.min(total - brace.start0, brace.bars0 + d));
+    const moved = brace.moved || Math.abs(e.clientX - brace.x0) > 3;
+    if (start !== brace.start || bars !== brace.bars || moved !== brace.moved) setBrace({ ...brace, start, bars, moved });
+  };
+  const braceUp = () => {
+    if (!brace) return;
+    const b = brace;
+    setBrace(null);
+    const song = useSongStore.getState();
+    if (b.moved) {
+      if (b.start !== b.start0 || b.bars !== b.bars0) {
+        song.setRegion({ start: b.start, bars: b.bars });
+        if (song.regionOn && useGraphStore.getState().playing) useGraphStore.getState().recompile();
+      }
+    } else if (b.mode === 'move') void setRegionLoop(!song.regionOn);
+  };
+  const shownRegion = drag?.moved ? { start: Math.min(drag.a, drag.b), bars: Math.abs(drag.b - drag.a) + 1 } : brace ? { start: brace.start, bars: brace.bars } : region;
+  // TECLAS DE LA VISTA (8.4): L bucle · Z zoom a la región/sección (o a toda la canción) · F seguir
+  // el cabezal · − + zoom (anclado al centro)
+  const keyCtx = useRef({ fitSel: () => {}, zoom: (_d: 1 | -1) => {} });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest('.cm-editor'))) return;
-      if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== 'l') return;
-      const s = useSongStore.getState();
-      if (!s.region) return;
-      e.preventDefault();
-      void setRegionLoop(!s.regionOn);
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'l') {
+        const s = useSongStore.getState();
+        if (!s.region) return;
+        e.preventDefault();
+        void setRegionLoop(!s.regionOn);
+      } else if (k === 'z') {
+        e.preventDefault();
+        keyCtx.current.fitSel();
+      } else if (k === 'f') {
+        e.preventDefault();
+        const u = useDawUiStore.getState();
+        u.setFollow(!u.follow);
+      } else if (e.key === '+' || e.key === '=') {
+        e.preventDefault();
+        keyCtx.current.zoom(1);
+      } else if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        keyCtx.current.zoom(-1);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -257,7 +349,8 @@ export function DawView() {
       for (const m of marks) if (m) m.style.transform = t;
       if (section !== lastSec) { lastSec = section; setSecNow(section); }
       const body = bodyRef.current;
-      if (body) {
+      // SEGUIR (8.4): pasa de página cuando la línea se sale; espera 2 s si moviste la vista tú
+      if (body && useDawUiStore.getState().follow && performance.now() - userScrollAt.current > 2000) {
         const nameW = parseFloat(getComputedStyle(body).getPropertyValue('--daw-name-w')) || 168;
         const vis = body.clientWidth - nameW;
         if (vis > 40 && (x < body.scrollLeft || x > body.scrollLeft + vis * 0.92)) body.scrollLeft = Math.max(0, x - vis * 0.1);
@@ -267,6 +360,57 @@ export function DawView() {
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [playing, total, px, sections]);
+  // ZOOM A LA SELECCIÓN (Z): la región si hay, si no la sección elegida, si no toda la canción
+  const fitSel = () => {
+    const r = useSongStore.getState().region;
+    if (r) fitBars(r.start, r.bars);
+    else if (selIdx >= 0 && sections[selIdx]) fitBars(sections[selIdx].start, sections[selIdx].bars);
+    else fitBars(0, total);
+  };
+  keyCtx.current = { fitSel, zoom };
+  // RUEDA Y PELLIZCO (8.4): Ctrl/⌘ + rueda (y el pellizco del trackpad) = zoom donde está el ratón;
+  // la rueda sola desplaza (nativo). En pantallas táctiles, dos dedos = zoom.
+  const hasBody = tracks.length > 0;
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const onWheel = (e: WheelEvent) => {
+      userScrollAt.current = performance.now();
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      zoomTo(pxRef.current * Math.exp(-dy * 0.0025), e.clientX);
+    };
+    let pinch: { d: number; px: number } | null = null;
+    const spread = (t: TouchList) => Math.max(20, Math.abs(t[0].clientX - t[1].clientX));
+    const onStart = (e: TouchEvent) => {
+      userScrollAt.current = performance.now();
+      if (e.touches.length === 2) pinch = { d: spread(e.touches), px: pxRef.current };
+    };
+    const onMove = (e: TouchEvent) => {
+      userScrollAt.current = performance.now();
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      zoomTo((pinch.px * spread(e.touches)) / pinch.d, (e.touches[0].clientX + e.touches[1].clientX) / 2);
+    };
+    const onEnd = (e: TouchEvent) => { if (e.touches.length < 2) pinch = null; };
+    const onUser = () => { userScrollAt.current = performance.now(); };
+    body.addEventListener('wheel', onWheel, { passive: false });
+    body.addEventListener('touchstart', onStart, { passive: true });
+    body.addEventListener('touchmove', onMove, { passive: false });
+    body.addEventListener('touchend', onEnd);
+    body.addEventListener('touchcancel', onEnd);
+    body.addEventListener('pointerdown', onUser);
+    return () => {
+      body.removeEventListener('wheel', onWheel);
+      body.removeEventListener('touchstart', onStart);
+      body.removeEventListener('touchmove', onMove);
+      body.removeEventListener('touchend', onEnd);
+      body.removeEventListener('touchcancel', onEnd);
+      body.removeEventListener('pointerdown', onUser);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasBody]);
   const width = total * px;
   const mism = tracks.filter((t) => t.mismatch);
   // REGLA Y REJILLA (8.1): compases → pulsos → semicorcheas según el zoom, sombra cada 4 compases
@@ -369,9 +513,14 @@ export function DawView() {
             ))}
           </select>
         </label>
+        <button className={`daw-btn tog${follow ? ' on' : ''}`} onClick={() => setFollow(!follow)} aria-pressed={follow} title={follow ? 'la vista sigue al cabezal mientras suena (F para soltarlo)' : 'seguir el cabezal mientras suena (F)'}>
+          ⇥ seguir
+        </button>
         <span className="daw-zoom">
-          <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar">−</button>
-          <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar">+</button>
+          <button className="daw-btn" onClick={() => fitBars(0, total)} title="ver toda la canción">⤢</button>
+          <button className="daw-btn" onClick={fitSel} disabled={!region && selIdx < 0} title="zoom a la región o a la sección elegida (Z)">⊡</button>
+          <button className="daw-btn" onClick={() => zoom(-1)} disabled={px <= ZOOM_MIN} title="alejar (−) · Ctrl + rueda o pellizco: zoom donde está el ratón">−</button>
+          <button className="daw-btn" onClick={() => zoom(1)} disabled={px >= ZOOM_MAX} title="acercar (+) · Ctrl + rueda o pellizco: zoom donde está el ratón">+</button>
         </span>
       </div>
       {selIdx >= 0 && (
@@ -401,6 +550,20 @@ export function DawView() {
                       className={`daw-region${regionOn ? ' on' : ''}${drag?.moved ? ' drag' : ''}`}
                       style={{ left: shownRegion.start * px, width: Math.max(2, shownRegion.bars * px) }}
                     />
+                  )}
+                  {shownRegion && !drag?.moved && (
+                    <div
+                      className={`daw-loop${regionOn ? ' on' : ''}${brace ? ' drag' : ''}`}
+                      style={{ left: shownRegion.start * px, width: Math.max(6, shownRegion.bars * px) }}
+                      onPointerDown={(e) => braceDown(e, 'move')}
+                      onPointerMove={braceMove}
+                      onPointerUp={braceUp}
+                      onPointerCancel={() => setBrace(null)}
+                      title={`bucle: compases ${shownRegion.start + 1}–${shownRegion.start + shownRegion.bars} (${shownRegion.bars})\nclic: ${regionOn ? 'quitar' : 'activar'} el bucle (L) · arrastrar: moverlo · bordes: cambiar su largo`}
+                    >
+                      <span className="daw-loop-h l" onPointerDown={(e) => braceDown(e, 'l')} />
+                      <span className="daw-loop-h r" onPointerDown={(e) => braceDown(e, 'r')} />
+                    </div>
                   )}
                   {rulerLabels}
                 </div>
