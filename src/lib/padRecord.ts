@@ -173,6 +173,8 @@ export function recordPadHit(code: string, h: PadHit): PadHitResult | null {
   const steps = g.steps;
   let lanes = g.lanes;
   const step = stepAt(t.pos, period, steps);
+  // fila polimétrica (9.3): el golpe entra en su paso real (el resto son repeticiones)
+  const idxFor = (l: Lane) => (l.len && l.len < steps ? step % l.len : step);
   const gain = velToGain(h.vel);
   let sound: string | null;
   let note: string | undefined;
@@ -180,7 +182,7 @@ export function recordPadHit(code: string, h: PadHit): PadHitResult | null {
     note = scaleNote(h.pad, h.key, h.octave);
     if (!lanes.length) lanes = [emptyLane(p.melodic ? 'sawtooth' : 'bd', steps)];
     sound = lanes[0].sound;
-    lanes = lanes.map((l, i) => (i === 0 ? { ...l, steps: l.steps.map((v, j) => (j === step ? gain : v)), notes: l.notes.map((n, j) => (j === step ? note! : n)) } : l));
+    lanes = lanes.map((l, i) => (i === 0 ? { ...l, steps: l.steps.map((v, j) => (j === idxFor(l) ? gain : v)), notes: l.notes.map((n, j) => (j === idxFor(l) ? note! : n)) } : l));
   } else {
     sound = h.sound !== undefined ? h.sound : drumPadMap(pat)[h.pad] ?? null;
     if (!sound) return null;
@@ -189,7 +191,7 @@ export function recordPadHit(code: string, h: PadHit): PadHitResult | null {
       lanes = [...lanes, emptyLane(sound, steps)];
       li = lanes.length - 1;
     }
-    lanes = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === step ? gain : v)) } : l));
+    lanes = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === idxFor(l) ? gain : v)) } : l));
   }
   const built = buildSeq({ ...p, melodic: p.melodic && lanes.length === 1 }, lanes, steps);
   const next = t.arm >= 0 && arms ? spliceArm(code, arms[t.arm], built) : built;

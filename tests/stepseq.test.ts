@@ -576,3 +576,122 @@ test('SECCIÓN ○/● dentro del arrange completo: ida y vuelta byte a byte', (
   assert.ok(isSilentArm(arms2[1].code));
   assert.equal(spliceArm(off, arms2[1], unmuteArm(arms2[1].code)), code);
 });
+
+// --- 9.3: PATRONES DE VARIOS COMPASES, CONDICIONES POR VUELTA Y POLIMETRÍA ----------
+// La rejilla escribe 16 pasos por compás; un patrón de 2 compases son 32 pasos + .slow(2).
+// La condición «k:n» es mini-notación pura (`<hh ~ ~ ~>`) y la polimetría `.fast(S/L)`.
+
+test('9.3 largo: .slow(2) al final = 2 compases y el round-trip lo conserva', () => {
+  const src = 's("' + Array.from({ length: 32 }, (_, i) => (i % 2 === 0 ? 'hh' : '~')).join(' ') + '").slow(2)';
+  const p = parsed(src);
+  assert.equal(p.bars, 2);
+  assert.equal(p.steps, 32);
+  assert.equal(p.tail, '');
+  assert.equal(buildSeq(p, p.lanes, p.steps), src);
+  // con banco y nivel: el .slow va siempre al final
+  const out = rebuild('stack(s("bd ~ ~ ~ bd ~ ~ ~").bank("RolandTR909").gain(0.8)).slow(4)');
+  assert.match(out, /\.slow\(4\)$/);
+  assert.equal(parsed(out).bars, 4);
+  assert.equal(rebuild(out), out, 'round-trip inestable');
+});
+
+test('9.3 largo: melodía de 2 compases (forma melódica) conserva su .slow', () => {
+  const src = 'note("c2 ~ ~ ~ eb2 ~ ~ ~ g2 ~ ~ ~ c3 ~ ~ ~").s("sawtooth").lpf(600).slow(2)';
+  const p = parsed(src);
+  assert.equal(p.melodic, true);
+  assert.equal(p.bars, 2);
+  assert.equal(p.lanes[0].sfx, '.lpf(600)');
+  assert.equal(buildSeq(p, p.lanes, p.steps), src);
+});
+
+test('9.3 condición: `<hh ~ ~ ~>` es un golpe que suena en la vuelta 1 de cada 4', () => {
+  const p = parsed('s("bd ~ <sd ~ ~ ~> ~")');
+  const sd = p.lanes.find((l) => l.sound === 'sd')!;
+  assert.equal(sd.steps[2] > 0, true);
+  assert.equal(sd.cond?.[2], '1:4');
+  assert.equal(p.lanes.find((l) => l.sound === 'bd')!.cond, undefined); // sin condiciones → sin arreglo
+  assert.equal(buildSeq(p, p.lanes, p.steps), 's("bd ~ ~ ~, ~ ~ <sd ~ ~ ~> ~")');
+  // cambiarla y que el código cambie: 2 de 2 (el «fill» de cada 2 vueltas)
+  const lanes = p.lanes.map((l) => (l.sound === 'sd' ? { ...l, cond: [null, null, '2:2', null] } : l));
+  assert.match(buildSeq(p, lanes, p.steps), /<~ sd>/);
+});
+
+test('9.3 condición: convive con roll, probabilidad, acentos y notas', () => {
+  const src = 'stack(s("hh ~ <hh*3?0.5 ~ ~ ~> ~").gain("0.6 1 1.2 1"), note("c2 ~ <eb2 ~> ~").s("sawtooth"))';
+  const p = parsed(src);
+  const hh = p.lanes.find((l) => l.sound === 'hh')!;
+  assert.equal(hh.ratchet[2], 3);
+  assert.equal(hh.prob[2], 0.5);
+  assert.equal(hh.cond?.[2], '1:4');
+  const saw = p.lanes.find((l) => l.sound === 'sawtooth')!;
+  assert.equal(saw.notes[2], 'eb2');
+  assert.equal(saw.cond?.[2], '1:2');
+  const out = buildSeq(p, p.lanes, p.steps);
+  assert.match(out, /<hh\*3\?0\.5 ~ ~ ~>/);
+  assert.match(out, /<eb2 ~>/);
+  assert.equal(rebuild(out), out, 'round-trip inestable');
+});
+
+test('9.3 condición: alternar DOS sonidos sigue siendo patrón avanzado (no se toca)', () => {
+  const p = parseSeq('s("bd <sd cp> bd sd")');
+  assert.ok(p);
+  assert.equal(p!.complex, true);
+});
+
+test('9.3 polimetría: `.fast(16/3)` = fila de 3 pasos que se repite en una rejilla de 16', () => {
+  const src = 'stack(s("bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~"), s("hh ~ hh").fast(16/3))';
+  const p = parsed(src);
+  assert.equal(p.steps, 16);
+  const hh = p.lanes.find((l) => l.sound === 'hh')!;
+  assert.equal(hh.len, 3);
+  // la rejilla la ve repetida (los fantasmas): golpes en 0, 2, 3, 5, 6, 8…
+  assert.deepEqual(hh.steps.slice(0, 7).map((v) => (v > 0 ? 1 : 0)), [1, 0, 1, 1, 0, 1, 1]);
+  assert.equal(buildSeq(p, p.lanes, p.steps), src);
+});
+
+test('9.3 polimetría: acentos y micro-timing van antes del .fast, el swing después', () => {
+  const p = parsed('stack(s("bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~"), s("hh ~ hh ~ hh").fast(16/5))');
+  const lanes = p.lanes.map((l) => (l.sound === 'hh'
+    ? { ...l, steps: l.steps.map((v, i) => (i === 2 && v > 0 ? 1.3 : v)), nudge: l.steps.map((_, i) => (i === 2 ? 0.01 : 0)), swing: 0.5 }
+    : l));
+  const out = buildSeq(p, lanes, p.steps);
+  // el acento y el nudge se escriben sobre los 5 pasos (el nudge escalado 16/5 → suena 0.01)
+  assert.match(out, /s\("hh ~ hh ~ hh"\)\.gain\("[^"]+"\)\.late\("0 0 0\.032 0 0"\)\.fast\(16\/5\)\.swingBy\(/);
+  const back = parsed(out).lanes.find((l) => l.sound === 'hh')!;
+  assert.ok(Math.abs(back.nudge![2] - 0.01) < 1e-3);
+  assert.equal(rebuild(out), out, 'round-trip inestable');
+});
+
+test('9.3 polimetría: largo que no cuadra con la rejilla → se conserva como residuo', () => {
+  // S de la fila (12) distinto de la rejilla (16) → longitudes dispares → avanzado
+  const p = parseSeq('stack(s("bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~"), s("hh ~ hh").fast(12/3))');
+  assert.ok(p);
+  assert.equal(p!.complex, true);
+  // L declarado distinto de los pasos escritos → el .fast queda en el residuo, intacto
+  const q = parsed('stack(s("hh ~ hh ~").fast(16/3))');
+  assert.equal(q.lanes[0].len, undefined);
+  assert.match(buildSeq(q, q.lanes, q.steps), /\.fast\(16\/3\)/);
+});
+
+test('9.3 polimetría + 2 compases: la fila de 3 pasos corre en la rejilla de 32', () => {
+  const kick = Array.from({ length: 32 }, (_, i) => (i % 4 === 0 ? 'bd' : '~')).join(' ');
+  const src = `stack(s("${kick}"), s("hh ~ hh").fast(32/3)).slow(2)`;
+  const p = parsed(src);
+  assert.equal(p.bars, 2);
+  assert.equal(p.lanes.find((l) => l.sound === 'hh')!.len, 3);
+  assert.equal(buildSeq(p, p.lanes, p.steps), src);
+});
+
+test('9.3 largo: micro-timing y humanize se escriben ÷compases (suenan igual que en 1 compás)', () => {
+  const kick = Array.from({ length: 32 }, (_, i) => (i % 4 === 0 ? 'hh' : '~')).join(' ');
+  const p = parsed(`s("${kick}").slow(2)`);
+  const lanes = p.lanes.map((l) => ({ ...l, nudge: l.steps.map((_, i) => (i === 4 ? 0.01 : 0)), human: 0.5 }));
+  const out = buildSeq(p, lanes, p.steps);
+  assert.match(out, /\.late\("0 0 0 0 0\.005 /); // 0.01 de compás real = 0.005 del patrón lento
+  assert.match(out, /rand\.range\(-0\.0025,0\.0025\)/);
+  assert.match(out, /\.slow\(2\)$/);
+  const back = parsed(out).lanes[0];
+  assert.ok(Math.abs(back.nudge![4] - 0.01) < 1e-9);
+  assert.ok(Math.abs((back.human ?? 0) - 0.5) < 1e-9);
+  assert.equal(rebuild(out), out, 'round-trip inestable');
+});

@@ -102,3 +102,12 @@ test('no graba encima de un loop ni de un patrón avanzado', () => {
   assert.equal(recordPadHit('s("wl_ab12_x").slow(4)', { pad: 0, vel: 0.8, bar: 0, mode: 'drum', key: null, octave: 3 }), null);
   assert.equal(recordPadHit('s("<bd sd> hh").fast(2)', { pad: 0, vel: 0.8, bar: 0, mode: 'drum', key: null, octave: 3 }), null);
 });
+
+test('9.3 polimetría: un golpe sobre una fila de largo propio entra en su paso real', async () => {
+  const { recordPadHit } = await import('../src/lib/padRecord.ts');
+  const code = 'stack(s("bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~"), s("hh ~ ~").fast(16/3))';
+  // paso 4 de la rejilla = 4 mod 3 = paso 2 de la fila del hat (0-based: 1)
+  const r = recordPadHit(code, { pad: 0, sound: 'hh', vel: 0.8, bar: 4 / 16, mode: 'drum', key: null, octave: 3 });
+  assert.ok(r);
+  assert.match(r!.code, /s\("hh hh ~"\)\.gain\("1 1\.02 1"\)\.fast\(16\/3\)/);
+});

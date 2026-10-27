@@ -2,7 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { SeqBigContext } from './seqBig';
 import { fillEvery, rotateLane, euclidLane, invertLane, clearLane } from '../lib/laneTools';
 import { useGraphStore } from '../store/useGraphStore';
-import { getScheduler } from '../audio/engine';
+import { getScheduler, heardCycle } from '../audio/engine';
 import { useSongStore } from '../store/useSongStore';
 import { timelinePos } from '../lib/songClock';
 import { useUiFocusStore } from '../store/useUiFocusStore';
@@ -11,7 +11,7 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
+import { ACCENT, COND_CYCLE, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 import { importMidiIntoSource, useMidiImportPrefs } from '../lib/midiActions';
 import { splitVariation, joinVariation, setVariation, fillFor, VARIATION_EVERY } from '../lib/variation';
@@ -108,9 +108,27 @@ const PERC_PALETTE: { s: string; label: string }[] = [
 // `previewCode` (opcional, modo secciones): al activar ▶, este patrón (el brazo que se
 // edita) suena EN LOOP al instante — sin esperar a que el arreglo llegue a la sección.
 // `headOff`: apaga el playhead cuando la sección editada no es la que está sonando.
-function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: string; code: string; wrap?: (c: string) => string; seedFrom?: string; previewCode?: string; headOff?: boolean }) {
+// `armPos` (9.3): dónde cae la sección en su arrange (compás de inicio, compases, total) — con
+// patrones de varios compases el playhead sigue la vuelta propia del patrón, no el compás.
+export interface ArmPos { start: number; bars: number; total: number }
+
+// polimetría (9.3): la fila repite sus primeros `len` pasos; todos sus arreglos se rellenan
+// repitiéndolos hasta `n` pasos (lo que se ve como «fantasmas» y lo que se recorta/estira)
+export function tileLane(l: Lane, n: number): Lane {
+  const L = l.len && l.len >= 1 && l.len < n ? l.len : n;
+  const t = <T,>(a: T[] | undefined, fill: T): T[] => Array.from({ length: n }, (_, i) => (a?.[i % L] ?? fill));
+  return {
+    ...l,
+    steps: t(l.steps, 0), notes: t(l.notes, null as string | null), ratchet: t(l.ratchet, 1), prob: t(l.prob, 1),
+    nudge: l.nudge ? t(l.nudge, 0) : undefined, cond: l.cond ? t(l.cond, null as string | null) : undefined,
+    len: L < n ? L : undefined,
+  };
+}
+
+function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff, armPos }: { id: string; code: string; wrap?: (c: string) => string; seedFrom?: string; previewCode?: string; headOff?: boolean; armPos?: ArmPos }) {
   const update = useGraphStore((s) => s.updateNodeData);
   const cps = useGraphStore((s) => s.cps); // para mostrar el timing por paso en ms
+  const beats = useGraphStore((s) => s.beatsPerCycle) || 4; // pulsos por compás (agrupa los pasos)
   const emit = (c: string) => update(id, { code: wrap ? wrap(c) : c });
   const parsed = useMemo(() => parseSeq(code), [code]);
   const seeded = useMemo(() => {
@@ -124,7 +142,9 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   const useSeed = () => !!(seeded && parsed && !parsed.complex && parsed.lanes.every((l) => l.steps.every((v) => v <= 0)));
   const [steps, setSteps] = useState(() => (useSeed() ? seeded!.steps : parsed?.steps || 8));
   const [lanes, setLanes] = useState<Lane[]>(() => (useSeed() ? seeded!.lanes : parsed?.lanes ?? []));
-  const [head, setHead] = useState(-1);
+  // paso que suena, CONTADO desde el inicio del patrón (no se reinicia por compás): la rejilla
+  // usa su resto entre los pasos y cada fila polimétrica el resto entre su largo propio
+  const [headAbs, setHeadAbs] = useState(-1);
   const [adding, setAdding] = useState(false);
   const [preview, setPreview] = useState(false);
   const [pitchOpen, setPitchOpen] = useState<Record<string, boolean>>({});
@@ -138,7 +158,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   // EN GRANDE (panel de detalle, 9.2): una fila elegida con sus carriles y herramientas a la vista
   const big = useContext(SeqBigContext);
   const [selLane, setSelLane] = useState(0);
-  const [laneTab, setLaneTab] = useState<'vel' | 'roll' | 'prob' | 'timing'>('vel');
+  const [laneTab, setLaneTab] = useState<'vel' | 'roll' | 'prob' | 'timing' | 'cond'>('vel');
+  const [page, setPage] = useState(0); // compás que se ve en el nodo (patrones de varios compases)
   const [fillN, setFillN] = useState(4);
   const [fillFrom, setFillFrom] = useState(0);
   const [eucK, setEucK] = useState(5);
@@ -165,18 +186,33 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, seeded]);
 
+  const bars = parsed?.bars ?? 1; // 9.3: compases que dura el patrón (`.slow(bars)`)
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const now = getScheduler()?.now?.();
+      let h = -1;
       // headOff: la sección que se edita NO es la que suena → sin playhead (marcaría
       // pasos que no corresponden a lo que se oye). En preview (loop de la sección) sí.
-      setHead(typeof now === 'number' && !(headOff && !preview) ? Math.floor((((now % 1) + 1) % 1) * steps) % steps : -1);
+      if (useGraphStore.getState().playing && !(headOff && !preview)) {
+        // lo que SE OYE (8.2), en compases de la canción; en un arrange, el brazo toca su patrón
+        // desde su inicio y en la vuelta m sigue donde quedó (m·compases + lo que lleva)
+        const t = timelinePos(heardCycle(), useSongStore.getState());
+        let s = t;
+        if (armPos && !preview) {
+          const T = Math.max(1, armPos.total);
+          const m = Math.floor(t / T);
+          const w = t - m * T - armPos.start;
+          s = w >= 0 && w < armPos.bars ? m * armPos.bars + w : NaN;
+        }
+        if (Number.isFinite(s) && s >= 0) h = Math.floor((s / Math.max(1, bars)) * steps + 1e-6);
+      }
+      setHeadAbs(h);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [steps, headOff, preview]);
+  }, [steps, bars, headOff, preview, armPos?.start, armPos?.bars, armPos?.total]);
+  const head = headAbs >= 0 ? headAbs % Math.max(1, steps) : -1;
   useEffect(() => {
     const up = () => { drawing.current = null; dragPitch.current = null; dragBar.current = null; };
     window.addEventListener('pointerup', up);
@@ -212,16 +248,45 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     );
   }
 
-  const commit = (nl: Lane[], ns = steps) => { emit(buildSeq(parsed, nl, ns)); pulseSaved(); };
+  // compases (9.3): pasos por compás, agrupación por pulso y, en el nodo, un compás a la vista
+  const spbOk = bars > 1 && steps % bars === 0;
+  const spb = spbOk ? steps / bars : steps;
+  const beatEvery = spb % beats === 0 && spb / beats >= 1 ? spb / beats : 4;
+  const paged = !big && spbOk;
+  const pg = Math.min(page, bars - 1);
+  const v0 = paged ? pg * spb : 0;
+  const vis = Array.from({ length: paged ? spb : steps }, (_, i) => v0 + i);
+  const groups: number[][] = [];
+  if (spbOk && !paged) for (let i = 0; i < vis.length; i += spb) groups.push(vis.slice(i, i + spb));
+  else groups.push(vis);
+  const posCls = (si: number) => `${si % beatEvery === 0 ? ' beat' : ''}`;
+  // una fila de celdas: un compás = una rejilla; varios compases = rejillas separadas
+  const row = (cls: string, render: (si: number) => React.ReactNode, extra?: React.ReactNode, title?: string) => (groups.length === 1
+    ? <div className={cls} style={{ gridTemplateColumns: `repeat(${groups[0].length}, 1fr)` }} title={title}>{extra}{groups[0].map(render)}</div>
+    : <div className={`${cls} grp`} title={title}>{extra}{groups.map((g, gi) => <div key={gi} className="seqs-grp" style={{ gridTemplateColumns: `repeat(${g.length}, 1fr)` }}>{g.map(render)}</div>)}</div>);
+  // polimetría (9.3): una fila con largo propio muestra sus pasos repetidos («fantasmas»); editar
+  // un fantasma edita el paso real (i mod largo) y al guardar los fantasmas se rehacen
+  const lenOf = (l: Lane) => (l.len && l.len >= 1 && l.len < steps ? l.len : steps);
+  const srcIdx = (l: Lane, si: number) => si % lenOf(l);
+  const at = (li: number, si: number) => (lanes[li] ? srcIdx(lanes[li], si) : si);
+  const commit = (nl: Lane[], ns = steps) => {
+    const nn = nl.map((l) => (l.len && l.len < ns ? tileLane(l, ns) : l));
+    setLanes(nn);
+    emit(buildSeq(parsed, nn, ns));
+    pulseSaved();
+  };
   // A8 — cambia la caja de ritmos (.bank) de TODA la rejilla; re-emite con el banco nuevo.
   const setBank = (b: string) => { emit(buildSeq({ ...parsed, bank: b }, lanes, steps)); pulseSaved(); };
-  const paint = (li: number, si: number, val: number) => {
+  const paint = (li: number, si0: number, val: number) => {
+    const si = at(li, si0);
+    if ((lanes[li]?.steps[si] ?? 0) === val) return;
     const nl = lanes.map((l, i) => (i === li ? { ...l, steps: l.steps.map((v, j) => (j === si ? val : v)) } : l));
     setLanes(nl); commit(nl);
     if (val > 0) void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.9 * val);
   };
   // clic derecho en celda ENCENDIDA: cicla el nivel de velocity (normal→acento→ghost).
-  const cycleLevel = (li: number, si: number) => {
+  const cycleLevel = (li: number, si0: number) => {
+    const si = at(li, si0);
     const cur = lanes[li].steps[si];
     if (cur <= 0) return;
     const nv = nextLevel(cur);
@@ -230,7 +295,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.9 * nv);
   };
   // shift+clic en celda encendida: cicla el RATCHET (roll/tresillo) 1→2→3→4 → hh*n.
-  const cycleRatchet = (li: number, si: number) => {
+  const cycleRatchet = (li: number, si0: number) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return;
     const cur = lanes[li].ratchet[si] || 1;
     const RATCHETS = [1, 2, 3, 4];
@@ -240,7 +306,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.85);
   };
   // alt+clic en celda encendida: cicla la PROBABILIDAD 100→75→50→25% → hh?p (variación viva).
-  const cycleProb = (li: number, si: number) => {
+  const cycleProb = (li: number, si0: number) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return;
     const cur = lanes[li].prob?.[si] ?? 1;
     const PROBS = [1, 0.75, 0.5, 0.25];
@@ -250,6 +317,18 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     setLanes(nl); commit(nl);
     void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), lanes[li].notes[si] ?? undefined, 0.5, 0.9);
   };
+  // 9.3 — CONDICIÓN POR VUELTA: siempre → 1 de 2 → 2 de 2 → 1 de 4 … (`<hh ~ ~ ~>` en el código)
+  const cycleCond = (li: number, si0: number) => {
+    const si = at(li, si0);
+    const l = lanes[li];
+    if (!l || l.steps[si] <= 0) return;
+    const cur = l.cond?.[si] ?? null;
+    const nv = COND_CYCLE[(COND_CYCLE.indexOf(cur) + 1) % COND_CYCLE.length];
+    const nc = (l.cond ?? Array(steps).fill(null)).map((x, j) => (j === si ? nv : x));
+    const nl = lanes.map((x, i) => (i === li ? { ...x, cond: nc.some(Boolean) ? nc : undefined } : x));
+    setLanes(nl); commit(nl);
+    void playDrumHit(l.sound, hitBank(l.sound), l.notes[si] ?? undefined, 0.4, 0.8);
+  };
   const addLane = (snd: string) => {
     setAdding(false);
     if (lanes.some((l) => l.sound === snd)) return;
@@ -258,17 +337,70 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     void playDrumHit(snd, hitBank(snd));
   };
   const removeLane = (li: number) => { const nl = lanes.filter((_, i) => i !== li); setLanes(nl); commit(nl); };
+  // pasos POR COMPÁS (9.3): con un patrón de varios compases, ± cambia la resolución de cada
+  // compás (recorta o rellena al final de cada uno); tope de 64 pasos en total
   const setStepCount = (n: number) => {
-    const c = Math.max(2, Math.min(32, n));
-    const nl = lanes.map((l) => {
-      const s = l.steps.slice(0, c); while (s.length < c) s.push(0);
-      const nt = l.notes.slice(0, c); while (nt.length < c) nt.push(null);
-      const rt = l.ratchet.slice(0, c); while (rt.length < c) rt.push(1);
-      const pr = (l.prob ?? []).slice(0, c); while (pr.length < c) pr.push(1);
-      const nu = l.nudge ? l.nudge.slice(0, c) : undefined; if (nu) while (nu.length < c) nu.push(0);
-      return { ...l, steps: s, notes: nt, ratchet: rt, prob: pr, nudge: nu };
+    const B = spbOk ? bars : 1;
+    const per = spbOk ? spb : steps;
+    const c = Math.max(2, Math.min(Math.min(32, Math.floor(64 / B)), n));
+    if (c === per) return;
+    const ns = c * B;
+    const re = <T,>(a: T[] | undefined, fill: T): T[] => Array.from({ length: ns }, (_, i) => {
+      const b = Math.floor(i / c), j = i % c;
+      return j < per ? (a?.[b * per + j] ?? fill) : fill;
     });
-    setLanes(nl); setSteps(c); commit(nl, c);
+    const nl = lanes.map((l0) => {
+      const l = tileLane(l0, steps); // fantasmas al día antes de recortar
+      return tileLane({
+        ...l, steps: re(l.steps, 0), notes: re(l.notes, null as string | null), ratchet: re(l.ratchet, 1), prob: re(l.prob, 1),
+        nudge: l.nudge ? re(l.nudge, 0) : undefined, cond: l.cond ? re(l.cond, null as string | null) : undefined,
+        len: l.len && l.len < ns ? l.len : undefined,
+      }, ns);
+    });
+    setLanes(nl); setSteps(ns); commit(nl, ns);
+  };
+  // LARGO del patrón (9.3): 1, 2 o 4 compases de los mismos pasos por compás. Al alargar se repite
+  // lo que hay (suena igual hasta que lo cambies); al acortar quedan los primeros compases.
+  const setBars = (b: number) => {
+    if (b === bars) return;
+    const per = spbOk ? spb : steps;
+    const ns = per * b;
+    if (ns < 2 || ns > 64) return;
+    const nl = lanes.map((l) => {
+      const L = l.len && l.len < steps ? l.len : 0; // polimetría: su vuelta propia sigue igual
+      const P = L || steps;
+      const t = <T,>(a: T[] | undefined, fill: T): T[] => Array.from({ length: ns }, (_, i) => (a?.[i % P] ?? fill));
+      return {
+        ...l, steps: t(l.steps, 0), notes: t(l.notes, null as string | null), ratchet: t(l.ratchet, 1), prob: t(l.prob, 1),
+        nudge: l.nudge ? t(l.nudge, 0) : undefined, cond: l.cond ? t(l.cond, null as string | null) : undefined,
+        len: L && L < ns ? L : undefined,
+      };
+    });
+    setLanes(nl); setSteps(ns); setPage(0);
+    emit(buildSeq({ ...parsed, bars: b > 1 ? b : undefined }, nl, ns));
+    pulseSaved();
+  };
+  // largo propio de una fila (polimetría): «+» suma un paso vacío a su vuelta, «−» la acorta;
+  // «= rejilla» la deja del largo de la rejilla con lo que se ve (los fantasmas pasan a ser pasos)
+  const setLaneLen = (li: number, n0: number) => {
+    const l = lanes[li];
+    if (!l) return;
+    const cur = lenOf(l);
+    const n = Math.max(1, Math.min(steps, Math.round(n0)));
+    if (n === cur) return;
+    let x: Lane = tileLane(l, steps);
+    if (n > cur) {
+      const clr = <T,>(a: T[] | undefined, fill: T): T[] | undefined => a?.map((v, j) => (j >= cur && j < n ? fill : v));
+      x = { ...x, steps: clr(x.steps, 0)!, notes: clr(x.notes, null as string | null)!, ratchet: clr(x.ratchet, 1)!, prob: clr(x.prob, 1)!, nudge: clr(x.nudge, 0), cond: clr(x.cond, null as string | null) };
+    }
+    const nl = lanes.map((y, i) => (i === li ? tileLane({ ...x, len: n < steps ? n : undefined }, steps) : y));
+    setLanes(nl); commit(nl);
+  };
+  const laneToGrid = (li: number) => {
+    const l = lanes[li];
+    if (!l) return;
+    const nl = lanes.map((y, i) => (i === li ? { ...tileLane(l, steps), len: undefined } : y));
+    setLanes(nl); commit(nl);
   };
   // afinar/desafinar una pista: al activar, cada paso encendido toma DEFAULT_NOTE (y se
   // abre la sub-fila de pitch); al desactivar, se limpian las notas → idéntico a hoy.
@@ -300,7 +432,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   };
   // P1.5 — VELOCITY CONTINUA por paso (arrastre vertical en el panel ≋): escribe el
   // valor exacto en el .gain("…") de la pista (la percusión viva no tiene 3 niveles).
-  const setVelAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+  const setVelAt = (li: number, si0: number, clientY: number, el: HTMLElement) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return; // solo pasos activos
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
@@ -310,7 +443,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   };
   // P1.2 — MICRO-TIMING por paso (push/pull del pocket): arrastre vertical centrado —
   // abajo = atrás (late +), arriba = adelanta (−). Snap a 0 cerca del centro.
-  const setNudgeAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+  const setNudgeAt = (li: number, si0: number, clientY: number, el: HTMLElement) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, (clientY - r.top) / r.height)); // 0 arriba .. 1 abajo
@@ -321,7 +455,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     setLanes(nl); commit(nl);
   };
   // 9.2 — ROLL y PROBABILIDAD por arrastre en sus carriles (sin shift/alt + clic)
-  const setRatchetAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+  const setRatchetAt = (li: number, si0: number, clientY: number, el: HTMLElement) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
@@ -330,7 +465,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     const nl = lanes.map((l, i) => (i === li ? { ...l, ratchet: l.ratchet.map((x, j) => (j === si ? v : x)) } : l));
     setLanes(nl); commit(nl);
   };
-  const setProbAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+  const setProbAt = (li: number, si0: number, clientY: number, el: HTMLElement) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return;
     const r = el.getBoundingClientRect();
     const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
@@ -340,10 +476,11 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     setLanes(nl); commit(nl);
   };
   // herramientas de patrón sobre la fila elegida (llenar cada N, rotar, euclidiano, invertir, borrar)
-  const laneOp = (fn: (l: Lane) => Lane) => {
+  // (polimetría: las herramientas trabajan sobre la vuelta propia de la fila, `n` pasos)
+  const laneOp = (fn: (l: Lane, n: number) => Lane) => {
     const li = Math.min(selLane, lanes.length - 1);
     if (li < 0) return;
-    const nl = lanes.map((l, i) => (i === li ? fn(l) : l));
+    const nl = lanes.map((l, i) => (i === li ? tileLane({ ...fn(l, lenOf(l)), len: l.len }, steps) : l));
     setLanes(nl); commit(nl);
     void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), undefined, 0.4, 0.7);
   };
@@ -355,7 +492,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     setLanes(nl); commit(nl);
   };
   const clampMidi = (m: number) => Math.max(PITCH_LO, Math.min(PITCH_LO + PITCH_RANGE, m));
-  const startPitchDrag = (li: number, si: number, e: React.PointerEvent) => {
+  const startPitchDrag = (li: number, si0: number, e: React.PointerEvent) => {
+    const si = at(li, si0);
     if (lanes[li].steps[si] <= 0) return;
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     dragPitch.current = { li, si, startY: e.clientY, startMidi: noteToMidi(chordRoot(lanes[li].notes[si] || DEFAULT_NOTE)) ?? PITCH_LO + 12 };
@@ -370,9 +508,10 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
 
   const laneLabel = (snd: string) => PALETTE.find((p) => p.s === snd)?.label ?? PERC_PALETTE.find((p) => p.s === snd)?.label ?? snd;
   const lvlClass = (v: number) => (v <= 0 ? '' : Math.abs(v - ACCENT) < 0.01 ? ' on accent' : Math.abs(v - GHOST) < 0.01 ? ' on ghost' : ' on');
+  const condLabel = (c: string | null | undefined) => (c ? c.replace(':', ' de ') : 'siempre');
 
   return (
-    <div className="seqs nodrag" onPointerDown={(e) => e.stopPropagation()}>
+    <div className={`seqs nodrag${steps > 32 ? ' dense' : ''}`} onPointerDown={(e) => e.stopPropagation()}>
       <div className="seqs-ctl">
         <button className={`seqs-play${preview ? ' on' : ''}`} onClick={togglePreview} title="aislar y previsualizar este source (luego ESPACIO reproduce/para)">{preview ? '◉' : '▶'}</button>
         <span className="seqs-tag">secuenciador</span>
@@ -386,9 +525,22 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
           </select>
         </label>
         <div className="seqs-steps">
-          <button onClick={() => setStepCount(steps - 1)} title="menos pasos">−</button>
-          <b>{steps}<i>pasos</i></b>
-          <button onClick={() => setStepCount(steps + 1)} title="más pasos">+</button>
+          <button onClick={() => setStepCount((spbOk ? spb : steps) - 1)} title={bars > 1 ? 'menos pasos por compás' : 'menos pasos'}>−</button>
+          <b>{spbOk ? spb : steps}<i>{bars > 1 ? 'pasos/compás' : 'pasos'}</i></b>
+          <button onClick={() => setStepCount((spbOk ? spb : steps) + 1)} title={bars > 1 ? 'más pasos por compás' : 'más pasos'}>+</button>
+        </div>
+        <div className="seqs-len" title="largo del patrón: 1, 2 o 4 compases con los mismos pasos por compás. Al alargar se repite lo que hay (suena igual hasta que lo cambies); al acortar quedan los primeros compases.">
+          <span>largo</span>
+          {[1, 2, 4].map((b) => {
+            const per = spbOk ? spb : steps;
+            const tooMany = per * b > 64;
+            return (
+              <button key={b} className={bars === b ? 'on' : ''} disabled={tooMany || (bars > 1 && !spbOk)} onClick={() => setBars(b)} title={tooMany ? `${per} pasos × ${b} compases pasa de 64: baja los pasos por compás` : `${b} ${b === 1 ? 'compás' : 'compases'}`}>
+                {b}
+              </button>
+            );
+          })}
+          <i>{bars === 1 ? 'compás' : 'compases'}</i>
         </div>
         {lanes.some((l) => lanePitched(l, steps)) && (
           <div className="seqs-scale" title="scale-lock: al arrastrar ↕ para afinar, las notas se quedan en esta tonalidad (no se desafinan). «libre» = sin bloqueo.">
@@ -403,57 +555,89 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
 
       <LiveScope nodeId={id} height={36} />
 
+      {paged && (
+        <div className="seqs-sectabs seqs-pages">
+          <span className="seqs-sectag" title="este patrón dura varios compases: aquí se edita uno a la vista (en el panel de abajo se ven todos). El punto marca el que suena.">compás</span>
+          {Array.from({ length: bars }, (_, b) => (
+            <button key={b} className={`${b === pg ? 'on' : ''}${head >= 0 && Math.floor(head / spb) === b ? ' live' : ''}`} onClick={() => setPage(b)} title={`ver el compás ${b + 1} de ${bars}`}>
+              {b + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {big && spbOk && (
+        <div className="seqs-ruler-wrap">
+          <span className="seqs-ruler-pad" />
+          {row('seqs-row seqs-ruler', (si) => (
+            <span key={si} className={`seqs-rul${posCls(si)}${si % spb === 0 ? ' barstart' : ''}${Math.floor(head / spb) === Math.floor(si / spb) && head >= 0 ? ' live' : ''}`}>
+              {si % spb === 0 ? `${si / spb + 1}` : si % beatEvery === 0 ? '·' : ''}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="seqs-lanes">
         {lanes.map((l, li) => {
           const pitched = lanePitched(l, steps);
           const open = pitched || pitchOpen[l.sound];
+          const L = lenOf(l);
+          const poly = L < steps;
+          const polyHead = poly && headAbs >= 0 ? headAbs % L : -1; // dónde va la vuelta propia de la fila
           return (
             <div className={`seqs-lane${big && li === Math.min(selLane, lanes.length - 1) ? ' sel' : ''}`} key={l.sound}>
               <button className="seqs-name" onClick={() => { if (big) setSelLane(li); void playDrumHit(l.sound, hitBank(l.sound)); }} title={big ? `${laneLabel(l.sound)}: elegir esta fila (sus carriles y herramientas, abajo) y escucharla` : `escuchar ${laneLabel(l.sound)}`}>
                 <span className="seqs-nl">{laneLabel(l.sound)}</span>
+                {poly && <span className="seqs-polytag" title={`polimetría: esta fila repite sus ${L} pasos (los demás son su repetición)`}>{L}</span>}
                 <span className={`seqs-pitchtog${pitched ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); togglePitch(li); }} title="afinar por paso (pista melódica): 808 afinado, cowbell melódico">♪</span>
                 <span className={`seqs-pitchtog${laneGroove(l) ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); setGrooveOpen((o) => ({ ...o, [l.sound]: !o[l.sound] })); }} title="groove: swing (balanceo) + humanize (micro-timing) de esta pista">≋</span>
                 <span className="seqs-rm" onClick={(e) => { e.stopPropagation(); removeLane(li); }} title="quitar pista">×</span>
               </button>
               <div className="seqs-lane-body">
-                <div className="seqs-row" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-                  {l.steps.slice(0, steps).map((v, si) => (
+                {row('seqs-row', (si) => {
+                  const k = srcIdx(l, si);
+                  const v = l.steps[k] ?? 0;
+                  const rt = l.ratchet[k] || 1;
+                  const pr = l.prob?.[k] ?? 1;
+                  const cd = l.cond?.[k] ?? null;
+                  const ghostCell = si >= L;
+                  return (
                     <button
                       key={si}
-                      className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${si % 4 === 0 ? ' beat' : ''}${v > 0 && (l.prob?.[si] ?? 1) < 0.999 ? ' prob' : ''}`}
+                      className={`seqs-cell${lvlClass(v)}${si === head ? ' play' : ''}${k === polyHead && !ghostCell ? ' polyplay' : ''}${posCls(si)}${v > 0 && pr < 0.999 ? ' prob' : ''}${v > 0 && cd ? ' cond' : ''}${ghostCell ? ' poly' : ''}`}
                       onPointerDown={(e) => { if (e.shiftKey && v > 0) { cycleRatchet(li, si); return; } if (e.altKey && v > 0) { cycleProb(li, si); return; } const nv = v > 0 ? 0 : NORMAL; drawing.current = nv; paint(li, si, nv); }}
                       onPointerEnter={() => { if (drawing.current != null) paint(li, si, drawing.current); }}
                       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); cycleLevel(li, si); }}
-                      title={`${laneLabel(l.sound)} · paso ${si + 1}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'}${l.ratchet[si] > 1 ? ` · roll x${l.ratchet[si]}` : ''}${(l.prob?.[si] ?? 1) < 0.999 ? ` · ${Math.round(l.prob[si] * 100)}%` : ''} (clic der. = vel · shift+clic = roll · alt+clic = probabilidad)` : ''}`}
+                      title={`${laneLabel(l.sound)} · paso ${si + 1}${bars > 1 && spbOk ? ` (compás ${Math.floor(si / spb) + 1})` : ''}${ghostCell ? ` · repite el paso ${k + 1} (polimetría)` : ''}${v > 0 ? ` · ${Math.abs(v - ACCENT) < 0.01 ? 'acento' : Math.abs(v - GHOST) < 0.01 ? 'ghost' : 'normal'}${rt > 1 ? ` · roll x${rt}` : ''}${pr < 0.999 ? ` · ${Math.round(pr * 100)}%` : ''}${cd ? ` · suena en la vuelta ${condLabel(cd)}` : ''} (clic der. = vel · shift+clic = roll · alt+clic = probabilidad)` : ''}`}
                     >
-                      {v > 0 && l.ratchet[si] > 1 && <span className="seqs-ratch">{l.ratchet[si]}</span>}
-                      {v > 0 && (l.prob?.[si] ?? 1) < 0.999 && <span className="seqs-prob">{Math.round(l.prob[si] * 100)}</span>}
+                      {v > 0 && rt > 1 && <span className="seqs-ratch">{rt}</span>}
+                      {v > 0 && pr < 0.999 && <span className="seqs-prob">{Math.round(pr * 100)}</span>}
+                      {v > 0 && cd && <span className="seqs-cond">{cd}</span>}
                     </button>
-                  ))}
-                </div>
+                  );
+                })}
                 {open && (
                   <>
                   <div className="seqs-pitch-h"><span>↕ afinar cada paso</span><span className="seqs-pitch-btns"><button className="seqs-pitch-x" onClick={() => tuneAll(li)} title="afinar TODO el instrumento en la misma nota (la del primer paso afinado)">afinar todo</button><button className="seqs-pitch-x" onClick={() => togglePitch(li)} title="salir del afinador (volver a percusión)">✕ salir</button></span></div>
-                  <div className="seqs-pitch" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-                    {l.steps.slice(0, steps).map((v, si) => {
-                      const on = v > 0;
-                      const nn = l.notes[si] || DEFAULT_NOTE;
-                      const midi = on ? (noteToMidi(chordRoot(nn)) ?? PITCH_LO) : PITCH_LO;
-                      const t = Math.max(0, Math.min(1, (midi - PITCH_LO) / PITCH_RANGE));
-                      return (
-                        <div
-                          key={si}
-                          className={`seqs-pcell${on ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
-                          onPointerDown={(e) => startPitchDrag(li, si, e)}
-                          onPointerMove={(e) => movePitchDrag(e.clientY)}
-                          onPointerUp={() => { dragPitch.current = null; }}
-                          title={on ? `nota paso ${si + 1}: ${nn} · clic y arrastra ↕ para afinar` : ''}
-                        >
-                          {on && <><span className="seqs-pfill" style={{ height: `${Math.max(8, t * 100)}%` }} /><span className="seqs-pname">{chordRoot(nn)}{nn.startsWith('[') ? '▴' : ''}</span></>}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {row('seqs-pitch', (si) => {
+                    const k = srcIdx(l, si);
+                    const on = (l.steps[k] ?? 0) > 0;
+                    const nn = l.notes[k] || DEFAULT_NOTE;
+                    const midi = on ? (noteToMidi(chordRoot(nn)) ?? PITCH_LO) : PITCH_LO;
+                    const t = Math.max(0, Math.min(1, (midi - PITCH_LO) / PITCH_RANGE));
+                    return (
+                      <div
+                        key={si}
+                        className={`seqs-pcell${on ? '' : ' rest'}${posCls(si)}${si >= L ? ' poly' : ''}`}
+                        onPointerDown={(e) => startPitchDrag(li, si, e)}
+                        onPointerMove={(e) => movePitchDrag(e.clientY)}
+                        onPointerUp={() => { dragPitch.current = null; }}
+                        title={on ? `nota paso ${si + 1}: ${nn} · clic y arrastra ↕ para afinar` : ''}
+                      >
+                        {on && <><span className="seqs-pfill" style={{ height: `${Math.max(8, t * 100)}%` }} /><span className="seqs-pname">{chordRoot(nn)}{nn.startsWith('[') ? '▴' : ''}</span></>}
+                      </div>
+                    );
+                  })}
                   </>
                 )}
                 {grooveOpen[l.sound] && (
@@ -477,39 +661,39 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
                     <button className="seqs-pitch-x" onClick={() => clearGroove(li)} title="quitar groove, vel y timing de esta pista">✕</button>
                   </div>
                   {/* P1.5 — velocity CONTINUA por paso (arrastra ↕; escribe el valor exacto) */}
-                  <div className="seqs-bars" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }} title="vel: volumen exacto por paso — arrastra ↕ (la percusión viva no tiene 3 niveles)">
-                    <span className="seqs-bars-tag">vel</span>
-                    {l.steps.slice(0, steps).map((v, si) => (
+                  {row('seqs-bars', (si) => {
+                    const k = srcIdx(l, si);
+                    const v = l.steps[k] ?? 0;
+                    return (
                       <div
                         key={si}
-                        className={`seqs-bar${v > 0 ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
+                        className={`seqs-bar${v > 0 ? '' : ' rest'}${posCls(si)}${si >= L ? ' poly' : ''}`}
                         onPointerDown={(e) => { dragBar.current = 'vel'; setVelAt(li, si, e.clientY, e.currentTarget); }}
                         onPointerEnter={(e) => { if (dragBar.current === 'vel') setVelAt(li, si, e.clientY, e.currentTarget); }}
                         title={v > 0 ? `vel paso ${si + 1}: ${v}` : ''}
                       >
                         {v > 0 && <span className="seqs-bar-fill" style={{ height: `${Math.max(6, Math.min(100, (v / 1.5) * 100))}%` }} />}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  }, <span className="seqs-bars-tag">vel</span>, 'vel: volumen exacto por paso — arrastra ↕ (la percusión viva no tiene 3 niveles)')}
                   {/* P1.2 — micro-timing por paso: el pocket (abajo = atrás · arriba = adelanta) */}
-                  <div className="seqs-bars nudge" style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }} title="timing: empuja/arrastra cada golpe — abajo = atrás (late), arriba = adelanta. El pocket determinista.">
-                    <span className="seqs-bars-tag">timing</span>
-                    {l.steps.slice(0, steps).map((v, si) => {
-                      const nu = l.nudge?.[si] ?? 0;
-                      const ms = Math.round((nu / Math.max(0.05, cps)) * 1000);
-                      return (
-                        <div
-                          key={si}
-                          className={`seqs-bar${v > 0 ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}`}
-                          onPointerDown={(e) => { dragBar.current = 'nudge'; setNudgeAt(li, si, e.clientY, e.currentTarget); }}
-                          onPointerEnter={(e) => { if (dragBar.current === 'nudge') setNudgeAt(li, si, e.clientY, e.currentTarget); }}
-                          title={v > 0 ? `timing paso ${si + 1}: ${ms > 0 ? `+${ms} ms (atrás)` : ms < 0 ? `${ms} ms (adelanta)` : 'en el grid'}` : ''}
-                        >
-                          {v > 0 && <span className={`seqs-bar-dot${Math.abs(nu) > 0.0005 ? ' on' : ''}`} style={{ top: `${Math.max(4, Math.min(92, ((nu + NUDGE_MAX) / (2 * NUDGE_MAX)) * 100 - 4))}%` }} />}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  {row('seqs-bars nudge', (si) => {
+                    const k = srcIdx(l, si);
+                    const v = l.steps[k] ?? 0;
+                    const nu = l.nudge?.[k] ?? 0;
+                    const ms = Math.round((nu / Math.max(0.05, cps)) * 1000);
+                    return (
+                      <div
+                        key={si}
+                        className={`seqs-bar${v > 0 ? '' : ' rest'}${posCls(si)}${si >= L ? ' poly' : ''}`}
+                        onPointerDown={(e) => { dragBar.current = 'nudge'; setNudgeAt(li, si, e.clientY, e.currentTarget); }}
+                        onPointerEnter={(e) => { if (dragBar.current === 'nudge') setNudgeAt(li, si, e.clientY, e.currentTarget); }}
+                        title={v > 0 ? `timing paso ${si + 1}: ${ms > 0 ? `+${ms} ms (atrás)` : ms < 0 ? `${ms} ms (adelanta)` : 'en el grid'}` : ''}
+                      >
+                        {v > 0 && <span className={`seqs-bar-dot${Math.abs(nu) > 0.0005 ? ' on' : ''}`} style={{ top: `${Math.max(4, Math.min(92, ((nu + NUDGE_MAX) / (2 * NUDGE_MAX)) * 100 - 4))}%` }} />}
+                      </div>
+                    );
+                  }, <span className="seqs-bars-tag">timing</span>, 'timing: empuja/arrastra cada golpe — abajo = atrás (late), arriba = adelanta. El pocket determinista.')}
                   </>
                 )}
               </div>
@@ -521,11 +705,13 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
       {big && lanes.length > 0 && (() => {
         const li = Math.min(selLane, lanes.length - 1);
         const l = lanes[li];
+        const L = lenOf(l);
         const TABS: { id: typeof laneTab; label: string; title: string }[] = [
           { id: 'vel', label: 'fuerza', title: 'volumen de cada golpe (arrastra ↕)' },
           { id: 'roll', label: 'roll', title: 'repeticiones del golpe: 1 a 4 (arrastra ↕)' },
           { id: 'prob', label: 'probabilidad', title: 'qué tan seguido suena el golpe: 5 % a 100 % (arrastra ↕)' },
           { id: 'timing', label: 'timing', title: 'adelanta (arriba) o atrasa (abajo) cada golpe' },
+          { id: 'cond', label: 'vuelta', title: 'en qué vuelta del patrón suena el golpe: siempre, 1 de cada 2, 2 de 2 (el remate de cada dos vueltas), 1 de cada 4… (clic en el paso para cambiar)' },
         ];
         return (
           <div className="seqs-lanes-edit">
@@ -534,57 +720,74 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
               {TABS.map((t) => (
                 <button key={t.id} className={laneTab === t.id ? 'on' : ''} onClick={() => setLaneTab(t.id)} title={t.title}>{t.label}</button>
               ))}
+              <span className="seqs-le-len" title="largo propio de esta fila (polimetría): un hat de 3 pasos contra un bombo de 4 — la fila repite sus pasos y se desfasa con el resto. «= rejilla» vuelve al largo de la rejilla con lo que se ve.">
+                <span className="seqs-tools-tag">largo de la fila</span>
+                <button onClick={() => setLaneLen(li, L - 1)} disabled={L <= 1} title="un paso menos en la vuelta de esta fila">−</button>
+                <b>{L}<i>/{steps}</i></b>
+                <button onClick={() => setLaneLen(li, L + 1)} disabled={L >= steps} title="un paso más (vacío) en la vuelta de esta fila">＋</button>
+                {L < steps && <button onClick={() => laneToGrid(li)} title="esta fila vuelve al largo de la rejilla con lo que se ve (las repeticiones pasan a ser pasos)">= rejilla</button>}
+              </span>
             </div>
-            <div className={`seqs-bars big ${laneTab}`} style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
-              {l.steps.slice(0, steps).map((v, si) => {
-                const on = v > 0;
-                const val = laneTab === 'vel' ? Math.min(1, v / 1.5) : laneTab === 'roll' ? ((l.ratchet[si] || 1) - 1) / 3 + 0.08 : laneTab === 'prob' ? (l.prob?.[si] ?? 1) : 0;
-                const nu = l.nudge?.[si] ?? 0;
-                const set = (e: React.PointerEvent<HTMLDivElement>) => {
-                  const el = e.currentTarget;
-                  if (laneTab === 'vel') setVelAt(li, si, e.clientY, el);
-                  else if (laneTab === 'roll') setRatchetAt(li, si, e.clientY, el);
-                  else if (laneTab === 'prob') setProbAt(li, si, e.clientY, el);
-                  else setNudgeAt(li, si, e.clientY, el);
-                };
-                const label = !on ? '' : laneTab === 'vel' ? String(Math.round(v * 100) / 100) : laneTab === 'roll' ? `×${l.ratchet[si] || 1}` : laneTab === 'prob' ? `${Math.round((l.prob?.[si] ?? 1) * 100)}%` : `${Math.round((nu / Math.max(0.05, cps)) * 1000)} ms`;
-                return (
-                  <div
-                    key={si}
-                    className={`seqs-bar${on ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}${si === head ? ' play' : ''}`}
-                    onPointerDown={(e) => { dragBar.current = laneTab === 'timing' ? 'nudge' : laneTab; set(e); }}
-                    onPointerEnter={(e) => { if (dragBar.current) set(e); }}
-                    title={on ? `paso ${si + 1} · ${label}` : `paso ${si + 1}: sin golpe`}
-                  >
-                    {on && laneTab !== 'timing' && <span className="seqs-bar-fill" style={{ height: `${Math.max(6, Math.min(100, val * 100))}%` }} />}
-                    {on && laneTab === 'timing' && <span className={`seqs-bar-dot${Math.abs(nu) > 0.0005 ? ' on' : ''}`} style={{ top: `${Math.max(4, Math.min(92, ((nu + NUDGE_MAX) / (2 * NUDGE_MAX)) * 100 - 4))}%` }} />}
-                    {on && <i className="seqs-bar-val">{label}</i>}
-                  </div>
-                );
-              })}
-            </div>
+            {row(`seqs-bars big ${laneTab}`, (si) => {
+              const k = srcIdx(l, si);
+              const v = l.steps[k] ?? 0;
+              const on = v > 0;
+              const cd = l.cond?.[k] ?? null;
+              const val = laneTab === 'vel' ? Math.min(1, v / 1.5) : laneTab === 'roll' ? ((l.ratchet[k] || 1) - 1) / 3 + 0.08 : laneTab === 'prob' ? (l.prob?.[k] ?? 1) : 0;
+              const nu = l.nudge?.[k] ?? 0;
+              const set = (e: React.PointerEvent<HTMLDivElement>) => {
+                const el = e.currentTarget;
+                if (laneTab === 'vel') setVelAt(li, si, e.clientY, el);
+                else if (laneTab === 'roll') setRatchetAt(li, si, e.clientY, el);
+                else if (laneTab === 'prob') setProbAt(li, si, e.clientY, el);
+                else if (laneTab === 'timing') setNudgeAt(li, si, e.clientY, el);
+              };
+              const cm = cd ? /^(\d+):(\d+)$/.exec(cd) : null;
+              const label = !on ? '' : laneTab === 'vel' ? String(Math.round(v * 100) / 100) : laneTab === 'roll' ? `×${l.ratchet[k] || 1}` : laneTab === 'prob' ? `${Math.round((l.prob?.[k] ?? 1) * 100)}%` : laneTab === 'cond' ? (cd ?? '∞') : `${Math.round((nu / Math.max(0.05, cps)) * 1000)} ms`;
+              return (
+                <div
+                  key={si}
+                  className={`seqs-bar${on ? '' : ' rest'}${posCls(si)}${si === head ? ' play' : ''}${si >= L ? ' poly' : ''}`}
+                  onPointerDown={(e) => {
+                    if (laneTab === 'cond') { cycleCond(li, si); return; }
+                    dragBar.current = laneTab === 'timing' ? 'nudge' : laneTab; set(e);
+                  }}
+                  onPointerEnter={(e) => { if (dragBar.current && laneTab !== 'cond') set(e); }}
+                  title={on ? `paso ${si + 1} · ${laneTab === 'cond' ? `suena ${cd ? `en la vuelta ${condLabel(cd)}` : 'siempre'} (clic para cambiar)` : label}` : `paso ${si + 1}: sin golpe`}
+                >
+                  {on && laneTab !== 'timing' && laneTab !== 'cond' && <span className="seqs-bar-fill" style={{ height: `${Math.max(6, Math.min(100, val * 100))}%` }} />}
+                  {on && laneTab === 'timing' && <span className={`seqs-bar-dot${Math.abs(nu) > 0.0005 ? ' on' : ''}`} style={{ top: `${Math.max(4, Math.min(92, ((nu + NUDGE_MAX) / (2 * NUDGE_MAX)) * 100 - 4))}%` }} />}
+                  {on && laneTab === 'cond' && (
+                    <span className="seqs-condsegs">
+                      {Array.from({ length: cm ? Number(cm[2]) : 1 }, (_, j) => <i key={j} className={!cm || j === Number(cm[1]) - 1 ? 'on' : ''} />)}
+                    </span>
+                  )}
+                  {on && <i className="seqs-bar-val">{label}</i>}
+                </div>
+              );
+            })}
             <div className="seqs-tools">
               <span className="seqs-tools-tag">llenar cada</span>
               {[2, 3, 4, 8].map((n) => (
-                <button key={n} className={fillN === n ? 'on' : ''} onClick={() => { setFillN(n); laneOp((x) => fillEvery(x, steps, n, fillFrom)); }} title={`un golpe cada ${n} pasos (borra los demás)`}>{n}</button>
+                <button key={n} className={fillN === n ? 'on' : ''} onClick={() => { setFillN(n); laneOp((x, len) => fillEvery(x, len, n, fillFrom)); }} title={`un golpe cada ${n} pasos (borra los demás)`}>{n}</button>
               ))}
               <label title="desde qué paso (2 = los «off-beat» del hat con cada 4)">
                 desde
-                <select value={fillFrom} onChange={(e) => { const f = Number(e.target.value); setFillFrom(f); laneOp((x) => fillEvery(x, steps, fillN, f)); }}>
-                  {Array.from({ length: Math.min(steps, 8) }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                <select value={fillFrom} onChange={(e) => { const f = Number(e.target.value); setFillFrom(f); laneOp((x, len) => fillEvery(x, len, fillN, f)); }}>
+                  {Array.from({ length: Math.min(L, 8) }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
                 </select>
               </label>
               <span className="seqs-tools-sep" />
-              <button onClick={() => laneOp((x) => rotateLane(x, steps, -1))} title="rotar a la izquierda (todo un paso antes)">◂ rotar</button>
-              <button onClick={() => laneOp((x) => rotateLane(x, steps, 1))} title="rotar a la derecha (todo un paso después)">rotar ▸</button>
+              <button onClick={() => laneOp((x, len) => rotateLane(x, len, -1))} title="rotar a la izquierda (todo un paso antes)">◂ rotar</button>
+              <button onClick={() => laneOp((x, len) => rotateLane(x, len, 1))} title="rotar a la derecha (todo un paso después)">rotar ▸</button>
               <span className="seqs-tools-sep" />
               <span className="seqs-tools-tag">euclidiano</span>
-              <button onClick={() => { const k = Math.max(1, eucK - 1); setEucK(k); laneOp((x) => euclidLane(x, steps, k)); }} title="un golpe menos">−</button>
-              <button className="seqs-euc" onClick={() => laneOp((x) => euclidLane(x, steps, eucK))} title={`${eucK} golpes repartidos parejo en ${steps} pasos`}>{eucK}/{steps}</button>
-              <button onClick={() => { const k = Math.min(steps, eucK + 1); setEucK(k); laneOp((x) => euclidLane(x, steps, k)); }} title="un golpe más">＋</button>
+              <button onClick={() => { const k = Math.max(1, eucK - 1); setEucK(k); laneOp((x, len) => euclidLane(x, len, k)); }} title="un golpe menos">−</button>
+              <button className="seqs-euc" onClick={() => laneOp((x, len) => euclidLane(x, len, Math.min(eucK, len)))} title={`${Math.min(eucK, L)} golpes repartidos parejo en ${L} pasos`}>{Math.min(eucK, L)}/{L}</button>
+              <button onClick={() => { const k = Math.min(L, eucK + 1); setEucK(k); laneOp((x, len) => euclidLane(x, len, k)); }} title="un golpe más">＋</button>
               <span className="seqs-tools-sep" />
-              <button onClick={() => laneOp((x) => invertLane(x, steps))} title="golpes ↔ silencios">invertir</button>
-              <button onClick={() => laneOp((x) => clearLane(x, steps))} title="quitar todos los golpes de esta fila">borrar</button>
+              <button onClick={() => laneOp((x, len) => invertLane(x, len))} title="golpes ↔ silencios">invertir</button>
+              <button onClick={() => laneOp((x, len) => clearLane(x, len))} title="quitar todos los golpes de esta fila">borrar</button>
             </div>
           </div>
         );
@@ -647,6 +850,15 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
     if (focusReq && focusReq.nodeId === id && arms && focusReq.arm >= 0 && focusReq.arm < arms.length) setSec(focusReq.arm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusReq?.nonce]);
+  // dónde cae la sección elegida en su arrange (9.3: el playhead de patrones de varios compases)
+  const armPos = useMemo<ArmPos | undefined>(() => {
+    if (!arms || !arms.length) return undefined;
+    const k = Math.min(sec, arms.length - 1);
+    let start = 0;
+    for (let i = 0; i < k; i++) start += Math.max(1, arms[i].bars);
+    const total = arms.reduce((a, x) => a + Math.max(1, x.bars), 0) || 1;
+    return { start, bars: Math.max(1, arms[k].bars), total };
+  }, [arms, sec]);
   // VISTA para melodías: la REJILLA (pasos + afinar arrastrando + «afinar todo») es la
   // por defecto — el flujo preferido del usuario en todas partes; el piano roll queda
   // como disposición alternativa del MISMO código (toggle).
@@ -737,7 +949,7 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
         )}
         {melodic && view === 'roll'
           ? <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} />
-          : <StepGrid id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} previewCode={previewCode} headOff={headOff} />}
+          : <StepGrid id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} previewCode={previewCode} headOff={headOff} armPos={armPos} />}
       </>
     );
   };
