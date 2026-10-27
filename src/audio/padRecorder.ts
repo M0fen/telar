@@ -13,6 +13,7 @@ import { getScheduler, isOfflineRendering } from './engine';
 import { playDrumHit } from './playNote';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
+import { useMetroStore } from '../store/useMetroStore';
 import { toast } from '../store/useNotifyStore';
 import { timelinePos } from '../lib/songClock';
 import { bankExempt, isMelodicCode, laneOwnBank, parseSeq, splitArrange, isSilenceArm, unmuteArm, isMutedArm } from '../nodes/stepseqCode';
@@ -120,6 +121,7 @@ function sink(note: number, vel: number, down: boolean): void {
   } catch { /* sin contexto */ }
   const cps = Number(sched?.cps) || g.cps || 0.5;
   const bar = timelinePos(now - lat * cps, useSongStore.getState());
+  if (bar < 0) return; // en la cuenta previa (8.3): suena, pero no entra en la toma
   const r = recordPadHit(code, { pad, sound: s.mode === 'drum' ? s.map[pad] : undefined, vel, bar, mode: s.mode, key: g.songKey, octave: s.octave });
   if (r) {
     g.updateNodeData(s.armed, { code: r.code });
@@ -171,7 +173,10 @@ export function setPadRec(on: boolean): void {
     if (!s.armed) { toast.info('Elige primero la pista que tocan los pads.'); return; }
     g.beginTake();
     usePadRecStore.setState({ rec: true, hits: 0 });
-    if (!g.playing) void g.play();
+    if (!g.playing) {
+      useSongStore.getState().setCountIn(useMetroStore.getState().countIn); // cuenta previa (8.3)
+      void g.play();
+    }
     return;
   }
   g.endTake();

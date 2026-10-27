@@ -250,7 +250,8 @@ export function DawView() {
     let lastSec = -2;
     const tick = () => {
       // + from: tras «tocar desde aquí» el reloj arrancó en 0 pero suena el compás from + 1
-      const { pos, section } = playheadAt(timelinePos(heardCycle(), useSongStore.getState()), total, sections);
+      // en la cuenta previa (8.3) la línea espera en el compás de arranque
+      const { pos, section } = playheadAt(Math.max(0, timelinePos(heardCycle(), useSongStore.getState())), total, sections);
       const x = pos * px;
       const t = `translateX(${x}px)`;
       for (const m of marks) if (m) m.style.transform = t;

@@ -520,7 +520,7 @@ export function applyStartBar(code: string, from: number): string {
 // si no, «tocar desde un compás» (applyStartBar). También por DENTRO del máster global.
 export function applyTimeline(
   code: string,
-  t: { from: number; region: { start: number; bars: number } | null; regionOn: boolean; stopAt?: number | null },
+  t: { from: number; region: { start: number; bars: number } | null; regionOn: boolean; stopAt?: number | null; countIn?: number },
 ): string {
   const r = t.region;
   let out: string;
@@ -531,6 +531,10 @@ export function applyTimeline(
     const tail = off > 0 && off < bars ? `.early(${off})` : '';
     out = `(${code}\n).ribbon(${start}, ${bars})${tail}`;
   } else out = applyStartBar(code, t.from);
+  // CUENTA PREVIA (Fase 8.3): la música entra `countIn` ciclos después del ▶ (solo suena el clic);
+  // lo que la vuelta anterior del patrón tendría en esos ciclos no suena.
+  const ci = Math.floor(Number(t.countIn) || 0);
+  if (ci > 0) out = `(${out}\n).late(${ci}).filterHaps((h)=>!h.whole||h.whole.begin>=${ci})`;
   // EXPORTAR (Fase 3.3): pasado `stopAt` (ciclos del transporte) no arranca ningún evento
   // nuevo → la grabación termina con las colas, sin la vuelta siguiente de la canción.
   if (t.stopAt != null && Number.isFinite(t.stopAt) && t.stopAt > 0) out = `(${out}).filterHaps((h)=>!h.whole||h.whole.begin<${Number(t.stopAt.toFixed(4))})`;

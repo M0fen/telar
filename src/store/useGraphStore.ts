@@ -25,6 +25,8 @@ import { scaleGains, scaleStateGains } from '../lib/levels';
 import { RETURN_KEYS, returnsFromMaster } from '../lib/returns';
 import { setReturnParams, setReturnsTempoSource } from '../audio/fxReturns';
 import { setEngineAutomation, setAutoPositionSource } from '../audio/autoRunner';
+import { withMetronome } from '../lib/metronome';
+import { useMetroStore, onMetroChange } from './useMetroStore';
 import { engineAutomation } from '../lib/automation';
 import { isJamRecording } from '../lib/jamRecorder';
 import { syncWarpedLoops } from '../audio/warpLoops';
@@ -277,7 +279,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
     }
     set({ compileError: error, lastCode: code });
     // `from` (Fase 1.4): compás de arranque tras «tocar desde aquí»; 0 = desde el compás 1.
-    if (playing && code) void swapPattern(applyGlobalMaster(applyTimeline(code, useSongStore.getState()), master), cps);
+    // El clic (8.3) va al lado del máster (sin swing ni efectos); al exportar no suena.
+    const song = useSongStore.getState();
+    const exporting = song.stopAt != null || song.exportOnly != null;
+    if (playing && code) void swapPattern(withMetronome(applyGlobalMaster(applyTimeline(code, song), master), { on: useMetroStore.getState().on && !exporting, beats: get().beatsPerCycle, countIn: exporting ? 0 : song.countIn }), cps);
   };
 
   // Recompilado THROTTLED (borde inicial + final, ~70 ms): un arrastre de perilla
@@ -995,6 +1000,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // el próximo ▶ tras «tocar desde aquí» (from vuelve a 0).
       useSongStore.getState().setPlaying(false);
       useSongStore.getState().setFrom(0);
+      useSongStore.getState().setCountIn(0); // la cuenta previa es de una sola toma (8.3)
     },
 
     resetProject: (origin) => {
@@ -1160,5 +1166,12 @@ setAutoPositionSource(() => {
   const now = Number(sch?.now?.());
   if (!Number.isFinite(now)) return null;
   const cps = Number(sch?.cps) || g.cps || 0.5;
-  return timelinePos(now - 0.05 * cps, useSongStore.getState());
+  const bar = timelinePos(now - 0.05 * cps, useSongStore.getState());
+  return bar < 0 ? null : bar; // en la cuenta previa (8.3) mandan las perillas
+});
+
+// METRÓNOMO (8.3): encenderlo o apagarlo sonando re-evalúa el patrón (el clic va en el código)
+onMetroChange(() => {
+  const g = useGraphStore.getState();
+  if (g.playing) g.recompile();
 });

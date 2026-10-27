@@ -6,6 +6,8 @@ import { timelinePos } from '../lib/songClock';
 import { playFrom } from '../lib/songTransport';
 import { heardCycle } from '../audio/engine';
 import { fmtBarPos, fmtClock, parseBarPos } from '../lib/dawGrid';
+import { useMetroStore } from '../store/useMetroStore';
+import { COUNT_IN_OPTIONS } from '../lib/metronome';
 import { ROOT_NAMES, keyLong, keyShort, suggestKey } from '../lib/songKey';
 import type { WarpInfo } from '../lib/loopWarp';
 import { Knob } from './Knob';
@@ -81,15 +83,16 @@ function PositionCounter() {
     if (edit !== null) return;
     const write = (pos: number) => {
       const a = fmtBarPos(pos, beats);
-      const t = fmtClock(pos / cps);
+      const t = pos < 0 ? 'cuenta' : fmtClock(pos / cps);
       if (barRef.current && barRef.current.textContent !== a) barRef.current.textContent = a;
       if (timeRef.current && timeRef.current.textContent !== t) timeRef.current.textContent = t;
+      barRef.current?.parentElement?.classList.toggle('counting', pos < 0); // cuenta previa (8.3)
     };
     // parado: dónde arrancará ▶ (el compás elegido o el inicio de la región en bucle)
     if (!playing) { write(timelinePos(0, { from, region, regionOn })); return; }
     let raf = 0;
     const tick = () => {
-      write(Math.max(0, timelinePos(heardCycle(), useSongStore.getState())));
+      write(timelinePos(heardCycle(), useSongStore.getState()));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -125,6 +128,55 @@ function PositionCounter() {
       <b ref={barRef}>1.1.1</b>
       <i ref={timeRef}>0:00.0</i>
     </button>
+  );
+}
+
+// METRÓNOMO (Fase 8.3): ♩ enciende el clic (acento en el 1); ▾ elige la cuenta previa al grabar el
+// jam o los pads (0, 1 o 2 compases) y el volumen. El clic no pasa por el máster ni se graba.
+function MetroControl() {
+  const on = useMetroStore((s) => s.on);
+  const countIn = useMetroStore((s) => s.countIn);
+  const level = useMetroStore((s) => s.level);
+  const { setOn, setCountIn, setLevel } = useMetroStore.getState();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('keydown', key);
+    return () => { window.removeEventListener('pointerdown', down, true); window.removeEventListener('keydown', key); };
+  }, [open]);
+  return (
+    <div className="metro" ref={ref}>
+      <button className={`metro-btn${on ? ' on' : ''}`} onClick={() => setOn(!on)} aria-pressed={on} title={on ? 'metrónomo encendido: clic en cada pulso (clic para apagarlo)' : 'metrónomo: clic en cada pulso, acento en el 1'}>
+        ♩
+      </button>
+      <button className={`metro-more${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} aria-expanded={open} title={`cuenta previa al grabar: ${countIn ? `${countIn} compás${countIn > 1 ? 'es' : ''}` : 'no'} · volumen del clic`}>
+        {countIn ? countIn : '▾'}
+      </button>
+      {open && (
+        <div className="metro-pop" role="dialog" aria-label="metrónomo">
+          <div className="metro-pop-h">metrónomo</div>
+          <div className="metro-row">
+            <span>cuenta previa al grabar</span>
+            <div className="metro-seg" role="group" aria-label="compases de cuenta previa">
+              {COUNT_IN_OPTIONS.map((n) => (
+                <button key={n} className={countIn === n ? 'on' : ''} onClick={() => setCountIn(n)} aria-pressed={countIn === n}>
+                  {n === 0 ? 'no' : `${n} c.`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="metro-row">
+            <span>volumen del clic</span>
+            <input type="range" min={0} max={1} step={0.05} value={level} onChange={(e) => setLevel(Number(e.target.value))} aria-label="volumen del clic" />
+          </div>
+          <p className="metro-hint">La cuenta suena antes de grabar el jam o los pads con el transporte parado; lo que tocas en ella no entra en la toma. El clic sale directo a los altavoces: no se graba ni se exporta.</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -201,6 +253,7 @@ export function Transport() {
         >
           tap
         </button>
+        <MetroControl />
       </div>
       {/* Tonalidad + tono: con tonalidad (5.1) muestra la que SUENA (raíz + tono); − + transponen
           en semitonos (note(…)); clic en el centro = elegir la tonalidad o volver el tono a 0. */}

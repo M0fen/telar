@@ -59,6 +59,7 @@ export interface TimelineLike {
   from: number;
   region: { start: number; bars: number } | null;
   regionOn: boolean;
+  countIn?: number; // cuenta previa (8.3): ciclos de clic antes de la música
 }
 export function regionOffset(t: TimelineLike): number {
   const r = t.region;
@@ -68,9 +69,15 @@ export function regionOffset(t: TimelineLike): number {
 }
 export function timelinePos(now: number, t: TimelineLike): number {
   const r = t.region;
-  if (t.regionOn && r && r.bars >= 1) {
-    const x = now + regionOffset(t);
-    return r.start + (((x % r.bars) + r.bars) % r.bars);
+  const ci = Number.isFinite(t.countIn) && (t.countIn as number) > 0 ? Math.floor(t.countIn as number) : 0;
+  const n = now - ci;
+  const loop = t.regionOn && r && r.bars >= 1;
+  // CUENTA PREVIA (8.3): antes de que arranque la música, los compases que faltan en negativo
+  // respecto del compás de arranque (−2, −1 → 1 con from 0)
+  if (n < 0) return (loop ? r!.start + regionOffset(t) : Number.isFinite(t.from) && t.from > 0 ? t.from : 0) + n;
+  if (loop) {
+    const x = n + regionOffset(t);
+    return r!.start + (((x % r!.bars) + r!.bars) % r!.bars);
   }
-  return now + (Number.isFinite(t.from) && t.from > 0 ? t.from : 0);
+  return n + (Number.isFinite(t.from) && t.from > 0 ? t.from : 0);
 }

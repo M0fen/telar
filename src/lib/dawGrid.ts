@@ -81,6 +81,12 @@ export function barParts(bar: number, beats: number): { bar: number; beat: numbe
   return { bar: n + 1, beat: beat + 1, six: six + 1 };
 }
 export function fmtBarPos(bar: number, beats: number): string {
+  // cuenta previa (8.3): los compases antes del arranque en negativo, «−2.1.1» … «−1.4.4»
+  if (bar < -1e-9) {
+    const n = Math.floor(bar);
+    const q = barParts(bar - n, beats);
+    return `−${-n}.${q.beat}.${q.six}`;
+  }
   const q = barParts(bar, beats);
   return `${q.bar}.${q.beat}.${q.six}`;
 }

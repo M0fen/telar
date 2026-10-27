@@ -3,6 +3,7 @@
 // deja en UN paso deshacible (`applyArrangement`). Avisa de las pistas que no pudo alinear.
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
+import { useMetroStore } from '../store/useMetroStore';
 import { useScenesStore } from '../store/useScenesStore';
 import { toast } from '../store/useNotifyStore';
 import { useUiFocusStore } from '../store/useUiFocusStore';
@@ -177,7 +178,8 @@ export const blockVariation = (blockCode: string) => splitVariation(isMutedArm(b
 // --- GRABAR EL JAM EN LA CANCIÓN (Fase 2.5) ----------------------------------------------
 function jamHooks(): JamHooks {
   return {
-    now: () => Number(getScheduler()?.now?.() ?? 0),
+    // compases de la canción: el reloj menos la cuenta previa (8.3; en la cuenta queda en negativo)
+    now: () => Number(getScheduler()?.now?.() ?? 0) - useSongStore.getState().countIn,
     playing: () => useGraphStore.getState().playing,
     snapshot: () => {
       const src = useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions)); // las transiciones se colocan, no se graban
@@ -210,9 +212,11 @@ export async function startJamRecording(): Promise<void> {
   s.setRegionOn(false);
   s.setFrom(0);
   s.setPlaying(false);
+  const ci = useMetroStore.getState().countIn; // cuenta previa (8.3): clic antes del compás 1
+  s.setCountIn(ci);
   await useGraphStore.getState().play();
   startJam(jamHooks());
-  toast.info('● grabando el jam desde el compás 1: dispara escenas, silencia y enciende pistas, mueve perillas… ■ para armar la canción');
+  toast.info(`● ${ci ? `cuenta de ${ci} compás${ci > 1 ? 'es' : ''} y ` : ''}grabando el jam desde el compás 1: dispara escenas, silencia y enciende pistas, mueve perillas… ■ para armar la canción`);
 }
 
 // Para la toma (y el transporte) y arma la canción.

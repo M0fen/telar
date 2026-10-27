@@ -13,6 +13,7 @@ import { ensureCompModule, compModuleReady, createCompNode, setCompParams, getOr
 import { returnsFor, applyLiveReturns } from './fxReturns';
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
 import { registerTransitionSounds, stopTransitionVoices } from './transSounds';
+import { registerMetronomeSound } from './metronomeSound';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames, createLimiterFor } from './masterLimiter';
 
@@ -244,6 +245,7 @@ export async function ensureEngine(): Promise<Repl> {
       installSliderRuntime();
       installMidiRuntime(); // parchea .midi() sobre el Pattern de web
       try { registerTransitionSounds(); } catch { /* sin transiciones, el resto suena */ } // 7.4
+      try { registerMetronomeSound(); } catch { /* sin clic, el resto suena */ } // 8.3
       return r;
     })();
   }

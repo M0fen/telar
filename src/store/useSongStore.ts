@@ -33,6 +33,11 @@ interface SongState {
   // línea de reproducción cuentan desde ahí. ■ lo devuelve a 0.
   from: number;
   setFrom: (bar: number) => void;
+  // CUENTA PREVIA (Fase 8.3, de ejecución): compases de clic antes de la música en ESTA reproducción
+  // (grabar el jam o los pads con el transporte parado). El compilador corre todo `countIn` ciclos y
+  // la línea de tiempo los cuenta en negativo. ■ lo devuelve a 0.
+  countIn: number;
+  setCountIn: (bars: number) => void;
   // LOOP DE REGIÓN (Fase 2.4, de ejecución): compases marcados en la regla del DAW y si el
   // bucle está activo. Con el bucle activo el compilador repite esa región (.ribbon).
   region: SongRegion | null;
@@ -66,6 +71,8 @@ export const useSongStore = create<SongState>((set, get) => ({
   index: 0,
   from: 0,
   setFrom: (bar) => set({ from: Number.isFinite(bar) && bar > 0 ? Math.floor(bar) : 0 }),
+  countIn: 0,
+  setCountIn: (bars) => set({ countIn: Number.isFinite(bars) && bars > 0 ? Math.min(4, Math.floor(bars)) : 0 }),
   region: null,
   regionOn: false,
   setRegion: (r) => set(r && r.bars >= 1 ? { region: { start: Math.max(0, Math.floor(r.start)), bars: Math.max(1, Math.floor(r.bars)) } } : { region: null, regionOn: false }),
@@ -84,5 +91,5 @@ export const useSongStore = create<SongState>((set, get) => ({
   setPlaying: (playing) => set({ playing }),
   setIndex: (index) => set({ index }),
   setSteps: (steps) => set({ steps, index: Math.min(get().index, Math.max(0, steps.length - 1)) }),
-  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0, region: null, regionOn: false }),
+  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0, countIn: 0, region: null, regionOn: false }),
 }));
