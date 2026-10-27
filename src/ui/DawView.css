@@ -4,14 +4,16 @@
   --daw-name-w: 168px;
   position: absolute;
   /* 8.6: entre los paneles acoplados y bajo la barra de arriba */
-  top: var(--top-h, 76px); left: var(--dock-l, 0px); right: var(--dock-r, 0px); bottom: var(--viz-h, 236px);
+  top: var(--top-h, 76px); left: var(--dock-l, 0px); right: var(--dock-r, 0px); bottom: calc(var(--viz-h, 236px) + var(--detail-h, 0px));
   z-index: 1;
   display: flex; flex-direction: column;
   background: var(--bg, #040506);
   color: var(--text, #d4dee6);
   font-family: var(--mono, ui-monospace, monospace);
   font-size: 11px;
+  user-select: none; -webkit-user-select: none; /* el doble clic en un bloque no selecciona texto (9.2) */
 }
+.daw input, .daw select, .daw textarea { user-select: text; -webkit-user-select: text; }
 
 /* cabecera (8.6: el panel MIDI ya no flota encima, la esquina queda libre) */
 .daw-head {

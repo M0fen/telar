@@ -1,3 +1,4 @@
+import { useDetailStore } from '../store/useDetailStore';
 import { useEffect, useRef, useState } from 'react';
 import type { DawBlock, DawTrack } from '../lib/dawModel';
 import { dawBlock, dawClipboard, blockVariation } from '../lib/dawActions';
@@ -48,7 +49,8 @@ export function DawBlockMenu({
       </button>
       <button role="menuitem" disabled={plain || block.state === 'empty'} onClick={run(() => dawBlock.clear(track.id, block.arm))}>vaciar (silencio) <kbd>Supr</kbd></button>
       <button role="menuitem" disabled={plain || block.arm >= lastArm} onClick={run(() => dawBlock.toNext(track.id, block.arm))}>copiar en la sección siguiente</button>
-      <button role="menuitem" onClick={run(() => dawBlock.edit(track.id, block.arm))}>editar en la vista estándar <kbd>E</kbd></button>
+      <button role="menuitem" onClick={run(() => useDetailStore.getState().open(track.id, block.arm))}>editar abajo, en grande <kbd>doble clic · E</kbd></button>
+      <button role="menuitem" onClick={run(() => dawBlock.edit(track.id, block.arm))}>abrir en la vista estándar</button>
       {/* VARIACIÓN cada N compases (7.3): el último de cada N toca un fill */}
       {block.code && block.state !== 'empty' && (
         <div className="daw-ctx-var" role="group" aria-label="variación cada N compases">

@@ -28,6 +28,8 @@ import { Transport } from './ui/Transport';
 import { type PaletteDrag } from './ui/Palette';
 import { MidiLive } from './ui/MidiLive';
 import { LeftDock, RightDock } from './ui/Docks';
+import { DetailPanel } from './ui/DetailPanel';
+import { useDetailStore } from './store/useDetailStore';
 import { useDockStore, dockWidth } from './store/useDockStore';
 import { useTrackColorStore } from './store/useTrackColorStore';
 import { useUiFocusStore } from './store/useUiFocusStore';
@@ -117,6 +119,8 @@ export default function App() {
   const dr = useDockStore((s) => dockWidth(s, dockView, 'r'));
   const docked = mode !== 'dj';
   const trackColors = useTrackColorStore((s) => s.map); // minimapa (8.7)
+  // PANEL DE DETALLE (9.2): abajo, entre los laterales; el lienzo y el DAW terminan encima
+  const detailH = useDetailStore((s) => (s.nodeId ? s.h : 0));
   const rfRef = useRef<ReactFlowInstance<GNode> | null>(null);
   // arrastre del Out: cachea su posición previa + el conjunto aguas arriba.
   const outDrag = useRef<{ x: number; y: number; ids: Set<string> } | null>(null);
@@ -500,6 +504,7 @@ export default function App() {
         ['--viz-h' as string]: `${vizVisible ? vizHeight : VIZ_STRIP}px`,
         ['--dock-l' as string]: `${docked ? dl : 0}px`,
         ['--dock-r' as string]: `${docked ? dr : 0}px`,
+        ['--detail-h' as string]: `${docked ? detailH : 0}px`,
       }}
     >
       {/* Standard: lienzo de grafo para crear. DJ: canales lado a lado para mezclar.
@@ -567,6 +572,7 @@ export default function App() {
         <>
           <LeftDock />
           <RightDock />
+          <DetailPanel />
         </>
       )}
       {/* motor de la canción: UNO, fuera de las vistas → sigue disparando escenas en cualquiera */}

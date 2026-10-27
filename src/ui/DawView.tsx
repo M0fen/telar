@@ -24,6 +24,7 @@ import { useDawUiStore } from '../store/useDawUiStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { TrackColorButton } from './TrackColor';
 import { DawLaneContent } from './DawLaneContent';
+import { useDetailStore } from '../store/useDetailStore';
 
 // VISTA DAW (Fase 1: vista, línea, bloques, tocar desde un compás · Fase 2: editar la estructura).
 // La canción entera de un vistazo. Pistas en filas,
@@ -301,6 +302,7 @@ export function DawView() {
   const [menu, setMenu] = useState<{ trackId: string; arm: number; start: number; x: number; y: number } | null>(null);
   const openMenu = (t: DawTrack, b: DawBlock, x: number, y: number) => setMenu({ trackId: t.id, arm: b.arm, start: b.start, x, y });
   const longPressed = useRef(false);
+  const clickTimer = useRef<number | undefined>(undefined);
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startLongPress = (e: { pointerType: string; clientX: number; clientY: number }, t: DawTrack, b: DawBlock) => {
     if (e.pointerType !== 'touch') return;
@@ -317,7 +319,7 @@ export function DawView() {
     else if (mod && k === 'c') dawBlock.copy(t.id, b.arm);
     else if (mod && k === 'v') dawBlock.paste(t.id, b.arm);
     else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) dawBlock.clear(t.id, b.arm);
-    else if (!mod && k === 'e') dawBlock.edit(t.id, b.arm);
+    else if (!mod && k === 'e') useDetailStore.getState().open(t.id, b.arm); // 9.2: editar abajo, en grande
     else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) { const r = e.currentTarget.getBoundingClientRect(); openMenu(t, b, r.left + 8, r.bottom); }
     else done = false;
     if (done) { e.preventDefault(); e.stopPropagation(); }
@@ -650,11 +652,18 @@ export function DawView() {
                       key={i}
                       className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}${clickable(t, b) ? ' click' : ''}`}
                       style={{ left: b.start * px, width: Math.max(2, b.bars * px - 2) }}
-                      title={blockTitle(t, b) + sceneMuteNote(t, b) + '\nclic derecho (o mantener pulsado): copiar · pegar · vaciar · editar'}
+                      title={blockTitle(t, b) + sceneMuteNote(t, b) + '\ndoble clic (o E): editar abajo, en grande · clic derecho (o mantener pulsado): copiar · pegar · vaciar · editar'}
                       role="button"
                       tabIndex={0}
                       aria-pressed={clickable(t, b) ? b.state === 'on' : undefined}
-                      onClick={() => { if (!longPressed.current) toggleBlock(t, b); longPressed.current = false; }}
+                      onClick={(e) => {
+                        // 9.2: el clic enciende/apaga un instante después — un doble clic abre el editor sin tocarlo
+                        if (longPressed.current) { longPressed.current = false; return; }
+                        if (e.detail > 1) return;
+                        window.clearTimeout(clickTimer.current);
+                        clickTimer.current = window.setTimeout(() => toggleBlock(t, b), 230);
+                      }}
+                      onDoubleClick={() => { window.clearTimeout(clickTimer.current); useDetailStore.getState().open(t.id, b.arm); }}
                       onContextMenu={(e) => { e.preventDefault(); openMenu(t, b, e.clientX, e.clientY); }}
                       onPointerDown={(e) => startLongPress(e, t, b)}
                       onPointerUp={cancelLongPress}

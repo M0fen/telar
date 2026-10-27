@@ -1,5 +1,6 @@
 import { TrackColorButton } from '../ui/TrackColor';
 import { PatternThumb } from '../ui/PatternThumb';
+import { useDetailStore } from '../store/useDetailStore';
 import { useTrackColor } from '../store/useTrackColorStore';
 import { useEffect, useRef, useState } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
@@ -190,6 +191,7 @@ function ToolBtn({
 // Barra de herramientas del Source: agrupa los toggles de vista + utilidades en
 // una fila compacta de iconos, para no saturar la cabecera.
 function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
+  const detailOpen = useDetailStore((s) => s.nodeId === id); // editor en grande (9.2)
   const update = useGraphStore((s) => s.updateNodeData);
   const savePattern = useLibraryStore((s) => s.save);
   const setVoiceEdit = useGraphStore((s) => s.setVoiceEdit);
@@ -347,6 +349,15 @@ function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
             <rect x="2.5" y="8" width="5" height="8" rx="1" />
             <rect x="9.5" y="8" width="4" height="8" rx="1" fill="currentColor" stroke="none" />
             <rect x="15.5" y="8" width="6" height="8" rx="1" />
+          </svg>
+        </ToolBtn>
+      )}
+      {isSeqable(data.code ?? '') && (
+        <ToolBtn active={detailOpen} onClick={() => (detailOpen ? useDetailStore.getState().close() : useDetailStore.getState().open(id))} title="editar en grande, en el panel de abajo (rejilla con carriles y herramientas, piano roll)">
+          {/* panel abajo */}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <rect x="3" y="4" width="18" height="16" rx="1.5" />
+            <rect x="3" y="12" width="18" height="8" rx="1" fill="currentColor" stroke="none" opacity="0.55" />
           </svg>
         </ToolBtn>
       )}

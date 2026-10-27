@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { SeqBigContext } from './seqBig';
+import { fillEvery, rotateLane, euclidLane, invertLane, clearLane } from '../lib/laneTools';
 import { useGraphStore } from '../store/useGraphStore';
 import { getScheduler } from '../audio/engine';
 import { useSongStore } from '../store/useSongStore';
@@ -132,7 +134,14 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
   const [chord, setChord] = useState('nota'); // acorde por paso al afinar ('nota' = sin acorde)
   const drawing = useRef<number | null>(null); // valor que se está pintando (0 o NORMAL)
   const dragPitch = useRef<{ li: number; si: number; startY: number; startMidi: number } | null>(null); // arrastre de pitch activo
-  const dragBar = useRef<'vel' | 'nudge' | null>(null); // arrastre en las sub-filas del panel ≋ (DEBE ir aquí: lo usa el useEffect de pointerup de abajo — antes se declaraba más tarde y crasheaba con TDZ)
+  const dragBar = useRef<'vel' | 'nudge' | 'roll' | 'prob' | null>(null); // arrastre en las sub-filas (DEBE ir aquí: lo usa el useEffect de pointerup de abajo — antes se declaraba más tarde y crasheaba con TDZ)
+  // EN GRANDE (panel de detalle, 9.2): una fila elegida con sus carriles y herramientas a la vista
+  const big = useContext(SeqBigContext);
+  const [selLane, setSelLane] = useState(0);
+  const [laneTab, setLaneTab] = useState<'vel' | 'roll' | 'prob' | 'timing'>('vel');
+  const [fillN, setFillN] = useState(4);
+  const [fillFrom, setFillFrom] = useState(0);
+  const [eucK, setEucK] = useState(5);
   const [saved, setSaved] = useState(false); // pulso "en vivo": cada cambio se guarda y suena al instante
   const savedT = useRef<number | undefined>(undefined);
   const pulseSaved = () => { setSaved(true); clearTimeout(savedT.current); savedT.current = window.setTimeout(() => setSaved(false), 700); };
@@ -311,6 +320,33 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
     const nl = lanes.map((l, i) => (i === li ? { ...l, nudge: (l.nudge ?? Array(steps).fill(0)).map((x, j) => (j === si ? v : x)) } : l));
     setLanes(nl); commit(nl);
   };
+  // 9.2 — ROLL y PROBABILIDAD por arrastre en sus carriles (sin shift/alt + clic)
+  const setRatchetAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+    if (lanes[li].steps[si] <= 0) return;
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
+    const v = Math.max(1, Math.min(4, 1 + Math.floor(t * 4 - 1e-6)));
+    if ((lanes[li].ratchet[si] || 1) === v) return;
+    const nl = lanes.map((l, i) => (i === li ? { ...l, ratchet: l.ratchet.map((x, j) => (j === si ? v : x)) } : l));
+    setLanes(nl); commit(nl);
+  };
+  const setProbAt = (li: number, si: number, clientY: number, el: HTMLElement) => {
+    if (lanes[li].steps[si] <= 0) return;
+    const r = el.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, 1 - (clientY - r.top) / r.height));
+    const v = Math.max(0.05, Math.round(t * 20) / 20);
+    if (Math.abs((lanes[li].prob?.[si] ?? 1) - v) < 0.001) return;
+    const nl = lanes.map((l, i) => (i === li ? { ...l, prob: (l.prob ?? Array(steps).fill(1)).map((x, j) => (j === si ? v : x)) } : l));
+    setLanes(nl); commit(nl);
+  };
+  // herramientas de patrón sobre la fila elegida (llenar cada N, rotar, euclidiano, invertir, borrar)
+  const laneOp = (fn: (l: Lane) => Lane) => {
+    const li = Math.min(selLane, lanes.length - 1);
+    if (li < 0) return;
+    const nl = lanes.map((l, i) => (i === li ? fn(l) : l));
+    setLanes(nl); commit(nl);
+    void playDrumHit(lanes[li].sound, hitBank(lanes[li].sound), undefined, 0.4, 0.7);
+  };
   // afinar por paso: CLIC + ARRASTRE VERTICAL relativo (tipo perilla). Con captura de
   // puntero se arrastra libremente arriba/abajo y el pitch sube/baja fluido. scale-lock engancha.
   const setNoteAt = (li: number, si: number, nn: string) => {
@@ -372,8 +408,8 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
           const pitched = lanePitched(l, steps);
           const open = pitched || pitchOpen[l.sound];
           return (
-            <div className="seqs-lane" key={l.sound}>
-              <button className="seqs-name" onClick={() => void playDrumHit(l.sound, hitBank(l.sound))} title={`escuchar ${laneLabel(l.sound)}`}>
+            <div className={`seqs-lane${big && li === Math.min(selLane, lanes.length - 1) ? ' sel' : ''}`} key={l.sound}>
+              <button className="seqs-name" onClick={() => { if (big) setSelLane(li); void playDrumHit(l.sound, hitBank(l.sound)); }} title={big ? `${laneLabel(l.sound)}: elegir esta fila (sus carriles y herramientas, abajo) y escucharla` : `escuchar ${laneLabel(l.sound)}`}>
                 <span className="seqs-nl">{laneLabel(l.sound)}</span>
                 <span className={`seqs-pitchtog${pitched ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); togglePitch(li); }} title="afinar por paso (pista melódica): 808 afinado, cowbell melódico">♪</span>
                 <span className={`seqs-pitchtog${laneGroove(l) ? ' on' : ''}`} onClick={(e) => { e.stopPropagation(); setGrooveOpen((o) => ({ ...o, [l.sound]: !o[l.sound] })); }} title="groove: swing (balanceo) + humanize (micro-timing) de esta pista">≋</span>
@@ -482,6 +518,78 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
         })}
       </div>
 
+      {big && lanes.length > 0 && (() => {
+        const li = Math.min(selLane, lanes.length - 1);
+        const l = lanes[li];
+        const TABS: { id: typeof laneTab; label: string; title: string }[] = [
+          { id: 'vel', label: 'fuerza', title: 'volumen de cada golpe (arrastra ↕)' },
+          { id: 'roll', label: 'roll', title: 'repeticiones del golpe: 1 a 4 (arrastra ↕)' },
+          { id: 'prob', label: 'probabilidad', title: 'qué tan seguido suena el golpe: 5 % a 100 % (arrastra ↕)' },
+          { id: 'timing', label: 'timing', title: 'adelanta (arriba) o atrasa (abajo) cada golpe' },
+        ];
+        return (
+          <div className="seqs-lanes-edit">
+            <div className="seqs-le-head">
+              <span className="seqs-le-name">{laneLabel(l.sound)}</span>
+              {TABS.map((t) => (
+                <button key={t.id} className={laneTab === t.id ? 'on' : ''} onClick={() => setLaneTab(t.id)} title={t.title}>{t.label}</button>
+              ))}
+            </div>
+            <div className={`seqs-bars big ${laneTab}`} style={{ gridTemplateColumns: `repeat(${steps}, 1fr)` }}>
+              {l.steps.slice(0, steps).map((v, si) => {
+                const on = v > 0;
+                const val = laneTab === 'vel' ? Math.min(1, v / 1.5) : laneTab === 'roll' ? ((l.ratchet[si] || 1) - 1) / 3 + 0.08 : laneTab === 'prob' ? (l.prob?.[si] ?? 1) : 0;
+                const nu = l.nudge?.[si] ?? 0;
+                const set = (e: React.PointerEvent<HTMLDivElement>) => {
+                  const el = e.currentTarget;
+                  if (laneTab === 'vel') setVelAt(li, si, e.clientY, el);
+                  else if (laneTab === 'roll') setRatchetAt(li, si, e.clientY, el);
+                  else if (laneTab === 'prob') setProbAt(li, si, e.clientY, el);
+                  else setNudgeAt(li, si, e.clientY, el);
+                };
+                const label = !on ? '' : laneTab === 'vel' ? String(Math.round(v * 100) / 100) : laneTab === 'roll' ? `×${l.ratchet[si] || 1}` : laneTab === 'prob' ? `${Math.round((l.prob?.[si] ?? 1) * 100)}%` : `${Math.round((nu / Math.max(0.05, cps)) * 1000)} ms`;
+                return (
+                  <div
+                    key={si}
+                    className={`seqs-bar${on ? '' : ' rest'}${si % 4 === 0 ? ' beat' : ''}${si === head ? ' play' : ''}`}
+                    onPointerDown={(e) => { dragBar.current = laneTab === 'timing' ? 'nudge' : laneTab; set(e); }}
+                    onPointerEnter={(e) => { if (dragBar.current) set(e); }}
+                    title={on ? `paso ${si + 1} · ${label}` : `paso ${si + 1}: sin golpe`}
+                  >
+                    {on && laneTab !== 'timing' && <span className="seqs-bar-fill" style={{ height: `${Math.max(6, Math.min(100, val * 100))}%` }} />}
+                    {on && laneTab === 'timing' && <span className={`seqs-bar-dot${Math.abs(nu) > 0.0005 ? ' on' : ''}`} style={{ top: `${Math.max(4, Math.min(92, ((nu + NUDGE_MAX) / (2 * NUDGE_MAX)) * 100 - 4))}%` }} />}
+                    {on && <i className="seqs-bar-val">{label}</i>}
+                  </div>
+                );
+              })}
+            </div>
+            <div className="seqs-tools">
+              <span className="seqs-tools-tag">llenar cada</span>
+              {[2, 3, 4, 8].map((n) => (
+                <button key={n} className={fillN === n ? 'on' : ''} onClick={() => { setFillN(n); laneOp((x) => fillEvery(x, steps, n, fillFrom)); }} title={`un golpe cada ${n} pasos (borra los demás)`}>{n}</button>
+              ))}
+              <label title="desde qué paso (2 = los «off-beat» del hat con cada 4)">
+                desde
+                <select value={fillFrom} onChange={(e) => { const f = Number(e.target.value); setFillFrom(f); laneOp((x) => fillEvery(x, steps, fillN, f)); }}>
+                  {Array.from({ length: Math.min(steps, 8) }, (_, i) => <option key={i} value={i}>{i + 1}</option>)}
+                </select>
+              </label>
+              <span className="seqs-tools-sep" />
+              <button onClick={() => laneOp((x) => rotateLane(x, steps, -1))} title="rotar a la izquierda (todo un paso antes)">◂ rotar</button>
+              <button onClick={() => laneOp((x) => rotateLane(x, steps, 1))} title="rotar a la derecha (todo un paso después)">rotar ▸</button>
+              <span className="seqs-tools-sep" />
+              <span className="seqs-tools-tag">euclidiano</span>
+              <button onClick={() => { const k = Math.max(1, eucK - 1); setEucK(k); laneOp((x) => euclidLane(x, steps, k)); }} title="un golpe menos">−</button>
+              <button className="seqs-euc" onClick={() => laneOp((x) => euclidLane(x, steps, eucK))} title={`${eucK} golpes repartidos parejo en ${steps} pasos`}>{eucK}/{steps}</button>
+              <button onClick={() => { const k = Math.min(steps, eucK + 1); setEucK(k); laneOp((x) => euclidLane(x, steps, k)); }} title="un golpe más">＋</button>
+              <span className="seqs-tools-sep" />
+              <button onClick={() => laneOp((x) => invertLane(x, steps))} title="golpes ↔ silencios">invertir</button>
+              <button onClick={() => laneOp((x) => clearLane(x, steps))} title="quitar todos los golpes de esta fila">borrar</button>
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="seqs-add">
         <button className="seqs-addbtn" onClick={() => setAdding((a) => !a)}>+ añadir sonido</button>
         {adding && (
@@ -518,7 +626,7 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff }: { id: stri
 // normales. El guardado es un empalme textual por spans (spliceArm): solo cambian
 // los bytes del brazo editado — las demás secciones quedan intactas. Sin arrange,
 // rejilla directa como siempre.
-export function StepSeq({ id, code }: { id: string; code: string }) {
+export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: string; code: string; arm?: number; armNonce?: number }) {
   const arms = useMemo(() => splitArrange(code), [code]);
   // arranca en la primera sección CON contenido (no en un silencio inicial: abrir el
   // editor debe mostrar el instrumento "de la forma habitual", listo para tocar).
@@ -528,6 +636,11 @@ export function StepSeq({ id, code }: { id: string; code: string }) {
     const i = arms ? arms.findIndex((a) => !isSilentArm(a.code)) : 0;
     return i >= 0 ? i : 0;
   });
+  // el panel de detalle (9.2) pide una sección: salta a ella
+  useEffect(() => {
+    if (arms && armReq >= 0 && armReq < arms.length) setSec(armReq);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armNonce]);
   // «editar en la vista estándar» desde el DAW (Fase 2.3): salta a esa sección
   const focusReq = useUiFocusStore((s) => s.req);
   useEffect(() => {
