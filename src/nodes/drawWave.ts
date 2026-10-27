@@ -19,9 +19,11 @@ export function drawWave(ctx: CanvasRenderingContext2D, data: Uint8Array, count:
     if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.shadowColor = GLOW;
-  ctx.shadowBlur = Math.max(2, H * 0.11); // halo proporcional al alto (sutil)
+  // halo y grosor proporcionales al alto (sutil en los scopes chicos), con tope: en un scope alto
+  // (los decks del modo DJ) una línea de H/15 era una franja de 30 px
+  ctx.shadowBlur = Math.min(12, Math.max(2, H * 0.11));
   ctx.strokeStyle = CORE;
-  ctx.lineWidth = Math.max(1, H / 15);
+  ctx.lineWidth = Math.min(3.5, Math.max(1, H / 15));
   ctx.stroke();
   ctx.shadowBlur = 0; // no arrastrar el glow a otros trazos
 }

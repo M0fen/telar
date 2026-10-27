@@ -6,6 +6,9 @@ import { Knob } from './Knob';
 import { Fader } from './Fader';
 import { Vu } from '../nodes/Vu';
 import { Performance } from './Performance';
+import { MidiLive } from './MidiLive';
+import { ErrorBoundary } from './ErrorBoundary';
+import { useSequencerStore } from '../store/useSequencerStore';
 import { DEFAULT_CHANNEL_EQ, type ChannelEq, type NodeData } from '../graph/types';
 
 // MODO DJ — mixer de PERFORMANCE de N canales (consola tipo Pioneer/Xone adaptada a
@@ -143,13 +146,22 @@ function Crossfader() {
   );
 }
 
+// pestaña de la consola (máster / en vivo), recordada en este navegador
+const TAB_KEY = 'telar.dj.tab';
+const readTab = (): 'master' | 'live' => { try { return localStorage.getItem(TAB_KEY) === 'live' ? 'live' : 'master'; } catch { return 'master'; } };
+
 export function DjMixer() {
   const nodes = useGraphStore((s) => s.nodes);
   const orientation = useGraphStore((s) => s.djOrientation);
   const addSourceToOut = useGraphStore((s) => s.addSourceToOut);
   const showCode = useGraphStore((s) => s.djShowCode);
   const setDjShowCode = useGraphStore((s) => s.setDjShowCode);
-  const sources = nodes.filter((n) => n.data.kind === 'source');
+  const [tab, setTabState] = useState<'master' | 'live'>(readTab);
+  const seqOpen = useSequencerStore((s) => s.open);
+  const setSeqOpen = useSequencerStore((s) => s.setOpen);
+  const setTab = (t: 'master' | 'live') => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* solo esta sesión */ } };
+  // las transiciones del DAW no son un deck (no suenan como canal)
+  const sources = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
 
   return (
     <div className={`dj dj-${orientation}`}>
@@ -160,18 +172,29 @@ export function DjMixer() {
         <button className="dj-add" onClick={addSourceToOut} title="añadir deck">+ deck</button>
       </div>
 
-      {/* consola central: crossfader + máster + FX de performance + escenas */}
-      <div className="dj-console">
+      {/* consola: crossfader siempre a la vista y, debajo, el máster o el panel EN VIVO (MIDI) en
+          pestañas — antes el panel MIDI flotaba encima de los decks y el máster los aplastaba */}
+      <aside className="dj-console" aria-label="consola: crossfader, máster y en vivo">
         <div className="dj-bar">
           <span className="dj-bar-brand">MASTER</span>
           <button className={`dj-codebtn${showCode ? ' on' : ''}`} onClick={() => setDjShowCode(!showCode)}
             title={showCode ? 'colapsar a ondas (decks tipo Traktor)' : 'mostrar los editores de código'}>
             {showCode ? 'código ▾' : 'ondas ▸'}
           </button>
+          {/* el secuenciador global aquí (su botón flotante tapaba el primer deck) */}
+          <button className={`dj-codebtn${seqOpen ? ' on' : ''}`} onClick={() => setSeqOpen(!seqOpen)} title="secuenciador de pasos (drum machine)">▦ seq</button>
         </div>
         <Crossfader />
-        <Performance />
-      </div>
+        <div className="dock-tabs dj-tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'master'} className={tab === 'master' ? 'on' : ''} onClick={() => setTab('master')} title="nivel, filtro, efectos, limitador, EQ, LUFS y retornos del máster">máster</button>
+          <button role="tab" aria-selected={tab === 'live'} className={tab === 'live' ? 'on' : ''} onClick={() => setTab('live')} title="MIDI, perillas de efectos, pads y pistas para tocar con el controlador">en vivo</button>
+        </div>
+        <div className="dj-console-body">
+          {tab === 'master'
+            ? <ErrorBoundary variant="panel" label="máster"><Performance /></ErrorBoundary>
+            : <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive docked /></ErrorBoundary>}
+        </div>
+      </aside>
     </div>
   );
 }

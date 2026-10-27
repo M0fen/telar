@@ -26,7 +26,6 @@ import { DevPanel } from './dev/DevPanel';
 import { Visualizer } from './viz/Visualizer';
 import { Transport } from './ui/Transport';
 import { type PaletteDrag } from './ui/Palette';
-import { MidiLive } from './ui/MidiLive';
 import { LeftDock, RightDock } from './ui/Docks';
 import { DetailPanel } from './ui/DetailPanel';
 import { useDetailStore } from './store/useDetailStore';
@@ -561,7 +560,6 @@ export default function App() {
       ) : mode === 'dj' ? (
         <>
           <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><DjMixer /></ErrorBoundary>
-          <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive /></ErrorBoundary>
         </>
       ) : (
         <>
