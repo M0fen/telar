@@ -109,3 +109,39 @@ test('el primer 1 cae en el primer golpe, no en un tiempo fantasma antes del tem
   const f = firstStrongBeat(env, sr / hop, r.bpm, r.first);
   assert.ok(Math.abs(f - first) < 0.015, `primer 1 en ${f.toFixed(3)} (real ${first})`);
 });
+
+test('rejilla a mano: el 1 aquí, correr, otro tempo, ×2 ÷2, compás corrido', async () => {
+  const { gridDownbeatAt, gridShift, gridTempo, gridScale, barOffset, beatAt, posOfBeat } = await import('../src/lib/djDeck.ts');
+  const g = { bpm: 120, first: 0.1, beats: 4 }; // tiempos cada 0,5 s; compases cada 2 s
+  const isBeat = (gg: typeof g, t: number) => Math.abs(beatAt(gg, t) - Math.round(beatAt(gg, t))) < 1e-9;
+  const isOne = (gg: typeof g, t: number) => Math.abs(((beatAt(gg, t) % 4) + 4) % 4) < 1e-9 || Math.abs(((beatAt(gg, t) % 4) + 4) % 4 - 4) < 1e-9;
+  // el 1 aquí cerca del tiempo de 0,6 s: ese tiempo pasa a ser un 1, la fase no cambia
+  const d = gridDownbeatAt(g, 0.62);
+  assert.ok(isOne(d, 0.6), 'el tiempo de 0,6 s es un 1');
+  assert.ok(isBeat(d, 1.1) && isBeat(d, 37.1), 'los tiempos siguen donde estaban');
+  assert.ok(d.first >= 0 && d.first < 8, 'el primer 1 queda en la primera frase');
+  // lejos en el tema: el tiempo de 20,6 s pasa a ser un 1
+  assert.ok(isOne(gridDownbeatAt(g, 20.58), 20.6));
+  // correr 10 ms (y hacia atrás desde el principio: vuelve a la primera frase)
+  assert.ok(Math.abs(gridShift(g, 0.01).first - 0.11) < 1e-12);
+  const back = gridShift(g, -0.15);
+  assert.ok(back.first >= 0 && isBeat(back, 1.95) && isOne(back, 7.95));
+  // ×2 y ÷2: los 1 no se mueven; ×2 y después ÷2 vuelve a la rejilla de antes
+  const x2 = gridScale(g, 2);
+  assert.equal(x2.bpm, 240);
+  assert.ok(isOne(x2, 30.1) && isBeat(x2, 30.35));
+  const back2 = gridScale(x2, 0.5);
+  assert.ok(back2.bpm === 120 && Math.abs(back2.first - g.first) < 1e-12);
+  assert.equal(gridScale(g, 0.5).bpm, 60);
+  assert.equal(gridScale({ ...g, bpm: 200 }, 2).bpm, 200, 'fuera de rango no cambia');
+  // un tempo escrito: el primer 1 se queda; volver al de antes deja la rejilla igual
+  const t2 = gridTempo(g, 121);
+  assert.ok(t2.bpm === 121 && Math.abs(t2.first - 0.1) < 1e-12);
+  assert.deepEqual(gridTempo(t2, 120), g);
+  assert.equal(gridTempo(g, 900).bpm, 120);
+  // compás corrido: el tema en su tiempo 9 (2.º tiempo de un compás) cuando la sesión está en un 1
+  assert.equal(barOffset(9.02, 16, 4), 1);
+  assert.equal(barOffset(15, 16, 4), -1);
+  assert.equal(barOffset(18, 16, 4), 2);
+  assert.equal(barOffset(32.4, 16, 4), 0);
+});

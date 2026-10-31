@@ -74,6 +74,38 @@ export function loopFrom(g: Grid, pos: number, bars: number): { a: number; b: nu
 // SALTO de k compases manteniendo la fase (el lock se corre los mismos tiempos)
 export const jumpBeats = (g: Grid, bars: number) => bars * Math.max(1, g.beats);
 
+// REJILLA A MANO (DJ-2) — cuando el análisis se equivocó. Todas dejan quieto lo que ya está bien, y
+// el «primer 1» queda dentro de la primera frase (4 compases: las líneas de frase no se mueven).
+const PHRASE_BARS = 4;
+function normFirst(g: Grid): Grid {
+  const ph = barLen(g) * PHRASE_BARS;
+  let f = g.first % ph;
+  if (f < 0) f += ph;
+  return { ...g, first: f };
+}
+// el 1 AQUÍ: el tiempo de la rejilla más cercano a `pos` pasa a ser un 1 (la fase no cambia: solo
+// qué tiempo es el 1 — el caso típico, «los compases van corridos un tiempo»)
+export function gridDownbeatAt(g: Grid, pos: number): Grid {
+  const T = posOfBeat(g, Math.round(beatAt(g, pos)));
+  return normFirst({ ...g, first: T });
+}
+// correr la rejilla `sec` segundos (+ = más tarde): para cuadrar la fase a oído
+export const gridShift = (g: Grid, sec: number): Grid => normFirst({ ...g, first: g.first + sec });
+// ×2 / ÷2 (el análisis tomó el doble o la mitad): los 1 se quedan donde están (con ÷2 quedan los
+// tiempos pares, los que pueden ser un 1)
+export const gridScale = (g: Grid, k: 2 | 0.5): Grid => (g.bpm * k >= 40 && g.bpm * k <= 300 ? { ...g, bpm: g.bpm * k } : g);
+// un tempo escrito: el primer 1 se queda (el tempo se corrige desde el principio del tema; volver a
+// escribir el de antes deja la rejilla exactamente como estaba)
+export const gridTempo = (g: Grid, bpm: number): Grid => (bpm >= 40 && bpm <= 300 ? normFirst({ ...g, bpm }) : g);
+// cuántos tiempos va corrido el COMPÁS del tema respecto del de la sesión (−beats/2 … beats/2]:
+// 0 = los 1 caen juntos. `songBeat` y `sessionBeat` en tiempos (la fase fina no cuenta)
+export function barOffset(songBeat: number, sessionBeat: number, beats: number): number {
+  const B = Math.max(1, beats);
+  let k = ((Math.round(songBeat - sessionBeat) % B) + B) % B;
+  if (k > B / 2) k -= B;
+  return k;
+}
+
 // FORMA DE ONDA POR BANDAS (graves / medios / agudos) de una señal mono, en `buckets` columnas:
 // pico por columna y la energía de cada banda (filtros de un polo: graves < ~180 Hz, agudos > ~2,5 kHz)
 export interface Bands { pk: Float32Array; lo: Float32Array; mid: Float32Array; hi: Float32Array }

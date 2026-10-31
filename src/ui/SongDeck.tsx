@@ -1,10 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { useMidiStore, midiKeyLabel } from '../store/useMidiStore';
 import { deckSlot } from '../audio/djMidi';
 import {
-  deckCueDown, deckCueUp, deckHot, deckJump, deckLoop, deckLoopRegion, deckPhase, deckPos, deckPrepare, deckRate, deckSeek,
-  deckSync, deckToggle, deckWave, sessionToTrack, useSongDecks, WAVE_RATE, deckNudge,
+  deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckNudge, deckPhase,
+  deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
 } from '../audio/songDeck';
 import { barLen, beatAt, camelot, fmtTime, gridOf, posOfBeat, type DjTrack } from '../lib/djDeck';
 import { keyShort } from '../lib/songKey';
@@ -14,6 +14,9 @@ import type { NodeData } from '../graph/types';
 // tempo, la ONDA ENTERA (clic = ir ahí) y la que CORRE con la rejilla, el transporte (CUE como un CDJ,
 // ▶/⏸, saltos de compases), 4 cues rápidos y loops de 1/2/4/8 compases. El volumen, el EQ, el filtro,
 // el cue de audífonos y el crossfader son los de la tira, como en cualquier deck.
+// DJ-2 (cuadrar a la vista): el medidor de COMPÁS (en qué tiempo va el tema y en cuál la sesión, con
+// «alinear» si los 1 no caen juntos) y el de FASE fina, el pitch a mano sin SYNC y la REJILLA a mano
+// (el 1 aquí, correr un tiempo o unos ms, ×2 ÷2, tempo escrito) para cuando el análisis se equivocó.
 
 export const HOT_COLORS = ['#e46a6a', '#e7b84a', '#3df0d0', '#b197fc'];
 const ZOOM_BARS = 2; // la onda que corre muestra ±2 compases
@@ -63,6 +66,9 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
   const elRef = useRef<HTMLSpanElement>(null);
   const remRef = useRef<HTMLSpanElement>(null);
   const phRef = useRef<HTMLSpanElement>(null);
+  const barsRef = useRef<HTMLSpanElement>(null);
+  const offRef = useRef<HTMLButtonElement>(null);
+  const [gridOpen, setGridOpen] = useState(false);
   const tRef = useRef(t);
   tRef.current = t;
   const slot = (w: string) => deckSlot(index, w);
@@ -85,6 +91,24 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
       if (phRef.current) {
         phRef.current.style.left = ph == null ? '50%' : `${50 + ph * 100}%`;
         phRef.current.className = `sd-phase-dot${ph == null ? ' off' : Math.abs(ph) < 0.02 ? ' ok' : ''}`;
+      }
+      // compás: la celda llena = el tiempo del tema; la marcada = el de la sesión; juntas = los 1 caen juntos
+      const bb = deckBars(id);
+      const cells = barsRef.current?.children;
+      if (cells) {
+        for (let k = 0; k < cells.length; k++) {
+          const d = bb != null && bb.deck === k, ss = bb != null && bb.session === k;
+          const cls = `sd-bar${d ? ' d' : ''}${ss ? ' s' : ''}${d && ss ? ' ok' : ''}`;
+          if (cells[k].className !== cls) cells[k].className = cls;
+        }
+      }
+      const ob = offRef.current;
+      if (ob) {
+        const off = bb?.off ?? 0;
+        const show = off !== 0;
+        if (ob.hidden === show) ob.hidden = !show;
+        const txt = `${off > 0 ? '+' : ''}${off} ${Math.abs(off) === 1 ? 'tiempo' : 'tiempos'} · alinear`;
+        if (show && ob.textContent !== txt) ob.textContent = txt;
       }
       // ONDA ENTERA
       const oc = ovRef.current;
@@ -183,6 +207,7 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
           sync<MK slot={slot('sync')} />
         </button>
         <button className="sd-btn" onClick={() => sessionToTrack(id)} title={`que la sesión vaya al tempo de este tema (${t.bpm.toFixed(1)} BPM): los demás decks lo siguen`}>♩=</button>
+        <button className={`sd-btn${gridOpen ? ' on' : ''}`} onClick={() => setGridOpen(!gridOpen)} title="rejilla a mano: si los tiempos o los compases no caen donde debe (el análisis se equivocó)">⌗</button>
       </div>
       <canvas ref={ovRef} className="sd-ov" onClick={ovClick} title="el tema entero: clic = ir ahí (sonando, salta en fase al próximo tiempo)" />
       <div className="sd-dtwrap">
@@ -190,8 +215,36 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
         {ui?.loading && <span className="sd-loading">cargando…</span>}
         {ui?.missing && <span className="sd-loading warn">falta el audio: suéltalo otra vez aquí</span>}
       </div>
-      <div className="sd-phase" title="fase: el punto al centro = el tema cae justo en los tiempos de la sesión; corrido = adelantado o atrasado">
-        <span ref={phRef} className="sd-phase-dot off" />
+      {gridOpen && (
+        <div className="sd-grid" role="group" aria-label="rejilla a mano">
+          <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'one' })} data-midi={slot('gridone')}
+            title="el tiempo más cercano a lo que suena (o al cabezal, en pausa) pasa a ser el 1 del compás — para cuando los compases van corridos">el 1 aquí<MK slot={slot('gridone')} /></button>
+          <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'beat', dir: -1 })} title="correr la rejilla un tiempo antes">◂ tiempo</button>
+          <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'beat', dir: 1 })} title="correr la rejilla un tiempo después">tiempo ▸</button>
+          <button className="sd-btn" onClick={(e) => void deckGrid(id, { kind: 'ms', sec: e.shiftKey ? -0.002 : -0.01 })} title="correr la rejilla 10 ms antes (fase fina; Mayús: 2 ms)">◂ ms</button>
+          <button className="sd-btn" onClick={(e) => void deckGrid(id, { kind: 'ms', sec: e.shiftKey ? 0.002 : 0.01 })} title="correr la rejilla 10 ms después (fase fina; Mayús: 2 ms)">ms ▸</button>
+          <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'half' })} title="la mitad del tempo">÷2</button>
+          <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'x2' })} title="el doble del tempo">×2</button>
+          <BpmField bpm={t.bpm} onSet={(v) => void deckGrid(id, { kind: 'bpm', bpm: v })} />
+        </div>
+      )}
+      <div className="sd-meter">
+        <span ref={barsRef} className="sd-bars" title="compás: la celda llena es el tiempo en que va el tema; la marcada, el de la sesión. Juntas = los 1 caen juntos">
+          {Array.from({ length: Math.max(1, Math.min(8, t.beats || 4)) }, (_, k) => <span key={k} className="sd-bar" />)}
+        </span>
+        <button ref={offRef} className="sd-btn sd-align" hidden data-midi={slot('align')} onClick={() => void deckAlignBars(id)}
+          title="los tiempos van en fase pero los 1 no caen juntos: saltar los tiempos que faltan">alinear</button>
+        <div className="sd-phase" title="fase: el punto al centro = el tema cae justo en los tiempos de la sesión; corrido = adelantado o atrasado">
+          <span ref={phRef} className="sd-phase-dot off" />
+        </div>
+        {!sync && (
+          <span className="sd-pitch deck-learn" data-midi={slot('pitch')} title={`tempo a mano: ±${Math.round(PITCH_RANGE * 100)} % sobre ${t.bpm.toFixed(1)} BPM (doble clic: al 0 %)`}>
+            <input type="range" min={-PITCH_RANGE} max={PITCH_RANGE} step={0.0005} value={t.pitch ?? 0}
+              onChange={(e) => deckPitch(id, Number(e.target.value))} onDoubleClick={() => deckPitch(id, 0)} aria-label="tempo a mano" />
+            <i>{`${(t.pitch ?? 0) >= 0 ? '+' : ''}${((t.pitch ?? 0) * 100).toFixed(1)} %`}</i>
+            <MK slot={slot('pitch')} />
+          </span>
+        )}
       </div>
       <div className="sd-row">
         <button className={`sd-cue${ui?.preview ? ' on' : ''}`} data-midi={slot('cuebtn')}
@@ -238,5 +291,23 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
       </div>
       {rate > 0 && Math.abs(rate - eff / t.bpm) > 0.004 && <p className="sd-note">corrigiendo la fase…</p>}
     </div>
+  );
+}
+
+// tempo escrito (rejilla a mano): se aplica con Enter o al salir del campo
+function BpmField({ bpm, onSet }: { bpm: number; onSet: (v: number) => void }) {
+  const [v, setV] = useState(bpm.toFixed(2));
+  useEffect(() => setV(bpm.toFixed(2)), [bpm]);
+  const commit = () => {
+    const n = Number(v.replace(',', '.'));
+    if (Number.isFinite(n) && n >= 40 && n <= 300 && Math.abs(n - bpm) > 1e-4) onSet(n);
+    else setV(bpm.toFixed(2));
+  };
+  return (
+    <label className="sd-bpmfield" title="tempo exacto del tema (BPM): Enter para aplicar">
+      <input value={v} inputMode="decimal" onChange={(e) => setV(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); (e.target as HTMLInputElement).blur(); } if (e.key === 'Escape') { setV(bpm.toFixed(2)); (e.target as HTMLInputElement).blur(); } }} />
+      <i>BPM</i>
+    </label>
   );
 }

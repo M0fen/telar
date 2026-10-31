@@ -5,7 +5,7 @@ import type { MidiSlot } from './midiIn';
 import { useGraphStore } from '../store/useGraphStore';
 import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, useDjStore, type EqBand } from './djMix';
 import type { NodeData } from '../graph/types';
-import { deckCueDown, deckCueUp, deckHot, deckJump, deckLoop, deckNudge, deckSync, deckToggle } from './songDeck';
+import { deckAlignBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckNudge, deckPitch, deckSync, deckToggle, PITCH_RANGE } from './songDeck';
 
 const gs = () => useGraphStore.getState();
 const BANDS: EqBand[] = ['high', 'mid', 'low'];
@@ -41,6 +41,13 @@ export function buildDjSlots(): Record<string, MidiSlot> {
       slots[deckSlot(i, 'jumpf')] = { kind: 'tap', tap: () => void deckJump(id, 4) };
       slots[deckSlot(i, 'nudgeb')] = { kind: 'pad', down: () => deckNudge(id, -1), up: () => deckNudge(id, 0) };
       slots[deckSlot(i, 'nudgef')] = { kind: 'pad', down: () => deckNudge(id, 1), up: () => deckNudge(id, 0) };
+      slots[deckSlot(i, 'pitch')] = {
+        kind: 'knob',
+        get: () => ((Number(data().djTrack?.pitch) || 0) + PITCH_RANGE) / (2 * PITCH_RANGE),
+        set: (v) => deckPitch(id, Math.abs(v - 0.5) < 0.015 ? 0 : v * 2 * PITCH_RANGE - PITCH_RANGE),
+      };
+      slots[deckSlot(i, 'align')] = { kind: 'tap', tap: () => void deckAlignBars(id) };
+      slots[deckSlot(i, 'gridone')] = { kind: 'tap', tap: () => void deckGrid(id, { kind: 'one' }) };
     }
   });
   return slots;
@@ -54,7 +61,7 @@ export function djSlotName(slot: string): string | null {
   if (!m) return null;
   const what = m[2];
   const band = (BANDS as string[]).find((b) => what.endsWith(b)) as EqBand | undefined;
-  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', hot1: 'cue rápido 1', hot2: 'cue rápido 2', hot3: 'cue rápido 3', hot4: 'cue rápido 4' };
+  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', hot1: 'cue rápido 1', hot2: 'cue rápido 2', hot3: 'cue rápido 3', hot4: 'cue rápido 4', pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí' };
   if (song[what]) return `deck ${m[1]} · ${song[what]}`;
   const label = what === 'gain' ? 'volumen' : what === 'filter' ? 'filtro' : what === 'cue' ? 'cue 🎧' : what === 'mute' ? 'mute' : what === 'solo' ? 'solo'
     : band && what.startsWith('eq') ? `EQ ${BAND_LABEL[band]}` : band && what.startsWith('kill') ? `kill ${BAND_LABEL[band]}` : what;

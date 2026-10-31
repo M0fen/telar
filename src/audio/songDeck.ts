@@ -15,8 +15,9 @@ import { useDjStore } from './djMix';
 import { addTrack, loadBuffer, rememberBuffer, getMeta, putMeta } from './trackStore';
 import { toast } from '../store/useNotifyStore';
 import {
-  autoGainDb, bandPeaks, barLen, beatAt, beatLen, gridOf, jumpBeats, lockedPos, loopFrom, normBands, posAt, snapPos, syncRate,
-  type Bands, type DjTrack, type PlayModel,
+  autoGainDb, bandPeaks, barLen, barOffset, beatAt, beatLen, gridDownbeatAt, gridOf, gridScale, gridShift, gridTempo, jumpBeats, lockedPos,
+  loopFrom, normBands, posAt, snapPos, syncRate,
+  type Bands, type DjTrack, type Grid, type PlayModel,
 } from '../lib/djDeck';
 import type { NodeData } from '../graph/types';
 
@@ -83,15 +84,30 @@ export function deckPos(id: string): number {
   if (!r || !t) return t?.cue ?? 0;
   return posAt(r.m, ctxNow(), r.buf?.duration ?? t.dur);
 }
-// error de fase respecto de la sesión, en tiempos (−0,5…0,5); null si no está sincronizado y sonando
+// error de fase respecto de la sesión, en tiempos (−0,5…0,5; + = el tema va adelantado); null si no
+// suena o la sesión está parada. Sin SYNC también: es lo que se mira para cuadrarlo a mano
 export function deckPhase(id: string): number | null {
   const r = rts.get(id);
   const t = trackOf(id);
-  if (!r || !t || !r.playing || t.sync === false) return null;
+  if (!r || !t || !r.playing || r.preview) return null;
   const sb = sessionBeat(ctxNow());
   if (sb == null) return null;
-  const e = beatAt(gridOf(t), deckPos(id)) - (sb + r.lock);
+  const e = beatAt(gridOf(t), deckPos(id)) - sb;
   return e - Math.round(e);
+}
+// COMPÁS contra la sesión (DJ-2): en qué tiempo del compás va el tema y en cuál la sesión, y cuántos
+// tiempos están corridos (0 = los 1 caen juntos). null si no suena o la sesión está parada
+export function deckBars(id: string): { deck: number; session: number; off: number } | null {
+  const r = rts.get(id);
+  const t = trackOf(id);
+  if (!r || !t || !r.playing || r.preview) return null;
+  const sb = sessionBeat(ctxNow());
+  if (sb == null) return null;
+  const g = gridOf(t);
+  const db = beatAt(g, deckPos(id));
+  const B = Math.max(1, g.beats);
+  const bpc = beatsPerCycle();
+  return { deck: ((Math.floor(db + 0.02) % B) + B) % B, session: ((Math.floor(sb + 0.02) % bpc) + bpc) % bpc, off: barOffset(db, sb, B) };
 }
 // ¿suena el audio en su tira? (fuera del modo DJ el deck no tiene tira)
 export const deckRouted = (id: string) => stripInputLinked(id);
@@ -380,10 +396,12 @@ export async function deckLoop(id: string, bars: number | null): Promise<void> {
 export async function deckSync(id: string, on: boolean): Promise<void> {
   const t = trackOf(id);
   if (!t) return;
-  setTrack(id, { sync: on });
   const r = rts.get(id);
+  // al apagarlo el tema sigue al tempo al que iba (el pitch toma esa velocidad: nada salta)
+  const pitch = on ? t.pitch : clampPitch(syncRate(sessionBpm(), gridOf(t)) - 1);
+  setTrack(id, { sync: on, pitch });
   if (!r || !r.playing || !r.buf) return;
-  const tt = { ...t, sync: on };
+  const tt = { ...t, sync: on, pitch };
   if (!on) { setRate(r, baseRate(tt), ctxNow() + 0.02); return; }
   if (!(await clockRunning())) return;
   const g = gridOf(tt);
@@ -415,6 +433,74 @@ export function sessionToTrack(id: string): void {
   if (!t) return;
   const g = gs();
   g.setCpsValue(t.bpm / 60 / (g.beatsPerCycle || 4));
+}
+
+// TEMPO A MANO (sin SYNC): ±16 % sobre el tempo del tema, como el fader de pitch de un CDJ
+export const PITCH_RANGE = 0.16;
+const clampPitch = (p: number) => Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, Number.isFinite(p) ? p : 0));
+export function deckPitch(id: string, pitch: number): void {
+  const t = trackOf(id);
+  if (!t) return;
+  const p = Math.abs(pitch) < 0.0008 ? 0 : clampPitch(pitch);
+  setTrack(id, { pitch: p });
+  const r = rts.get(id);
+  if (r?.playing && t.sync === false) setRate(r, baseRate({ ...t, pitch: p }) * (1 + r.nudge), ctxNow() + 0.02);
+}
+
+// lo que SE OYE ahora (el cabezal menos lo que tarda la salida): para marcar «aquí» a oído
+function heardPos(r: RT): number {
+  const now = ctxNow();
+  let lat = 0;
+  try { const c = getAudioCtx() as AudioContext & { outputLatency?: number }; lat = (c.outputLatency || 0) + (c.baseLatency || 0); } catch { /* */ }
+  return posAt(r.m, Math.max(r.m.t0, now - lat), r.buf?.duration ?? 0);
+}
+
+// REJILLA A MANO (DJ-2): el 1 aquí, correr un tiempo o unos ms, ×2 / ÷2 o un tempo escrito. Queda
+// guardada con el tema (la próxima vez carga corregido) y, sonando con SYNC, el guardián lo lleva a
+// la rejilla nueva al instante
+export type GridEdit = { kind: 'one' } | { kind: 'beat'; dir: -1 | 1 } | { kind: 'ms'; sec: number } | { kind: 'x2' } | { kind: 'half' } | { kind: 'bpm'; bpm: number };
+export async function deckGrid(id: string, e: GridEdit): Promise<void> {
+  const t = trackOf(id);
+  if (!t || !(t.dur > 0)) return;
+  const r = rts.get(id);
+  const g = gridOf(t);
+  const pos = r ? (r.playing && !r.preview ? heardPos(r) : r.m.pos0) : t.cue;
+  let n: Grid = g;
+  if (e.kind === 'one') n = gridDownbeatAt(g, pos);
+  else if (e.kind === 'beat') n = gridShift(g, e.dir * beatLen(g));
+  else if (e.kind === 'ms') n = gridShift(g, e.sec);
+  else if (e.kind === 'x2') n = gridScale(g, 2);
+  else if (e.kind === 'half') n = gridScale(g, 0.5);
+  else if (e.kind === 'bpm') n = gridTempo(g, Math.round(e.bpm * 1000) / 1000);
+  if (n === g || (n.bpm === g.bpm && n.first === g.first)) return;
+  const nt = { ...t, bpm: Math.round(n.bpm * 1000) / 1000, first: n.first };
+  // sonando: la fase nueva se fija YA, junto con la rejilla (si no, el guardián vería la rejilla nueva
+  // con la fase vieja y saltaría); el tiempo de la sesión más cercano — el audio no salta más de medio
+  // tiempo, y si los compases quedan corridos, lo dice el medidor
+  if (r && r.playing && !r.preview && r.buf) {
+    const now = ctxNow();
+    if (t.sync !== false) {
+      const sb = sessionBeat(now);
+      if (sb != null) r.lock = Math.round(beatAt(gridOf(nt), posAt(r.m, now, r.buf.duration)) - sb);
+    }
+    setRate(r, baseRate(nt) * (1 + r.nudge), now + 0.02);
+  }
+  setTrack(id, { bpm: nt.bpm, first: nt.first });
+  const m = await getMeta(t.id);
+  if (m) await putMeta({ ...m, bpm: nt.bpm, first: nt.first });
+}
+
+// ALINEAR COMPASES: si el tema va en fase pero sus 1 no caen con los de la sesión, salta los tiempos
+// que falten (tiempos enteros: la fase no se mueve). En un loop no (el loop manda)
+export async function deckAlignBars(id: string): Promise<void> {
+  const r = await ready(id);
+  const t = trackOf(id);
+  const b = deckBars(id);
+  if (!r || !t || !r.buf || !b || b.off === 0 || r.m.loop) return;
+  if (t.sync !== false) { r.lock -= b.off; keeper(); return; } // el guardián salta ya, en fase
+  const at = ctxNow() + 0.03;
+  const target = posAt(r.m, at, r.buf.duration) - b.off * beatLen(gridOf(t));
+  if (target >= 0) jumpTo(r, t, target);
 }
 
 // GUARDIÁN DE FASE: cada 100 ms, con SYNC, lleva el tema a donde la sesión dice
