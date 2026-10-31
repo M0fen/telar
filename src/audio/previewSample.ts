@@ -9,6 +9,9 @@ import { resolveSampleUrl } from '../lib/sampleResolve';
 // precarga en hover, el clic suena en el acto. Corta el preview anterior → respuesta
 // viva y fluida, sin solapes. Es solo para AUDICIONAR (crudo, sin la cadena de FX).
 
+// Todo va por la URL del sample, no por su nombre: un loop al tempo (wl_…) cambia de audio con el
+// BPM sin cambiar de nombre, y un nombre que AÚN no está registrado (el banco cargando, el loop
+// estirándose) no es un fallo: se vuelve a pedir cuando aparezca.
 const bufCache = new Map<string, AudioBuffer>();
 const loading = new Map<string, Promise<AudioBuffer | null>>();
 const failed = new Set<string>();
@@ -18,27 +21,27 @@ let currentSrc: AudioBufferSourceNode | null = null;
 // Decodifica (y cachea) el AudioBuffer de un sample por su nombre. Lo comparten el
 // preview y la miniatura de forma de onda (una sola decodificación por sample).
 export async function loadSampleBuffer(name: string): Promise<AudioBuffer | null> {
-  const hit = bufCache.get(name);
-  if (hit) return hit;
-  if (failed.has(name)) return null;
-  const inFlight = loading.get(name);
-  if (inFlight) return inFlight;
   const url = resolveSampleUrl(name);
-  if (!url) { failed.add(name); return null; }
+  if (!url) return null;
+  const hit = bufCache.get(url);
+  if (hit) return hit;
+  if (failed.has(url)) return null;
+  const inFlight = loading.get(url);
+  if (inFlight) return inFlight;
   const p = (async () => {
     try {
       const ab = await (await fetch(url)).arrayBuffer();
       const buf = await getAudioContext().decodeAudioData(ab);
-      bufCache.set(name, buf);
+      bufCache.set(url, buf);
       return buf;
     } catch {
-      failed.add(name);
+      failed.add(url);
       return null;
     } finally {
-      loading.delete(name);
+      loading.delete(url);
     }
   })();
-  loading.set(name, p);
+  loading.set(url, p);
   return p;
 }
 const loadBuf = loadSampleBuffer;
@@ -46,7 +49,8 @@ const loadBuf = loadSampleBuffer;
 // Precarga SILENCIOSA (llamar en hover / al renderizar los visibles) → clic instantáneo.
 // decodeAudioData no necesita gesto ni contexto reanudado, así que es seguro en hover.
 export function preloadPreview(name: string): void {
-  if (!bufCache.has(name) && !loading.has(name) && !failed.has(name)) void loadBuf(name);
+  const url = resolveSampleUrl(name);
+  if (url && !bufCache.has(url) && !loading.has(url) && !failed.has(url)) void loadBuf(name);
 }
 
 // Reproduce YA. Si está en caché suena en el acto; si no, carga y suena. Corta el

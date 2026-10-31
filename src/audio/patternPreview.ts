@@ -16,10 +16,13 @@ export interface PreviewEvent {
   begin?: number; // tramo del sample (9.5: editor de loops), si el código lo recorta
   end?: number;
   speed?: number; // negativo = al revés
+  off?: number; // con `pieces`: compases que el evento ya llevaba sonando al empezar el tramo (0 = empieza aquí)
 }
 
+type Span = { begin: { valueOf(): number }; end: { valueOf(): number } };
 type Hap = {
-  whole?: { begin: { valueOf(): number }; end: { valueOf(): number } } | null;
+  whole?: Span | null;
+  part?: Span;
   hasOnset?: () => boolean;
   value: unknown;
 };
@@ -63,8 +66,10 @@ export function previewPattern(code: string): Promise<Pat | null> {
   return p;
 }
 
-// los eventos con inicio dentro de [a, b) (en compases, relativos a `a`)
-export function eventsOf(pat: Pat, a: number, b: number): PreviewEvent[] {
+// los eventos con inicio dentro de [a, b) (en compases, relativos a `a`). Con `pieces`, también el
+// trozo de un evento que empezó ANTES del tramo (un loop partido a mitad: `.early(n)`), desde el
+// inicio del tramo y con `off` = lo que ya llevaba sonando; un evento partido en trozos cuenta una vez.
+export function eventsOf(pat: Pat, a: number, b: number, pieces = false): PreviewEvent[] {
   let haps: Hap[] = [];
   try {
     haps = pat.queryArc(a, b);
@@ -72,19 +77,30 @@ export function eventsOf(pat: Pat, a: number, b: number): PreviewEvent[] {
     return [];
   }
   const out: PreviewEvent[] = [];
+  const seen = pieces ? new Set<string>() : null;
+  // el primer trozo de cada evento primero (el que tiene el inicio, si está en el tramo)
+  if (pieces) haps = [...haps].sort((x, y) => Number((x.part ?? x.whole)?.begin.valueOf() ?? 0) - Number((y.part ?? y.whole)?.begin.valueOf() ?? 0));
   for (const h of haps) {
     if (!h.whole) continue;
-    if (h.hasOnset && !h.hasOnset()) continue; // trozos de una nota que empezó antes
+    const onset = !h.hasOnset || h.hasOnset();
+    if (!onset && !(pieces && h.part)) continue; // trozos de una nota que empezó antes
     const v = (h.value ?? {}) as Record<string, unknown>;
     if (typeof v !== 'object') continue;
-    const t0 = Number(h.whole.begin.valueOf());
+    const w0 = Number(h.whole.begin.valueOf());
     const t1 = Number(h.whole.end.valueOf());
+    if (seen) {
+      const k = `${w0}|${t1}|${String(v.s ?? '')}|${String(v.n ?? '')}|${String(v.note ?? '')}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+    }
+    const t0 = onset ? w0 : Math.max(w0, Number(h.part!.begin.valueOf()));
     let note = noteNumber(v.note);
     if (note == null && typeof v.freq === 'number' && v.freq > 0) note = Math.round(69 + 12 * Math.log2(v.freq / 440));
     const s = typeof v.s === 'string' ? v.s : '';
     const snd = note == null && v.n != null && s ? `${s}:${v.n}` : s;
     const gain = (typeof v.gain === 'number' ? v.gain : 1) * (typeof v.velocity === 'number' ? v.velocity : 1);
     const ev: PreviewEvent = { t: t0 - a, d: Math.max(0, t1 - t0), snd, note, gain };
+    if (t0 > w0) ev.off = t0 - w0;
     if (typeof v.begin === 'number') ev.begin = v.begin;
     if (typeof v.end === 'number') ev.end = v.end;
     if (typeof v.speed === 'number') ev.speed = v.speed;

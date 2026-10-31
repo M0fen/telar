@@ -46,9 +46,12 @@ export function patternFigure(ev: PreviewEvent[], span: number, maxRows = 5): Pa
       shapes: notes.map((e) => ({ x: e.t / L, w: Math.max(e.d / L, 0.004), y: (hi - e.note!) * h, h, a: Math.max(0.35, Math.min(1, e.gain)) })),
     };
   }
-  // un sample largo (un loop) → barra
-  if (ev.length <= 2 && ev.every((e) => e.d >= Math.min(0.5, L))) {
-    return { kind: 'loop', rows: [ev[0].snd], shapes: ev.map((e) => ({ x: e.t / L, w: Math.min(1 - e.t / L, e.d / L), y: 0, h: 1, a: Math.max(0.35, Math.min(1, e.gain)) })) };
+  // samples largos (un loop: cada evento dura medio compás o más, con lo que ya llevaba sonando si
+  // empezó antes del tramo) → su onda. Cuente las vueltas que cuente: un loop de 2 compases en una
+  // sección de 16 son 8 eventos y sigue siendo un loop (antes, con más de 2, se dibujaba como golpes).
+  const sounds = [...new Set(ev.map((e) => e.snd))];
+  if (sounds.length <= 4 && ev.every((e) => e.d + (e.off ?? 0) >= Math.min(0.5, L))) {
+    return { kind: 'loop', rows: sounds, shapes: ev.map((e) => ({ x: e.t / L, w: Math.min(1 - e.t / L, e.d / L), y: 0, h: 1, a: Math.max(0.35, Math.min(1, e.gain)) })) };
   }
   // batería: filas por sonido, los más usados arriba (los que no caben se juntan en la última)
   const count = new Map<string, number>();

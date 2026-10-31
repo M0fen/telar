@@ -26,6 +26,19 @@ test('loop: un sample largo es una barra; nada es vacío', () => {
   assert.equal(patternFigure([], 1).kind, 'empty');
 });
 
+test('loop: sigue siendo loop aunque se repita muchas veces en el bloque, y con el trozo de un clip partido', () => {
+  // un loop de 2 compases en una sección de 16: 8 vueltas (antes salía como golpes, «cajas»)
+  const eight = Array.from({ length: 8 }, (_, k) => ev(2 * k, 'wl_top', null, 2));
+  const f = patternFigure(eight, 16);
+  assert.equal(f.kind, 'loop');
+  assert.deepEqual(f.rows, ['wl_top']);
+  // el clip partido empieza a mitad de la vuelta: el trozo es corto pero el evento era largo
+  const cut = [{ ...ev(0, 'wl_top', null, 0.25), off: 1.75 }, ev(0.25, 'wl_top', null, 2)];
+  assert.equal(patternFigure(cut, 2).kind, 'loop');
+  // una batería rápida no es un loop aunque sea un solo sonido
+  assert.equal(patternFigure(Array.from({ length: 16 }, (_, k) => ev(k / 4, 'bd', null, 1 / 4)), 4).kind, 'drums');
+});
+
 test('nombres de nota a MIDI', () => {
   assert.equal(noteNumber('c4'), 60);
   assert.equal(noteNumber('a2'), 45);

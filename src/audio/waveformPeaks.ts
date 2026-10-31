@@ -1,4 +1,5 @@
 import { loadSampleBuffer } from './previewSample';
+import { resolveSampleUrl } from '../lib/sampleResolve';
 
 // Miniaturas de forma de onda para las tarjetas de la biblioteca. Decodifica el sample
 // UNA vez (compartido con el preview), calcula picos reducidos y los cachea. Para no
@@ -43,22 +44,26 @@ function computePeaks(buf: AudioBuffer, buckets: number): Float32Array {
   return peaks;
 }
 
+// Por la URL del sample (como el preview): el mismo nombre puede cambiar de audio (un loop al tempo
+// con otro BPM) y uno que aún no está registrado no queda marcado como fallido.
 export function getWaveInfo(name: string, buckets = 56): Promise<WaveInfo | null> {
-  const key = `${name}@${buckets}`;
+  const url = resolveSampleUrl(name);
+  if (!url) return Promise.resolve(null);
+  const key = `${url}@${buckets}`;
   const hit = cache.get(key);
   if (hit) return Promise.resolve(hit);
-  if (failed.has(name)) return Promise.resolve(null);
+  if (failed.has(url)) return Promise.resolve(null);
   return new Promise((resolve) => {
     const run = () => {
       active++;
       loadSampleBuffer(name)
         .then((buf) => {
-          if (!buf) { failed.add(name); resolve(null); return; }
+          if (!buf) { if (resolveSampleUrl(name) === url) failed.add(url); resolve(null); return; }
           const info: WaveInfo = { peaks: computePeaks(buf, buckets), duration: buf.duration };
           cache.set(key, info);
           resolve(info);
         })
-        .catch(() => { failed.add(name); resolve(null); })
+        .catch(() => { failed.add(url); resolve(null); })
         .finally(() => { active--; pump(); });
     };
     queue.push(run);
