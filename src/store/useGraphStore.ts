@@ -15,6 +15,7 @@ import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, relea
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
 import { applyDjLive, djEntryNeedsCode, DJ_LIVE_KEYS, swapDelayForBar } from '../audio/djMix';
+import { useLaunchStore } from './useLaunchStore';
 let djSwapTimer: number | undefined;
 // MODO DJ: un deck nuevo entra EN SILENCIO (como cargar un tema en una bandeja): se escucha con 🎧 cue y
 // entra con mute, en el compás. Se avisa una vez por sesión.
@@ -286,7 +287,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
     const songBars = songTotal(useSongStore.getState().steps);
     // modo DJ: volumen, crossfader, filtro, mute y solo de cada deck van a su tira del bus (en vivo)
     const busMix = get().mode === 'dj';
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly, busMix });
+    const launch = useLaunchStore.getState().launch; // 12.5: pistas lanzadas desde el lanzador
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly, busMix, launch: Object.keys(launch).length ? launch : undefined });
     setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);

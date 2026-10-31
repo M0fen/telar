@@ -727,6 +727,9 @@ export interface CompileOpts {
   // acto, aunque suene una nota larga (un loop de 4 compases es UNA nota). El código ya no los
   // lleva. El sidechain duck apunta a los buses de las pistas que pasan por él.
   busMix?: boolean;
+  // LANZADOR DE CLIPS (12.5): pista → patrón que toca en bucle ('silence' = parada). Sin entrada,
+  // la pista sigue su arreglo. No es parte del proyecto (es lo que se está tocando ahora).
+  launch?: Record<string, string>;
 }
 
 // fader de bus de una pista (modo DJ): volumen × crossfader; 0 si está en mute o si hay solos y no es uno
@@ -937,7 +940,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         const preview = node.data.solo && typeof node.data.seqPreviewCode === 'string' && node.data.seqPreviewCode.trim();
         // pista de TRANSICIONES (7.4): su código sale de los elementos colocados en el DAW
         const trans = Array.isArray(node.data.transitions) ? transitionsCode(cleanTransitions(node.data.transitions), opts.songBars ?? 0, opts.keyRoot ?? 0) : null;
-        const raw = (trans ?? (preview ? (node.data.seqPreviewCode as string) : node.data.code ?? '')).trim();
+        // LANZADOR DE CLIPS (12.5): una pista lanzada toca ESE patrón en bucle en vez de su arreglo
+        const launched = !trans && !preview && typeof opts.launch?.[id] === 'string' ? opts.launch[id] : null;
+        const raw = (trans ?? (preview ? (node.data.seqPreviewCode as string) : launched ?? node.data.code ?? '')).trim();
         const code = raw.replace(INLINE_VIZ_RE, '').trim();
         if (!code) {
           firstError ??= 'Source vacío';

@@ -391,3 +391,31 @@
 .daw-mini-mk { position: absolute; top: 0; bottom: 0; width: 2px; background: #e7b84a; }
 .daw-mini-view { position: absolute; top: 0; bottom: 0; border: 1px solid var(--text, #d4dee6); background: rgba(255, 255, 255, 0.06); border-radius: 2px; pointer-events: none; }
 .daw-mini-ph { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--accent, #3df0d0); pointer-events: none; }
+
+/* 12.5 · LANZADOR DE CLIPS: pistas × variaciones */
+.lch { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 6px 10px 12px; overflow: auto; }
+.lch-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lch-info { font-size: 10px; color: var(--faint, #44515c); }
+.lch-grid { display: grid; gap: 4px; align-items: stretch; }
+.lch-corner { font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint, #44515c); align-self: end; padding-bottom: 4px; }
+.lch-head { --tc: var(--accent, #3df0d0); display: flex; flex-direction: column; gap: 2px; padding: 4px 6px; border-top: 3px solid var(--tc); background: #0a0f15; border-radius: 2px; min-width: 0; }
+.lch-name { font-size: 11px; color: var(--tc); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lch-mode { font-size: 8px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint, #44515c); }
+.lch-mode.live { color: #e7b84a; }
+.lch-scene { background: #0a0f15; border: 1px solid var(--line, #202c38); color: var(--dim, #6b7a88); font-family: inherit; font-size: 10px; border-radius: 2px; cursor: pointer; padding: 0 6px; }
+.lch-scene:hover { color: var(--accent, #3df0d0); border-color: var(--accent-dim, #1d8f80); }
+.lch-cell {
+  --tc: var(--accent, #3df0d0); height: 40px; display: flex; align-items: center; gap: 6px; padding: 0 8px; min-width: 0; cursor: pointer; border-radius: 3px; font-family: inherit;
+  background: color-mix(in srgb, var(--tc) 14%, #0a0f15); border: 1px solid color-mix(in srgb, var(--tc) 45%, transparent); color: var(--text, #d4dee6);
+}
+.lch-cell:hover { background: color-mix(in srgb, var(--tc) 24%, #0a0f15); }
+.lch-cell.empty { background: transparent; border: 1px dashed var(--line, #202c38); cursor: default; }
+.lch-cell.on { background: color-mix(in srgb, var(--tc) 55%, #0a0f15); color: #04070a; box-shadow: 0 0 12px -3px var(--tc); }
+@keyframes lch-q { 50% { opacity: 0.4; } }
+.lch-cell.q { animation: lch-q 0.4s steps(1) infinite; border-color: var(--text, #d4dee6); }
+.lch-tri { flex: none; font-size: 11px; }
+.lch-lab { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lch-foot { display: flex; gap: 4px; }
+.lch-foot button { flex: 1; height: 22px; background: #04070a; border: 1px solid var(--line, #202c38); color: var(--dim, #6b7a88); font-size: 11px; border-radius: 2px; cursor: pointer; }
+.lch-foot button:hover:not(:disabled) { color: var(--accent, #3df0d0); }
+.lch-foot button:disabled { opacity: 0.35; cursor: default; }

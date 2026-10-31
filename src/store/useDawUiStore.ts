@@ -10,6 +10,7 @@ interface Saved {
   follow?: boolean;
   folders?: boolean;
   closed?: string[];
+  launcher?: boolean;
 }
 
 function read(): Saved {
@@ -40,6 +41,8 @@ interface DawUiState {
   setFolders: (on: boolean) => void;
   closed: string[]; // carpetas plegadas
   toggleFolder: (id: string) => void;
+  launcher: boolean; // 12.5: lanzador de clips en lugar de la línea de tiempo
+  setLauncher: (on: boolean) => void;
 }
 
 export const useDawUiStore = create<DawUiState>((set) => ({
@@ -47,6 +50,8 @@ export const useDawUiStore = create<DawUiState>((set) => ({
   setGrid: (grid) => { set({ grid }); write({ grid }); },
   follow: saved.follow !== false,
   setFollow: (follow) => { set({ follow }); write({ follow }); },
+  launcher: saved.launcher === true,
+  setLauncher: (launcher) => { set({ launcher }); write({ launcher }); },
   folders: saved.folders === true,
   setFolders: (folders) => { set({ folders }); write({ folders }); },
   closed: Array.isArray(saved.closed) ? saved.closed.filter((x) => typeof x === 'string') : [],
