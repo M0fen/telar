@@ -18,7 +18,7 @@ Estado (31-10-2026): **Fases 8–12 hechas** (desplegadas en main). Lo que queda
 | 11 mezclador, EQ visual, compresor y sidechain, análisis del máster, cadena y macros, escenario | 4414138 |
 | 12.1–12.4 atajos y Ctrl+K, ayuda contextual, historial de deshacer, carga del audio | b6fd73e |
 | 12.5 lanzador de clips | eb2c089 |
-| Arreglos: ondas de loops en los bloques · piano roll pequeño con acordes y fantasmas · rebanadas «a mano» | c505e3d · 71f5972 · bf798f4 |
+| Arreglos: ondas de loops en los bloques · piano roll pequeño con acordes y fantasmas · rebanadas «a mano» · la línea de tiempo al volver del lanzador | c505e3d · 71f5972 · bf798f4 · ddeded0 |
 
 Aparte de este plan, el modo DJ quedó listo para tocar (volumen, crossfader, filtro y EQ en el bus sin
 recompilar, mute/solo al compás, cue en auriculares, MIDI de la mesa por posición): 011199b.
