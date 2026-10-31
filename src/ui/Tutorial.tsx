@@ -113,7 +113,7 @@ export function Tutorial({ open, onClose }: { open: boolean; onClose: () => void
       body: (
         <>
           <p><b>▦ lanzador</b>: cada pista con sus variaciones; tocar una la lanza en el 1 del próximo compás. Con <b>● grabar la toma</b>, lo que lances queda escrito en la canción.</p>
-          <p>La vista <b>DJ</b> es una mesa: decks con volumen, filtro, EQ, crossfader, cue en audífonos y tu controlador MIDI.</p>
+          <p>La vista <b>DJ</b> es una mesa: decks con volumen, filtro, EQ, crossfader, cue en audífonos y tu controlador MIDI. Con <b>+ tema</b> (o la pestaña <b>temas</b>) pones canciones enteras: se analizan solas (tempo, tonalidad, volumen), entran en fase con SYNC y <b>● set</b> graba tu mezcla con su lista de temas.</p>
         </>
       ),
     },
