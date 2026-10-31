@@ -179,6 +179,9 @@ export function DawView() {
   );
 
   const { sections, total, tracks, fromSong } = model;
+  // el cuerpo de la línea de tiempo existe (con el lanzador abierto se desmonta: al volver, sus efectos
+  // se vuelven a enganchar al elemento nuevo — antes quedaban en el viejo y los bloques salían vacíos)
+  const hasBody = tracks.length > 0 && !launcherOn;
 
   // 9.6 · CABECERAS: alto de cada fila (data.laneH) y carpetas por tipo de pista
   const byId = useMemo(() => new Map(sources.map((n) => [n.id, n.data])), [sources]);
@@ -536,7 +539,7 @@ export function DawView() {
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, total, px, sections]);
+  }, [playing, total, px, sections, hasBody]);
   // ZOOM A LA SELECCIÓN (Z): la región si hay, si no la sección elegida, si no toda la canción
   const fitSel = () => {
     const r = useSongStore.getState().region;
@@ -547,7 +550,6 @@ export function DawView() {
   keyCtx.current = { fitSel, zoom, marker: () => addMarkerAt(useGraphStore.getState().playing ? playBar() : 0) };
   // RUEDA Y PELLIZCO (8.4): Ctrl/⌘ + rueda (y el pellizco del trackpad) = zoom donde está el ratón;
   // la rueda sola desplaza (nativo). En pantallas táctiles, dos dedos = zoom.
-  const hasBody = tracks.length > 0;
   useEffect(() => {
     const body = bodyRef.current;
     if (!body) return;
