@@ -3,11 +3,11 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import type { NodeData } from '../graph/types';
 import { playSynthNote, playDrumHit } from '../audio/playNote';
-import { previewPattern, eventsOf } from '../audio/patternPreview';
 import { keyLong } from '../lib/songKey';
 import { ACCIDENTAL, midiToName } from '../ui/pianoRollHelpers';
 import { MiniSlider } from './MiniSlider';
 import { heardPatternTime, type ArmPos } from './patternClock';
+import { useGhostNotes } from './useGhostNotes';
 import {
   CHORD_TOOLS, buildMel, chordMidis, chordShape, melState, moveStep, parseMel, placeAt, regrid, removeNote, rollRows,
   scalePcs, setBarsTo, setGate, setPerBar, setVel, shiftByRows, snapGate, type ChordTool, type MelState, type RowMode,
@@ -40,8 +40,6 @@ type Drag =
   | { mode: 'new'; col: number; ri: number; base: MelState; add: boolean; last: string }
   | { mode: 'move'; col: number; c0: number; ri: number; midi: number; base: MelState; moved: boolean; x0: number; y0: number; last: number }
   | { mode: 'resize'; col: number; base: MelState };
-
-interface Ghost { t: number; d: number; note: number; id: string }
 
 export function PianoRoll({ id, code, wrap, previewCode, headOff, armPos }: { id: string; code: string; wrap?: (c: string) => string; previewCode?: string; headOff?: boolean; armPos?: ArmPos }) {
   const update = useGraphStore((s) => s.updateNodeData);
@@ -87,31 +85,7 @@ export function PianoRoll({ id, code, wrap, previewCode, headOff, armPos }: { id
   const rowIdx = useMemo(() => new Map(rows.map((m, i) => [m, i])), [rows]);
 
   // NOTAS FANTASMA: lo que tocan las demás pistas en el mismo tramo de la canción
-  const others = useGraphStore((s) => s.nodes
-    .filter((n) => n.id !== id && n.data.kind === 'source' && !n.data.mute && !Array.isArray(n.data.transitions) && (n.data.code ?? '').trim())
-    .map((n) => `${n.id}\u0000${n.data.name ?? ''}\u0000${n.data.code ?? ''}`)
-    .join('\u0001'));
-  const names = useMemo(() => new Map((others ? others.split('\u0001') : []).map((x) => { const [a, b] = x.split('\u0000'); return [a, b || a] as const; })), [others]);
-  const [ghosts, setGhosts] = useState<Ghost[]>([]);
-  useEffect(() => {
-    if (!ghostsOn || !others) { setGhosts([]); return; }
-    let alive = true;
-    const w0 = armPos ? armPos.start : 0;
-    const t = window.setTimeout(async () => {
-      const out: Ghost[] = [];
-      for (const pair of others.split('\u0001')) {
-        const [nid, , c] = pair.split('\u0000');
-        const pat = await previewPattern(c);
-        if (!pat) continue;
-        for (const e of eventsOf(pat, w0, w0 + cycles)) {
-          if (e.note == null || out.length >= 1500) continue;
-          out.push({ t: e.t, d: e.d, note: Math.round(e.note), id: nid });
-        }
-      }
-      if (alive) setGhosts(out);
-    }, 150);
-    return () => { alive = false; window.clearTimeout(t); };
-  }, [ghostsOn, others, armPos?.start, cycles]);
+  const { ghosts, names } = useGhostNotes(id, ghostsOn, armPos ? armPos.start : 0, cycles);
 
   // CABEZAL: lo que se oye, sin re-render por cuadro (se mueve por estilo); el paso, para el teclado
   useEffect(() => {

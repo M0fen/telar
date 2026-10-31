@@ -987,7 +987,7 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
           : melodic && view === 'roll'
           ? (big
             ? <PianoRoll id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />
-            : <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} />)
+            : <MelodicSeq id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />)
           : <StepGrid id={id} code={c} wrap={wrapFn} seedFrom={seedFrom} previewCode={previewCode} headOff={headOff} armPos={armPos} />}
       </>
     );

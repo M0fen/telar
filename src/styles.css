@@ -960,6 +960,11 @@ body {
 .mel-cell:hover { background: rgba(61,240,208,0.12); }
 .mel-cell.on { background: var(--accent); opacity: 0.75; }
 .mel-cell.on.chord { background: #b197fc; } /* nota de un acorde (5.5) */
+/* escala del tema y notas fantasma de las demás pistas (como el piano roll grande) */
+.mel-row.in { background: rgba(61,240,208,0.035); }
+.mel-row.in .mel-key { color: var(--text, #cfdbe2); }
+.mel-row.kroot .mel-key { color: #e7b84a; }
+.mel-cell.ghost:not(.on) { background: color-mix(in srgb, var(--gc, #8aa) 34%, transparent); }
 /* importar MIDI en el secuenciador (5.5) */
 .seqs-midi { margin-left: auto; display: inline-flex; gap: 3px; align-items: center; }
 .seqs-midi-btn { cursor: pointer; font-family: var(--mono); font-size: 8.5px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 2px; color: var(--dim); }

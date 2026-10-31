@@ -5,8 +5,11 @@ import { playSynthNote, playDrumHit } from '../audio/playNote';
 import { getScheduler } from '../audio/engine';
 import { ACCIDENTAL, midiToName } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
-import { alignNums, buildMel, chordMidis, chordTok, fmtNum, parseMel } from './melCode';
+import { alignNums, buildMel, chordMidis, chordShape, chordTok, CHORD_TOOLS, fmtNum, parseMel, scalePcs, type ChordTool } from './melCode';
 import { MiniSlider } from './MiniSlider';
+import { useGhostNotes } from './useGhostNotes';
+import { useTrackColorStore } from '../store/useTrackColorStore';
+import type { ArmPos } from './patternClock';
 
 // Secuenciador MELÓDICO por source (unifica con el synth): piano roll inline monofónico
 // para colocar NOTAS por paso con la octava correcta, viendo la onda en vivo y oyendo
@@ -19,18 +22,26 @@ import { MiniSlider } from './MiniSlider';
 // como patrones paralelos `.gain("…")` y `.clip("…")` alineados a los pasos (el .gain
 // se MULTIPLICA con el del canal, así que compone bien). Se ocultan por defecto para no
 // saturar; se abren con «vel/dur».
+//
+// Como el piano roll grande (desde la Fase 12): «clic pone» una nota o un ACORDE en tono (de la
+// escala del tema), las filas de la escala resaltadas y las NOTAS FANTASMA de las demás pistas en
+// el mismo tramo (la celda se tiñe con el color de la pista que suena ahí).
 
 // el código de la melodía (parse/build, acordes) vive en melCode.ts (módulo puro, con tests)
 const fmt = fmtNum;
 
-interface Row { val: string; midi: number; acc: boolean; root: boolean }
+interface Row { val: string; midi: number; acc: boolean; root: boolean; inKey: boolean; keyRoot: boolean }
 
 // `wrap` (opcional): re-envuelve el código emitido antes de guardarlo — lo usa el modo
 // SECCIONES del secuenciador para empalmar el brazo editado dentro de un arrange.
 // `previewCode`/`headOff`: audición de sección (▶ toca el brazo en loop al instante) y
 // playhead apagado cuando la sección editada no es la que suena. Igual que StepGrid.
-export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: string; code: string; wrap?: (c: string) => string; previewCode?: string; headOff?: boolean }) {
+export function MelodicSeq({ id, code, wrap, previewCode, headOff, armPos }: { id: string; code: string; wrap?: (c: string) => string; previewCode?: string; headOff?: boolean; armPos?: ArmPos }) {
   const update = useGraphStore((s) => s.updateNodeData);
+  const songKey = useGraphStore((s) => s.songKey);
+  const colors = useTrackColorStore((s) => s.map);
+  const [tool, setTool] = useState<ChordTool>('nota');
+  const [ghostsOn, setGhostsOn] = useState(true);
   const parsed = useMemo(() => parseMel(code), [code]);
   // la octava de partida: la de la nota más grave (un .mid de bajo arranca en su octava)
   const [oct, setOct] = useState(() => {
@@ -88,37 +99,54 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
   const gates = useMemo(() => alignNums(parsed?.gates, steps, 1), [parsed?.gates, steps]);
 
   // filas: 2 octavas cromáticas desde la octava base
+  const pcs = useMemo(() => scalePcs(songKey), [songKey]);
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
     const lo = (oct + 1) * 12;
     for (let m = lo + 23; m >= lo; m--) {
       const pc = ((m % 12) + 12) % 12;
-      out.push({ val: midiToName(m), midi: m, acc: ACCIDENTAL.has(pc), root: pc === 0 });
+      out.push({ val: midiToName(m), midi: m, acc: ACCIDENTAL.has(pc), root: pc === 0, inKey: !!pcs && pcs.includes(pc), keyRoot: !!songKey && pc === songKey.root });
     }
     return out;
-  }, [oct]);
+  }, [oct, pcs, songKey]);
+
+  // NOTAS FANTASMA: qué pista suena en cada celda (paso × altura) de lo que se ve
+  const { ghosts, names } = useGhostNotes(id, ghostsOn, armPos ? armPos.start : 0, cycles);
+  const ghostAt = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of ghosts) {
+      const s0 = Math.max(0, Math.floor((g.t / cycles) * steps + 1e-6));
+      const s1 = Math.min(steps - 1, Math.max(s0, Math.ceil(((g.t + g.d) / cycles) * steps - 1e-6) - 1));
+      for (let k = s0; k <= s1; k++) if (!m.has(`${k}:${g.note}`)) m.set(`${k}:${g.note}`, g.id);
+    }
+    return m;
+  }, [ghosts, cycles, steps]);
 
   // audición: con el TIMBRE del source (synth activo → oscilador; sample melódico →
   // el sample pitcheado; si no, un sawtooth) para que la nota suene a lo que se oirá.
-  const audit = (row: Row, vel = 0.9) => {
+  const audit = (midis: number[], vel = 0.9) => {
     const d = useGraphStore.getState().nodes.find((n) => n.id === id)?.data as NodeData | undefined;
-    if (d?.synthOn && d.synth) { void playSynthNote(d.synth, row.midi, 0.6, id); return; }
-    if (parsed?.sName && !parsed.wave) { void playDrumHit(parsed.sName, parsed.bank, row.val, 0.5, vel); return; }
-    void playSynthNote({ wave: parsed?.wave ?? 'sawtooth' }, row.midi, 0.6, id);
+    for (const m of midis) {
+      if (d?.synthOn && d.synth) { void playSynthNote(d.synth, m, 0.6, id); continue; }
+      if (parsed?.sName && !parsed.wave) { void playDrumHit(parsed.sName, parsed.bank, midiToName(m), 0.5, vel / Math.sqrt(midis.length)); continue; }
+      void playSynthNote({ wave: parsed?.wave ?? 'sawtooth' }, m, 0.6, id);
+    }
   };
 
   const slide = parsed?.slide ?? 0; // 808 slide (pitch-env de cada nota)
   const commit = (nc: string[], nv: number[], ng: number[], sl: number = slide) => { if (parsed) { const c = buildMel(parsed, nc, nv, ng, sl); update(id, { code: wrap ? wrap(c) : c }); pulseSaved(); } };
-  // clic = poner esa nota (o quitarla si ya estaba); con Mayús = sumarla al ACORDE del paso
+  // clic = poner esa nota o el acorde elegido (o quitarla si ya estaba); con Mayús = sumarla al ACORDE del paso
+  const shape = (row: Row) => chordShape(row.midi, tool, songKey);
   const place = (col: number, row: Row, add = false) => {
     const next = cells.slice();
     const cur = chordMidis(next[col]);
     const on = cur.includes(row.midi);
-    next[col] = on ? chordTok(cur.filter((m) => m !== row.midi)) : add ? chordTok([...cur, row.midi]) : row.val;
-    if (!on) audit(row, vels[col] ?? 0.9);
+    const ch = shape(row);
+    next[col] = on ? chordTok(cur.filter((m) => m !== row.midi)) : add ? chordTok([...cur, row.midi]) : ch.length > 1 ? chordTok(ch) : row.val;
+    if (!on) audit(add ? [row.midi] : ch, vels[col] ?? 0.9);
     commit(next, vels, gates);
   };
-  const paintTo = (col: number, row: Row) => { const next = cells.slice(); next[col] = row.val; commit(next, vels, gates); };
+  const paintTo = (col: number, row: Row) => { const next = cells.slice(); const ch = shape(row); next[col] = ch.length > 1 ? chordTok(ch) : row.val; commit(next, vels, gates); };
   const setStepCount = (n: number) => {
     if (multi) return; // con varios compases, los pasos los fija el código
     const c = Math.max(2, Math.min(32, n));
@@ -170,6 +198,13 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
         <div className="seqs-slide" title="slide de 808: cada nota ENTRA deslizando el pitch hasta su tono (trap/drift-phonk). Mueve el pitch-env del sonido. 0 = sin slide.">
           <MiniSlider label="slide" value={slide} min={0} max={1} step={0.02} onChange={(v) => commit(cells, vels, gates, v)} />
         </div>
+        <label className="seqs-bank" title={songKey ? 'qué pone un clic: una nota o un acorde de la escala del tema (Mayús+clic suma una nota al acorde)' : 'qué pone un clic: una nota o un acorde (sin tonalidad del tema: acordes menores; elígela junto al tempo para que salgan en tono)'}>
+          <span>clic pone</span>
+          <select className="nodrag" value={tool} onChange={(e) => setTool(e.target.value as ChordTool)}>
+            {CHORD_TOOLS.map((t) => <option key={t.id} value={t.id} title={t.title}>{t.id}</option>)}
+          </select>
+        </label>
+        <button className={`seqs-auto${ghostsOn ? ' on' : ''}`} onClick={() => setGhostsOn((g) => !g)} title="notas fantasma: lo que tocan las demás pistas en este tramo (la celda se tiñe con su color)">fantasmas</button>
         <button className={`seqs-auto${showAuto ? ' on' : ''}`} onClick={() => setShowAuto((a) => !a)} title="editar volumen (vel) y duración (dur) por paso">vel/dur</button>
         <button className="gate-clear" onClick={clearAll} title="borrar todas las notas y automatización">limpiar</button>
       </div>
@@ -178,19 +213,21 @@ export function MelodicSeq({ id, code, wrap, previewCode, headOff }: { id: strin
 
       <div className="mel-grid">
         {rows.map((row) => (
-          <div className={`mel-row${row.root ? ' root' : ''}${row.acc ? ' acc' : ''}`} key={row.midi}>
-            <button className="mel-key" onClick={() => audit(row)} title={`probar ${row.val}`}>{row.val}</button>
+          <div className={`mel-row${row.root ? ' root' : ''}${row.acc ? ' acc' : ''}${row.inKey ? ' in' : ''}${row.keyRoot ? ' kroot' : ''}`} key={row.midi}>
+            <button className="mel-key" onClick={() => audit([row.midi])} title={`probar ${row.val}${row.keyRoot ? ' · raíz del tema' : row.inKey ? ' · en la escala del tema' : ''}`}>{row.val}</button>
             <div className="mel-cells" style={{ gridTemplateColumns: `repeat(${perPage}, 1fr)` }}>
               {cells.slice(off, off + perPage).map((c, k) => {
                 const col = off + k;
                 const notes = chordMidis(c);
+                const gh = ghostsOn ? ghostAt.get(`${col}:${row.midi}`) : undefined;
                 return (
                   <button
                     key={col}
-                    className={`mel-cell${notes.includes(row.midi) ? ' on' : ''}${notes.length > 1 && notes.includes(row.midi) ? ' chord' : ''}${col === head ? ' play' : ''}${k % 4 === 0 ? ' beat' : ''}`}
+                    className={`mel-cell${notes.includes(row.midi) ? ' on' : ''}${notes.length > 1 && notes.includes(row.midi) ? ' chord' : ''}${gh ? ' ghost' : ''}${col === head ? ' play' : ''}${k % 4 === 0 ? ' beat' : ''}`}
+                    style={gh ? { ['--gc' as string]: colors[gh] ?? '#8aa' } : undefined}
                     onPointerDown={(e) => { drawing.current = e.shiftKey ? null : { note: row.val }; place(col, row, e.shiftKey); }}
                     onPointerEnter={() => { if (drawing.current) paintTo(col, row); }}
-                    title={`${row.val} · paso ${col + 1}${notes.length > 1 ? ' · acorde' : ''} · Mayús+clic = sumar al acorde`}
+                    title={`${row.val} · paso ${col + 1}${notes.length > 1 ? ' · acorde' : ''}${gh ? ` · aquí suena «${names.get(gh) ?? gh}»` : ''} · Mayús+clic = sumar al acorde`}
                   />
                 );
               })}
