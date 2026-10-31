@@ -35,7 +35,8 @@ test('sync: el tema va a tempo de la sesión, con su fase fija', () => {
 test('posición analítica: avanza a su velocidad, da la vuelta en el loop y se para al final', () => {
   const m = { t0: 10, pos0: 20, rate: 1.0156, loop: null };
   near(posAt(m, 12, 300), 20 + 2 * 1.0156);
-  near(posAt(m, 9, 300), 20); // antes de arrancar
+  near(posAt(m, 9, 300), 20 - 1.0156); // antes de arrancar (agendado): la recta sigue hacia atrás
+  near(posAt({ ...m, rate: 0 }, 9, 300), 20); // en pausa no se mueve
   near(posAt({ ...m, pos0: 299 }, 20, 300), 300); // fin del tema
   const L = loopFrom(g, 20.2, 1); // 1 compás desde el tiempo donde está
   assert.ok(L.a <= 20.2 && L.b > 20.2);

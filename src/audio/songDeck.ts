@@ -228,13 +228,12 @@ function setRate(r: RT, rate: number, at: number): void {
   r.m = { t0: at, pos0: pos, rate, loop: r.m.loop };
 }
 
-// el reloj de la sesión, arrancándolo si estaba parado (con SYNC el tema lo necesita)
+// el reloj de la sesión, arrancándolo si estaba parado (con SYNC el tema lo necesita). El ancla sale
+// en el primer tic (al arrancar, en el acto): el tema puede entrar con el primer compás de la sesión
 async function clockRunning(): Promise<boolean> {
   if (sessionClock()) return true;
   try { await gs().play(); } catch { return false; }
-  for (let k = 0; k < 40 && !sessionClock(); k++) await new Promise((res) => setTimeout(res, 25));
-  // recién arrancado, el planificador recoloca su cuenta en los primeros tics: se espera a que asiente
-  await new Promise((res) => setTimeout(res, 160));
+  for (let k = 0; k < 150 && !sessionClock(); k++) await new Promise((res) => setTimeout(res, 10));
   return !!sessionClock();
 }
 
@@ -517,14 +516,24 @@ function keeper(): void {
     if (!r.playing || r.preview || !r.node || !r.buf) continue;
     const t = trackOf(r.id);
     if (!t || t.sync === false || r.nudge) continue;
+    const c = sessionClock();
     const sb = sessionBeat(now);
-    if (sb == null) continue;
+    if (!c || sb == null) continue;
     const g = gridOf(t);
     const base = baseRate(t);
+    // el ancla del reloj aún no llegó al audio (recién arrancado o recién cambiado el tempo): la sesión
+    // cambia de tempo en T — el tema cambia de velocidad en ese mismo instante, y hasta entonces no se
+    // corrige nada (la cuenta nueva no vale para antes de T)
+    const T = c.s0 + c.lat;
+    if (now < T) {
+      if (Math.abs(r.m.rate - base) > 1e-7 && Math.abs(r.m.t0 - T) > 1e-4) setRate(r, base, T);
+      continue;
+    }
     const pos = posAt(r.m, now, r.buf.duration);
     let err = beatAt(g, pos) - (sb + r.lock); // tiempos; + = el tema va adelantado
     if (r.m.loop) err -= Math.round(err); // en loop solo cuenta la fase
     if (Math.abs(err) > 0.03) {
+      resyncs++;
       // más de ~15 ms: el reloj de la sesión se re-ancló (al arrancar o al cambiar el tempo, Strudel
       // recoloca su cuenta de ciclos) — doblar la velocidad tardaría segundos; se re-sincroniza ya,
       // con un fundido de 6 ms
@@ -540,6 +549,9 @@ function keeper(): void {
   }
 }
 let keeperTimer = 0;
+// cuántas veces el guardián tuvo que re-sincronizar de golpe (pruebas: con el reloj sano, solo al saltar)
+let resyncs = 0;
+export const keeperResyncs = () => resyncs;
 
 // pone un tema (ya analizado y decodificado) en un deck: en pausa, en su cue
 function applyTrack(id: string, meta: TrackMeta, buf: AudioBuffer): void {

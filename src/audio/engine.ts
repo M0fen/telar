@@ -1231,16 +1231,31 @@ export const stripInputLinked = (sourceId: string): boolean => { const n = strip
 // (compás) en la hora t del contexto = n0 + (t − s0 − latencia)·cps. null = parado.
 export function sessionClock(): { cps: number; n0: number; s0: number; lat: number } | null {
   try {
-    const sch = repl?.scheduler as unknown as { started?: boolean; cps?: number; num_cycles_at_cps_change?: number; seconds_at_cps_change?: number; latency?: number } | undefined;
-    if (!sch || !sch.started) return null;
-    const cps = Number(sch.cps) || 0.5;
-    const n0 = Number(sch.num_cycles_at_cps_change ?? 0);
-    const s0 = Number(sch.seconds_at_cps_change ?? 0);
-    const lat = Number(sch.latency ?? 0.1);
-    return Number.isFinite(n0) && Number.isFinite(s0) ? { cps, n0, s0, lat } : null;
+    return clockAnchor(repl?.scheduler);
   } catch {
     return null;
   }
+}
+// el ancla del reloj de Strudel (ciclo n0 ↔ hora s0). Tras un cambio de tempo, el planificador re-ancla
+// en su PRÓXIMO tic (n0 = lastEnd, s0 = lastTick + duración): hasta entonces sus campos mezclan el cps
+// nuevo con el ancla vieja (con un ancla de hace un minuto, eso es errar por ciclos). Se devuelve ya el
+// ancla que va a poner: es la misma cuenta, continua.
+type SchedFields = { started?: boolean; cps?: number; num_cycles_at_cps_change?: number; seconds_at_cps_change?: number; latency?: number; num_ticks_since_cps_change?: number; lastEnd?: number; lastTick?: number; clock?: { duration?: number } };
+function clockAnchor(schIn: unknown): { cps: number; n0: number; s0: number; lat: number } | null {
+  const sch = schIn as SchedFields | undefined;
+  if (!sch || !sch.started) return null;
+  const cps = Number(sch.cps) || 0.5;
+  const lat = Number(sch.latency ?? 0.1);
+  let n0 = Number(sch.num_cycles_at_cps_change ?? 0);
+  let s0 = Number(sch.seconds_at_cps_change ?? 0);
+  const pending = sch.num_ticks_since_cps_change === 0;
+  if (pending) {
+    const last = Number(sch.lastTick), dur = Number(sch.clock?.duration ?? 0.05), end = Number(sch.lastEnd);
+    if (!(last > 0) || !Number.isFinite(end)) return null;
+    n0 = end;
+    s0 = last + dur;
+  }
+  return Number.isFinite(n0) && Number.isFinite(s0) ? { cps, n0, s0, lat } : null;
 }
 
 // MEZCLA EN VIVO (modo DJ): mueve el fader, el filtro o el EQ de la tira de una pista en el acto, sin
@@ -1312,13 +1327,9 @@ export const stripFader = (sourceId: string): number => {
 // agendado ahí cae junto con el primer golpe del compás. null = no está sonando.
 export function nextBarAudioTime(margin = 0.02): { at: number; cycle: number } | null {
   try {
-    const sch = repl?.scheduler as unknown as { started?: boolean; cps?: number; num_cycles_at_cps_change?: number; seconds_at_cps_change?: number; latency?: number } | undefined;
-    if (!sch || !sch.started) return null;
-    const cps = Number(sch.cps) || 0.5;
-    const n0 = Number(sch.num_cycles_at_cps_change ?? 0);
-    const s0 = Number(sch.seconds_at_cps_change ?? 0);
-    const lat = Number(sch.latency ?? 0.1);
-    if (!Number.isFinite(n0) || !Number.isFinite(s0)) return null;
+    const c = clockAnchor(repl?.scheduler);
+    if (!c) return null;
+    const { cps, n0, s0, lat } = c;
     const now = getAudioContext().currentTime;
     const cycle = Math.floor(n0 + (now + margin - s0 - lat) * cps + 1e-9) + 1;
     return { at: (cycle - n0) / cps + s0 + lat, cycle };

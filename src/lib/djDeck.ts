@@ -47,7 +47,9 @@ export const syncRate = (sessionBpm: number, g: Grid, nudge = 0) => (Math.max(1,
 // POSICIÓN ANALÍTICA: desde (t0, pos0) a velocidad `rate`, con loop [a, b) si lo hay; se para al final
 export interface PlayModel { t0: number; pos0: number; rate: number; loop: { a: number; b: number } | null }
 export function posAt(m: PlayModel, t: number, dur: number): number {
-  let p = m.pos0 + Math.max(0, t - m.t0) * m.rate;
+  // antes de t0 (un arranque o un cambio de velocidad agendados) se extrapola hacia atrás: la cuenta
+  // sigue siendo una recta y el guardián no ve un error que no existe
+  let p = m.pos0 + (t - m.t0) * m.rate;
   const L = m.loop;
   if (L && L.b > L.a && m.pos0 < L.b && p >= L.b) p = L.a + ((p - L.a) % (L.b - L.a));
   return Math.min(Math.max(0, p), dur);
