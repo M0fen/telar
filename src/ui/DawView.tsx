@@ -25,6 +25,7 @@ import { TrackColorButton } from './TrackColor';
 import { DawTrackHead, DawFolderRow, useLaneResize } from './DawTrackHead';
 import { dawClip, dropSoundAt } from '../lib/dawActions';
 import { DawMarkers, DawMinimap, addMarkerAt } from './DawMarkers';
+import { useMixerStore } from '../store/useMixerStore';
 import { importDroppedFiles } from '../lib/dropFiles';
 import { folderOf, groupRows, laneH, LANE_H } from '../lib/dawFolders';
 import { DawLaneContent } from './DawLaneContent';
@@ -93,6 +94,7 @@ export function DawView() {
   const follow = useDawUiStore((s) => s.follow);
   const colors = useTrackColorStore((s) => s.map); // color de cada pista (8.5)
   const setFollow = useDawUiStore((s) => s.setFollow);
+  const mixerOpen = useMixerStore((s) => s.open); // 11.1
   const foldersOn = useDawUiStore((s) => s.folders); // 9.6: pistas en carpetas
   const setFoldersOn = useDawUiStore((s) => s.setFolders);
   const closedFolders = useDawUiStore((s) => s.closed);
@@ -707,6 +709,7 @@ export function DawView() {
         <button className={`daw-btn tog${foldersOn ? ' on' : ''}`} onClick={() => setFoldersOn(!foldersOn)} aria-pressed={foldersOn} title={foldersOn ? 'quitar las carpetas (todas las pistas en una lista)' : 'agrupar las pistas en carpetas: batería, bajos, sintes, loops, voces, efectos (se pliegan; su M y S actúan sobre todas)'}>
           ▤ carpetas
         </button>
+        <button className={`daw-btn${mixerOpen ? ' on' : ''}`} onClick={() => useMixerStore.getState().toggle()} title="mezclador: tiras de las pistas, EQ visual, compresor, cadena, máster y escenario (X)">▥ mezclador</button>
         <button className="daw-btn" onClick={() => addMarkerAt(useGraphStore.getState().playing ? playBar() : 0)} title="poner un marcador con nombre en el cabezal (M) · clic: tocar desde ahí · doble clic: renombrar · clic derecho: quitar">＋ marcador</button>
         <button className="daw-btn" onClick={cycleHeights} title="alto de todas las filas: compacta → con volumen y paneo → alta (cada fila también se estira desde su borde de abajo)">⇕ alto</button>
         <button className={`daw-btn tog${follow ? ' on' : ''}`} onClick={() => setFollow(!follow)} aria-pressed={follow} title={follow ? 'la vista sigue al cabezal mientras suena (F para soltarlo)' : 'seguir el cabezal mientras suena (F)'}>

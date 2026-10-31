@@ -11,7 +11,7 @@ const MASTER = 'master';
 const fills = new Map<string, HTMLElement>();
 // "hilo activo": punto que se enciende con el nivel real del source (concepto telar).
 // Comparte el mismo cálculo de nivel que el VU (un rAF, sin coste extra por analyser).
-const dots = new Map<string, HTMLElement>();
+const dots = new Map<string, Set<HTMLElement>>(); // varios por pista (el nodo y el escenario del mezclador)
 const buffers = new Map<string, Uint8Array<ArrayBuffer>>();
 const freqBuffers = new Map<string, Uint8Array<ArrayBuffer>>(); // V-infra: datos de frecuencia (centroide)
 const levels = new Map<string, number>(); // nivel suavizado por id
@@ -27,8 +27,16 @@ export function unregisterMeter(id: string): void {
   if (!dots.has(id)) { buffers.delete(id); freqBuffers.delete(id); levels.delete(id); }
   stopIfIdle();
 }
-export function registerActivity(id: string, dot: HTMLElement): void { dots.set(id, dot); start(); }
-export function unregisterActivity(id: string): void {
+export function registerActivity(id: string, dot: HTMLElement): void {
+  const set = dots.get(id) ?? new Set<HTMLElement>();
+  set.add(dot);
+  dots.set(id, set);
+  start();
+}
+// `dot`: suelta solo ese elemento (sin él, todos los de la pista)
+export function unregisterActivity(id: string, dot?: HTMLElement): void {
+  const set = dots.get(id);
+  if (set && dot) { set.delete(dot); if (set.size) return; }
   dots.delete(id);
   if (!fills.has(id)) { buffers.delete(id); freqBuffers.delete(id); levels.delete(id); }
   stopIfIdle();
@@ -65,7 +73,7 @@ function tick() {
     // escribimos una variable CSS; el CSS decide qué hacer (VU: escala; hilo: brillo).
     const v = next.toFixed(3);
     fills.get(id)?.style.setProperty('--lvl', v);
-    dots.get(id)?.style.setProperty('--lvl', v);
+    dots.get(id)?.forEach((d) => d.style.setProperty('--lvl', v));
 
     // V-infra — medición por rama. El NIVEL (next) ya está calculado (gratis). El
     // CENTROIDE (FFT + barrido de bins) es el costo real y SOLO se calcula cuando alguien

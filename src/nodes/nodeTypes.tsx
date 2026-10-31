@@ -115,7 +115,7 @@ function ActivityDot({ id }: { id: string }) {
     const el = ref.current;
     if (!el) return;
     registerActivity(id, el);
-    return () => unregisterActivity(id);
+    return () => unregisterActivity(id, el);
   }, [id]);
   return <span ref={ref} className="tn-live" title="hilo activo — este source está sonando" />;
 }

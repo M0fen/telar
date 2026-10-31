@@ -27,6 +27,8 @@ import { type PaletteDrag } from './ui/Palette';
 import { LeftDock, RightDock } from './ui/Docks';
 import { DetailPanel } from './ui/DetailPanel';
 import { useDetailStore } from './store/useDetailStore';
+import { useMixerStore } from './store/useMixerStore';
+import { Mixer } from './ui/mixer/Mixer';
 import { useDockStore, dockWidth } from './store/useDockStore';
 import { useTrackColorStore } from './store/useTrackColorStore';
 import { useUiFocusStore } from './store/useUiFocusStore';
@@ -117,7 +119,8 @@ export default function App() {
   useMidiSlotRegistry(); // MIDI: el controlador toca aunque el panel EN VIVO esté cerrado
   const trackColors = useTrackColorStore((s) => s.map); // minimapa (8.7)
   // PANEL DE DETALLE (9.2): abajo, entre los laterales; el lienzo y el DAW terminan encima
-  const detailH = useDetailStore((s) => (s.nodeId ? s.h : 0));
+  const mixerOpen = useMixerStore((s) => s.open);
+  const detailH = useDetailStore((s) => (s.nodeId || mixerOpen ? s.h : 0));
   const rfRef = useRef<ReactFlowInstance<GNode> | null>(null);
   // arrastre del Out: cachea su posición previa + el conjunto aguas arriba.
   const outDrag = useRef<{ x: number; y: number; ids: Set<string> } | null>(null);
@@ -517,6 +520,7 @@ export default function App() {
               <Panel position="top-left" className="graph-tools">
                 <button onClick={() => { useGraphStore.getState().arrangeGraph(); setTimeout(() => void rfRef.current?.fitView({ ...FIT, duration: 350 }), 60); }} title="ordenar el grafo: fuentes a la izquierda, efectos en el medio, la salida a la derecha (Ctrl+Z lo deshace)">⇶ ordenar</button>
                 <button onClick={() => void rfRef.current?.fitView({ ...FIT, duration: 350 })} title="encuadrar el grafo">⤢ ver todo</button>
+                <button onClick={() => useMixerStore.getState().toggle()} title="mezclador: tiras de las pistas, EQ visual, compresor, cadena, máster y escenario (X)">▥ mezclador</button>
               </Panel>
               <MiniMap
                 className="graph-minimap"
@@ -544,6 +548,7 @@ export default function App() {
           <LeftDock />
           <RightDock />
           <DetailPanel />
+          <ErrorBoundary variant="panel" label="mezclador" onClose={() => useMixerStore.getState().setOpen(false)}><Mixer /></ErrorBoundary>
         </>
       )}
       {/* motor de la canción: UNO, fuera de las vistas → sigue disparando escenas en cualquiera */}

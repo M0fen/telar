@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useGraphStore } from '../store/useGraphStore';
 import { useVizFlagsStore } from '../store/useVizFlagsStore';
 import { getBranchMetric, requestCentroid, releaseCentroid } from '../audio/branchMeter';
+import { registerActivity, unregisterActivity } from '../nodes/meterEngine';
 import { DEFAULT_CHANNEL_EQ } from '../graph/types';
 
 // V3 — SUPERFICIE DE MEZCLA ESPACIAL. Cada source = un punto en una caja:
@@ -18,7 +19,8 @@ const TILT_DB = 11; // inclinación máxima del EQ al llevar un punto arriba/aba
 const COLLIDE_Y = 0.055; // cercanía en Y (frecuencia) que cuenta como colisión
 const AUDIBLE = 0.06; // nivel mínimo para contar en colisiones
 
-export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => void }) {
+// `inline` (11.6): dentro del mezclador, sin ventana flotante
+export function SpatialMix({ open, onClose, inline = false }: { open: boolean; onClose: () => void; inline?: boolean }) {
   const nodes = useGraphStore((s) => s.nodes);
   const update = useGraphStore((s) => s.updateNodeData);
   const spatialMix = useVizFlagsStore((s) => s.flags.spatialMix);
@@ -41,6 +43,15 @@ export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => vo
     requestCentroid();
     return () => releaseCentroid();
   }, [open]);
+  // el motor de medidores mide solo las pistas que alguien mira: fuera del grafo (el escenario del
+  // mezclador, 11.6) no hay VU de nodo → se apunta cada pista con un elemento propio
+  const srcIds = sources.map((s) => s.id).join('|');
+  useEffect(() => {
+    if (!open) return;
+    const ids = srcIds ? srcIds.split('|') : [];
+    const els = ids.map((id) => { const el = document.createElement('i'); registerActivity(id, el); return [id, el] as const; });
+    return () => { for (const [id, el] of els) unregisterActivity(id, el); };
+  }, [open, srcIds]);
 
   // rAF: posiciona cada punto por su medición (Y = centroide, tamaño = nivel) + su chPan
   // (X) + halo (chRoom), y marca las colisiones de frecuencia. Solo con el panel ABIERTO y
@@ -133,14 +144,12 @@ export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => vo
   if (!open) return null;
   const hue = (i: number) => 150 + (i * 47) % 210; // tono por source, para distinguirlos
 
-  return createPortal(
-    <>
-      <div className="sm-backdrop" onClick={onClose} />
-      <div className="sm-panel">
+  const body = (
+      <div className={`sm-panel${inline ? ' sm-inline' : ''}`}>
         <header className="sm-head">
-          <span className="sm-title">superficie de mezcla</span>
+          <span className="sm-title">{inline ? 'escenario' : 'superficie de mezcla'}</span>
           <span className="sm-sub">X paneo · Y frecuencia · tamaño nivel · rueda = reverb</span>
-          <button className="sm-x" onClick={onClose} title="cerrar">×</button>
+          {!inline && <button className="sm-x" onClick={onClose} title="cerrar">×</button>}
         </header>
         {!branchMetering && (
           <div className="sm-warn">activa «medición por rama» (panel dev) para ver frecuencia y nivel en vivo.</div>
@@ -174,6 +183,12 @@ export function SpatialMix({ open, onClose }: { open: boolean; onClose: () => vo
         )}
         <p className="sm-hint">arrastra un punto: <b>izquierda/derecha</b> = paneo · <b>arriba/abajo</b> = inclina el EQ hacia agudos/graves. La <b>rueda</b> sube la reverb (halo). Dos puntos en la misma altura <b>pelean por la misma frecuencia</b> (se marcan): sepáralos moviéndolos en Y.</p>
       </div>
+  );
+  if (inline) return body;
+  return createPortal(
+    <>
+      <div className="sm-backdrop" onClick={onClose} />
+      {body}
     </>,
     document.body,
   );

@@ -13,6 +13,9 @@ interface KnobProps {
   defaultValue?: number;
   label?: string;
   hideValue?: boolean; // oculta el número (cuando hay un readout aparte, ej. tempo)
+  // 11.5: ANILLO de automatización/modulación — el valor que de verdad suena ahora (en las mismas
+  // unidades que `value`); se dibuja como un arco ámbar por fuera de la perilla
+  ring?: number | null;
   onChange: (v: number) => void;
 }
 
@@ -46,6 +49,7 @@ export function Knob({
   defaultValue,
   label,
   hideValue,
+  ring,
   onChange,
 }: KnobProps) {
   // onChange puede cambiar de identidad en cada render (cierra sobre los params
@@ -164,6 +168,18 @@ export function Knob({
           strokeDasharray={`${t * arc} ${C}`}
           transform={`rotate(135 ${cx} ${cy})`}
         />
+        {/* anillo de automatización/modulación (11.5): dónde está ahora lo que suena */}
+        {ring != null && Number.isFinite(ring) && (() => {
+          const rt = Math.max(0, Math.min(1, toNorm(ring, min, max, scale)));
+          const rr = r + sw * 0.9;
+          const RC = 2 * Math.PI * rr;
+          const a0 = Math.min(t, rt), a1 = Math.max(t, rt);
+          return (
+            <circle cx={cx} cy={cy} r={rr} fill="none" stroke="#e7b84a" strokeWidth={Math.max(1.2, sw * 0.45)} strokeLinecap="round"
+              strokeDasharray={`${Math.max(0.5, (a1 - a0) * (SWEEP / 360) * RC)} ${RC}`} strokeDashoffset={-a0 * (SWEEP / 360) * RC}
+              transform={`rotate(135 ${cx} ${cy})`} />
+          );
+        })()}
         {/* indicador */}
         <line x1={cx} y1={cy} x2={ix} y2={iy} stroke="#3df0d0" strokeWidth={Math.max(1.4, sw * 0.5)} strokeLinecap="round" />
         <circle cx={cx} cy={cy} r={Math.max(1.4, sw * 0.5)} fill="#3df0d0" />
