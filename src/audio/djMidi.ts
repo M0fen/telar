@@ -5,7 +5,8 @@ import type { MidiSlot } from './midiIn';
 import { useGraphStore } from '../store/useGraphStore';
 import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, useDjStore, type EqBand } from './djMix';
 import type { NodeData } from '../graph/types';
-import { deckAlignBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckNudge, deckPitch, deckSync, deckToggle, PITCH_RANGE } from './songDeck';
+import { startSet, stopSet, useSetRec } from './setRecorder';
+import { deckAlignBars, deckBrake, deckCueDown, deckEchoOut, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckNudge, deckPitch, deckSync, deckToggle, PITCH_RANGE } from './songDeck';
 
 const gs = () => useGraphStore.getState();
 const BANDS: EqBand[] = ['high', 'mid', 'low'];
@@ -16,6 +17,7 @@ export function buildDjSlots(): Record<string, MidiSlot> {
   const slots: Record<string, MidiSlot> = {};
   slots['dj.xfader'] = { kind: 'knob', get: () => gs().xfader, set: (v) => gs().setXfader(v) };
   slots['dj.quant'] = { kind: 'tap', tap: () => useDjStore.getState().setQuantize(!useDjStore.getState().quantize) };
+  slots['dj.setrec'] = { kind: 'tap', tap: () => { if (useSetRec.getState().rec) void stopSet(); else void startSet(); } };
   const decks = gs().nodes.filter(isDeck).slice(0, 8);
   decks.forEach((n, i) => {
     const id = n.id;
@@ -48,6 +50,8 @@ export function buildDjSlots(): Record<string, MidiSlot> {
       };
       slots[deckSlot(i, 'align')] = { kind: 'tap', tap: () => void deckAlignBars(id) };
       slots[deckSlot(i, 'gridone')] = { kind: 'tap', tap: () => void deckGrid(id, { kind: 'one' }) };
+      slots[deckSlot(i, 'echoout')] = { kind: 'tap', tap: () => deckEchoOut(id) };
+      slots[deckSlot(i, 'brake')] = { kind: 'tap', tap: () => deckBrake(id) };
     }
   });
   return slots;
@@ -57,11 +61,12 @@ export function buildDjSlots(): Record<string, MidiSlot> {
 export function djSlotName(slot: string): string | null {
   if (slot === 'dj.xfader') return 'crossfader';
   if (slot === 'dj.quant') return '♩ al compás';
+  if (slot === 'dj.setrec') return 'grabar el set';
   const m = /^dj\.d(\d+)\.(\w+)$/.exec(slot);
   if (!m) return null;
   const what = m[2];
   const band = (BANDS as string[]).find((b) => what.endsWith(b)) as EqBand | undefined;
-  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', hot1: 'cue rápido 1', hot2: 'cue rápido 2', hot3: 'cue rápido 3', hot4: 'cue rápido 4', pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí' };
+  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', hot1: 'cue rápido 1', hot2: 'cue rápido 2', hot3: 'cue rápido 3', hot4: 'cue rápido 4', pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí', echoout: 'eco out', brake: 'freno' };
   if (song[what]) return `deck ${m[1]} · ${song[what]}`;
   const label = what === 'gain' ? 'volumen' : what === 'filter' ? 'filtro' : what === 'cue' ? 'cue 🎧' : what === 'mute' ? 'mute' : what === 'solo' ? 'solo'
     : band && what.startsWith('eq') ? `EQ ${BAND_LABEL[band]}` : band && what.startsWith('kill') ? `kill ${BAND_LABEL[band]}` : what;

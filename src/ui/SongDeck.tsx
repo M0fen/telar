@@ -5,6 +5,7 @@ import { deckSlot } from '../audio/djMidi';
 import {
   deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckNudge, deckPhase,
   deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
+  deckBrake, deckEchoOut,
 } from '../audio/songDeck';
 import { autoGainDb, barLen, beatAt, camelot, fmtTime, gridOf, posOfBeat, type DjTrack } from '../lib/djDeck';
 import { keyShort } from '../lib/songKey';
@@ -284,6 +285,12 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
             </button>
           ))}
           <span className="sd-loops-tag">loop</span>
+        </span>
+        <span className="sd-fx" role="group" aria-label="efectos de DJ">
+          <button className="sd-btn" data-midi={slot('echoout')} disabled={!playing} onClick={() => deckEchoOut(id)}
+            title="eco out: el último tiempo queda repitiéndose a tempo y el tema se corta en el tiempo (para salir de un tema)">eco out<MK slot={slot('echoout')} /></button>
+          <button className="sd-btn" data-midi={slot('brake')} disabled={!playing} onClick={() => deckBrake(id)}
+            title="freno: el tema se para como un plato en 2 tiempos">freno<MK slot={slot('brake')} /></button>
         </span>
         <span className="sd-nudge" role="group" aria-label="empujar">
           <button className={`sd-btn${ui?.nudging === -1 ? ' on' : ''}`} data-midi={slot('nudgeb')} onPointerDown={() => deckNudge(id, -1)} onPointerUp={() => deckNudge(id, 0)} onPointerLeave={() => { if (ui?.nudging) deckNudge(id, 0); }} title="frenar un poco mientras lo mantienes (corre la fase atrás)">‹</button>

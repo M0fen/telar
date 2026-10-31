@@ -20,6 +20,7 @@ import { sampleDuration } from '../lib/audioMeta';
 import { SongDeckBody } from './SongDeck';
 import { initSongDecks, newSongDeck, deckLoadFile, deckLoadTrack, newSongDeckFromTrack } from '../audio/songDeck';
 import { SetLibrary } from './SetLibrary';
+import { SetRecButton, SetRecPanel } from './SetRecorder';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
@@ -368,7 +369,9 @@ export function DjMixer() {
           </button>
           {/* el secuenciador global aquí (su botón flotante tapaba el primer deck) */}
           <button className={`dj-codebtn${seqOpen ? ' on' : ''}`} onClick={() => setSeqOpen(!seqOpen)} title="secuenciador de pasos (drum machine)">▦ seq</button>
+          <SetRecButton />
         </div>
+        <SetRecPanel />
         {learn && (
           <p className="dj-learn-hint">{pick ? <>asignando <b>{djSlotName(pick) ?? pick}</b>: mueve la perilla o toca el pad del controlador</> : 'toca un control de la mesa (perilla, botón, crossfader) y luego el del controlador'}</p>
         )}

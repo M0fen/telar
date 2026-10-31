@@ -16,7 +16,7 @@ import { addTrack, loadBuffer, rememberBuffer, getMeta, putMeta, type TrackMeta 
 import { toast } from '../store/useNotifyStore';
 import {
   autoGainDb, bandPeaks, barLen, barOffset, beatAt, beatLen, gridDownbeatAt, gridOf, gridScale, gridShift, gridTempo, jumpBeats, lockedPos,
-  loopFrom, normBands, posAt, snapPos, syncRate,
+  loopFrom, normBands, posAt, posOfBeat, snapPos, syncRate,
   type Bands, type DjTrack, type Grid, type PlayModel,
 } from '../lib/djDeck';
 import type { NodeData } from '../graph/types';
@@ -42,12 +42,18 @@ interface RT {
   lock: number; // con SYNC: tiempo del tema − tiempo de la sesión
   nudge: number; // empujón en curso (±)
   preview: boolean; // CUE mantenido
+  fx: DeckFx | null; // eco (DJ-4) entre el tema y la tira
+  brake: { t0: number; D: number; rate: number; pos0: number; timer: number } | null; // freno en curso
 }
+// EFECTOS DE DJ del deck (DJ-4): el tema pasa seco a la tira y, en paralelo, por un eco a tempo con
+// realimentación (cada repetición más oscura y más fina). «Eco out» abre el envío un tiempo y corta el
+// tema en el tiempo: queda sonando la cola.
+interface DeckFx { dry: GainNode; send: GainNode; delay: DelayNode; fb: GainNode; sum: GainNode }
 const rts = new Map<string, RT>();
 const rtOf = (id: string): RT => {
   let r = rts.get(id);
   if (!r) {
-    r = { id, out: null, node: null, ng: null, buf: null, bufId: null, wave: null, m: { t0: 0, pos0: 0, rate: 0, loop: null }, playing: false, lock: 0, nudge: 0, preview: false };
+    r = { id, out: null, node: null, ng: null, buf: null, bufId: null, wave: null, m: { t0: 0, pos0: 0, rate: 0, loop: null }, playing: false, lock: 0, nudge: 0, preview: false, fx: null, brake: null };
     rts.set(id, r);
   }
   return r;
@@ -89,14 +95,21 @@ export function deckPos(id: string): number {
   const r = rts.get(id);
   const t = trackOf(id);
   if (!r || !t) return t?.cue ?? 0;
+  if (r.brake) return brakePos(r, ctxNow());
   return posAt(r.m, ctxNow(), r.buf?.duration ?? t.dur);
+}
+// frenando: la velocidad baja en recta hasta 0 en D segundos (como un plato que se para)
+function brakePos(r: RT, t: number): number {
+  const b = r.brake!;
+  const tau = Math.max(0, Math.min(b.D, t - b.t0));
+  return b.pos0 + b.rate * (tau - (tau * tau) / (2 * b.D));
 }
 // error de fase respecto de la sesión, en tiempos (−0,5…0,5; + = el tema va adelantado); null si no
 // suena o la sesión está parada. Sin SYNC también: es lo que se mira para cuadrarlo a mano
 export function deckPhase(id: string): number | null {
   const r = rts.get(id);
   const t = trackOf(id);
-  if (!r || !t || !r.playing || r.preview) return null;
+  if (!r || !t || !r.playing || r.preview || r.brake) return null;
   const sb = sessionBeat(ctxNow());
   if (sb == null) return null;
   const e = beatAt(gridOf(t), deckPos(id)) - sb;
@@ -126,7 +139,21 @@ function ensureOut(r: RT): GainNode | null {
     const ctx = getAudioCtx();
     if (!r.out || r.out.context !== ctx) {
       r.out = new GainNode(ctx, { gain: 1 });
-      setStripInput(r.id, r.out);
+      r.fx = null;
+      try {
+        const dry = new GainNode(ctx, { gain: 1 }), send = new GainNode(ctx, { gain: 0 }), sum = new GainNode(ctx, { gain: 1 });
+        const delay = new DelayNode(ctx, { maxDelayTime: 4, delayTime: 0.5 });
+        const hp = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 180 });
+        const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: 3200 });
+        const fb = new GainNode(ctx, { gain: 0.6 }), wet = new GainNode(ctx, { gain: 0.9 });
+        r.out.connect(dry); dry.connect(sum);
+        r.out.connect(send); send.connect(delay); delay.connect(hp); hp.connect(lp); lp.connect(fb); fb.connect(delay);
+        delay.connect(wet); wet.connect(sum);
+        r.fx = { dry, send, delay, fb, sum };
+        setStripInput(r.id, sum);
+      } catch {
+        setStripInput(r.id, r.out); // sin efectos: el tema directo a la tira (nunca sin sonido)
+      }
     }
     const t = trackOf(r.id);
     const db = t?.trim ?? autoGainDb(t?.lufs);
@@ -206,7 +233,7 @@ function startNode(r: RT, at: number, pos: number, rate: number, loop: { a: numb
   r.ng = ng;
   r.m = { t0, pos0: p, rate, loop: L };
   src.onended = () => {
-    if (r.node !== src) return;
+    if (r.node !== src || r.brake) return; // el freno se cierra solo (endBrake)
     // llegó al final del tema
     r.node = null;
     r.playing = false;
@@ -242,6 +269,7 @@ export async function deckPlay(id: string): Promise<void> {
   const r = await ready(id);
   const t = trackOf(id);
   if (!r || !t) return;
+  endBrake(r); // ▶ durante el freno: sigue desde donde quedó
   if (r.playing && !r.preview) return;
   const sync = t.sync !== false;
   if (sync && !(await clockRunning())) { toast.warn('No pude arrancar el reloj de la sesión: dale ▶ arriba y vuelve a intentar.'); return; }
@@ -266,6 +294,7 @@ export async function deckPlay(id: string): Promise<void> {
 
 export function deckPause(id: string): void {
   const r = rts.get(id);
+  if (r?.brake) { endBrake(r); return; }
   if (!r || !r.playing) return;
   const now = ctxNow();
   const pos = posAt(r.m, now, r.buf?.duration ?? 0);
@@ -275,7 +304,7 @@ export function deckPause(id: string): void {
   r.preview = false;
   setUi(id, { playing: false, preview: false });
 }
-export const deckToggle = (id: string) => { if (rts.get(id)?.playing && !rts.get(id)?.preview) deckPause(id); else void deckPlay(id); };
+export const deckToggle = (id: string) => { const r = rts.get(id); if (r?.playing && !r.preview && !r.brake) deckPause(id); else void deckPlay(id); };
 
 function seek(r: RT, pos: number): void {
   const dur = r.buf?.duration ?? trackOf(r.id)?.dur ?? 0;
@@ -509,11 +538,99 @@ export async function deckAlignBars(id: string): Promise<void> {
   if (target >= 0) jumpTo(r, t, target);
 }
 
+// EFECTOS DE DJ (DJ-4) ------------------------------------------------------------------------------
+// tempo al que suena el deck (con SYNC el de la sesión; si no, el suyo con el pitch)
+const effBpm = (t: DjTrack) => (t.sync === false ? t.bpm * (1 + (t.pitch ?? 0)) : sessionBpm());
+
+// hora del primer tiempo del tema que esté al menos `ahead` segundos después de ahora
+function deckBeatAfter(r: RT, t: DjTrack, ahead: number): number {
+  const now = ctxNow();
+  if (t.sync !== false) { const nb = nextBeatTime(now + ahead); if (nb != null) return nb; }
+  const g = gridOf(t);
+  const rate = r.m.rate || 1;
+  const p = posAt(r.m, now + ahead, r.buf?.duration ?? t.dur);
+  const b = Math.ceil(beatAt(g, p) - 1e-6);
+  return now + ahead + (posOfBeat(g, b) - p) / rate;
+}
+
+// el deck deja de sonar en `at` (con su fundido) y queda en pausa ahí
+function pauseAt(r: RT, at: number): void {
+  const pos = posAt(r.m, at, r.buf?.duration ?? 0);
+  killNode(r, at);
+  r.m = { t0: at, pos0: pos, rate: 0, loop: r.m.loop };
+  r.playing = false;
+  r.preview = false;
+  setUi(r.id, { playing: false, preview: false });
+}
+
+// ECO OUT: el último tiempo entra al eco (a 1 tiempo, con realimentación) y el tema se corta en el
+// tiempo siguiente; la cola sigue sonando y se apaga sola (~8 tiempos)
+export function deckEchoOut(id: string): void {
+  const r = rts.get(id);
+  const t = trackOf(id);
+  if (!r || !t || !r.playing || r.preview || r.brake || !r.fx) return;
+  const ctx = getAudioCtx();
+  const now = ctx.currentTime;
+  const beat = 60 / Math.max(40, effBpm(t));
+  const at = deckBeatAfter(r, t, beat * 0.98); // un tiempo entero dentro del eco
+  const fx = r.fx;
+  try {
+    fx.delay.delayTime.cancelScheduledValues(now);
+    fx.delay.delayTime.setValueAtTime(Math.min(3.9, beat), now);
+    fx.fb.gain.setValueAtTime(0.62, now);
+    const sg = fx.send.gain;
+    sg.cancelScheduledValues(now);
+    sg.setValueAtTime(sg.value, now);
+    sg.linearRampToValueAtTime(1, now + 0.01);
+    sg.setValueAtTime(1, at);
+    sg.linearRampToValueAtTime(0, at + 0.008);
+  } catch { /* sin eco: igual se corta en el tiempo */ }
+  pauseAt(r, at);
+}
+
+// FRENO: la velocidad baja hasta 0 en 2 tiempos (un plato que se para) y el deck queda en pausa ahí
+export function deckBrake(id: string): void {
+  const r = rts.get(id);
+  const t = trackOf(id);
+  if (!r || !t || !r.playing || r.preview || r.brake || !r.node || !r.ng || !r.buf) return;
+  const at = ctxNow() + 0.02;
+  const D = Math.max(0.35, (2 * 60) / Math.max(40, effBpm(t)));
+  const rate = r.m.rate || baseRate(t);
+  const pos0 = posAt(r.m, at, r.buf.duration);
+  const node = r.node, ng = r.ng;
+  try {
+    node.loop = false;
+    node.playbackRate.cancelScheduledValues(at);
+    node.playbackRate.setValueAtTime(rate, at);
+    node.playbackRate.linearRampToValueAtTime(0.0001, at + D);
+    ng.gain.cancelScheduledValues(at);
+    ng.gain.setValueAtTime(ng.gain.value || 1, at + D * 0.55);
+    ng.gain.linearRampToValueAtTime(0, at + D);
+    node.stop(at + D + 0.02);
+  } catch { deckPause(id); return; }
+  const timer = window.setTimeout(() => { if (r.brake?.timer === timer) endBrake(r); }, (D + 0.08) * 1000);
+  r.brake = { t0: at, D, rate, pos0, timer };
+}
+// el freno termina (solo, o porque tocaste ▶/⏸): el deck queda en pausa donde iba
+function endBrake(r: RT): void {
+  const b = r.brake;
+  if (!b) return;
+  window.clearTimeout(b.timer);
+  const now = ctxNow();
+  const pos = brakePos(r, now);
+  r.brake = null;
+  killNode(r, now + 0.005);
+  r.m = { t0: now, pos0: Math.min(pos, r.buf?.duration ?? pos), rate: 0, loop: null };
+  r.playing = false;
+  r.preview = false;
+  setUi(r.id, { playing: false, preview: false, loop: null });
+}
+
 // GUARDIÁN DE FASE: cada 100 ms, con SYNC, lleva el tema a donde la sesión dice
 function keeper(): void {
   const now = ctxNow();
   for (const r of rts.values()) {
-    if (!r.playing || r.preview || !r.node || !r.buf) continue;
+    if (!r.playing || r.preview || !r.node || !r.buf || r.brake) continue;
     const t = trackOf(r.id);
     if (!t || t.sync === false || r.nudge) continue;
     const c = sessionClock();
