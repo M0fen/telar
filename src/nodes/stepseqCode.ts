@@ -847,3 +847,33 @@ export function buildSeq(p: Parsed, lanes: Lane[], steps: number): string {
   });
   return `stack(${parts.join(', ')})${bankSfx}${tail}${slowSfx(p)}`;
 }
+
+// UN GOLPE POR COMPÁS SE VE EN 16 PASOS (como el piano roll grande): un sonido recién soltado
+// (`s("hh")`) es un patrón de 1 paso, y escribir un hat pedía pulsar «+» quince veces. Un sample
+// suena hasta su final aunque el evento sea más corto (sin clip/loop/release), así que `hh` y
+// `hh ~ ~ …` suenan igual: solo cambia lo que se ve, y el código se reescribe al primer cambio.
+export function widenOneStep(lanes: Lane[], steps: number, per = 16): { lanes: Lane[]; steps: number } {
+  if (steps !== 1 || per <= 1 || lanes.some((l) => l.len)) return { lanes, steps };
+  const pad = <T,>(a: T[] | undefined, fill: T): T[] => [a?.[0] ?? fill, ...Array<T>(per - 1).fill(fill)];
+  return {
+    steps: per,
+    lanes: lanes.map((l) => ({
+      ...l,
+      steps: pad(l.steps, 0), notes: pad(l.notes, null as string | null), ratchet: pad(l.ratchet, 1), prob: pad(l.prob, 1),
+      nudge: l.nudge ? pad(l.nudge, 0) : undefined, cond: l.cond ? pad(l.cond, null as string | null) : undefined,
+    })),
+  };
+}
+
+// Tras un cambio de la propia rejilla: las filas del código, en el orden que tenían, y las que
+// quedaron SIN golpes (su código ya no lleva el sonido) siguen ahí para seguir escribiendo en ellas.
+export function keepEmptyLanes(cur: Lane[], parsed: Lane[]): Lane[] {
+  const out: Lane[] = [];
+  for (const l of cur) {
+    const p = parsed.find((x) => x.sound === l.sound);
+    if (p) out.push(p);
+    else if (l.steps.every((v) => v <= 0)) out.push(l);
+  }
+  for (const p of parsed) if (!out.some((x) => x.sound === p.sound)) out.push(p);
+  return out;
+}

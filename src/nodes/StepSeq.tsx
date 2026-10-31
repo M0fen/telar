@@ -13,11 +13,13 @@ import { midiToName, noteToMidi } from '../ui/pianoRollHelpers';
 import { LiveScope } from './LiveScope';
 import { MiniSlider } from './MiniSlider';
 import { DRUM_MACHINES } from '../docs/catalog';
-import { ACCENT, COND_CYCLE, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
+import { widenOneStep, keepEmptyLanes, ACCENT, COND_CYCLE, DEFAULT_NOTE, GHOST, NORMAL, NUDGE_MAX, addSilentArm, bankExempt, buildSeq, duplicateArm, fmt, isMelodicCode, isMutedArm, isSilenceArm, isSilentArm, laneGroove, laneOwnBank, lanePitched, muteArm, parseSeq, removeArm, seedSilent, setArmBars, splitArrange, spliceArm, unmuteArm, withLaneBank, wrapAsArrange, type Lane } from './stepseqCode';
 import { MelodicSeq } from './MelodicSeq';
 import { PianoRoll } from './PianoRoll';
 import { SampleEditor } from './SampleEditor';
-import { isClipCode } from '../lib/clipCode';
+import { isClipCode, isDrumOneShot } from '../lib/clipCode';
+
+const sameCode = (a: string, b: string) => a.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim();
 
 // ¿una rejilla de batería? (no una melodía ni un loop) → en grande se puede ver como pads (9.7)
 const isDrumCode = (c: string) => {
@@ -151,8 +153,11 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff, armPos }: { 
   // sin pasos activos en el código pero con referencia → arranca sembrado (cubre la
   // rejilla vacía s("~") y la melodía toda en silencio: las notas vienen de la ref).
   const useSeed = () => !!(seeded && parsed && !parsed.complex && parsed.lanes.every((l) => l.steps.every((v) => v <= 0)));
-  const [steps, setSteps] = useState(() => (useSeed() ? seeded!.steps : parsed?.steps || 8));
-  const [lanes, setLanes] = useState<Lane[]>(() => (useSeed() ? seeded!.lanes : parsed?.lanes ?? []));
+  // un golpe por compás (un sonido recién soltado) se ve en 16 pasos: suena igual y se escribe de una
+  const shown = () => (parsed && (parsed.bars ?? 1) === 1 ? widenOneStep(parsed.lanes, parsed.steps, (beats || 4) * 4) : { lanes: parsed?.lanes ?? [], steps: parsed?.steps || 8 });
+  const [steps, setSteps] = useState(() => (useSeed() ? seeded!.steps : shown().steps || 8));
+  const [lanes, setLanes] = useState<Lane[]>(() => (useSeed() ? seeded!.lanes : shown().lanes));
+  const emitted = useRef<string | null>(null); // el último código que escribió esta rejilla
   // paso que suena, CONTADO desde el inicio del patrón (no se reinicia por compás): la rejilla
   // usa su resto entre los pasos y cada fila polimétrica el resto entre su largo propio
   const [headAbs, setHeadAbs] = useState(-1);
@@ -189,10 +194,19 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff, armPos }: { 
 
   // resincroniza el estado local si el código cambia por fuera (no en complejo);
   // sin pasos activos + referencia de siembra → mantiene la instrumentación sembrada.
+  // Si el cambio es NUESTRO (lo acaba de escribir la rejilla), una fila que quedó sin golpes sigue a
+  // la vista: el código de una fila vacía no lleva su sonido, y antes quitar el único golpe de una
+  // pista borraba la fila (y el instrumento) de la rejilla.
   useEffect(() => {
     if (parsed && !parsed.complex) {
       if (useSeed()) { setLanes(seeded!.lanes); setSteps(seeded!.steps); }
-      else { setLanes(parsed.lanes); setSteps(parsed.steps); }
+      else {
+        const v = shown();
+        if (emitted.current != null && sameCode(emitted.current, code)) {
+          setLanes((cur) => keepEmptyLanes(cur, v.lanes));
+          setSteps(v.lanes.length ? v.steps : steps);
+        } else { setLanes(v.lanes); setSteps(v.steps); }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, seeded]);
@@ -270,7 +284,9 @@ function StepGrid({ id, code, wrap, seedFrom, previewCode, headOff, armPos }: { 
   const commit = (nl: Lane[], ns = steps) => {
     const nn = nl.map((l) => (l.len && l.len < ns ? tileLane(l, ns) : l));
     setLanes(nn);
-    emit(buildSeq(parsed, nn, ns));
+    const out = buildSeq(parsed, nn, ns);
+    emitted.current = out;
+    emit(out);
     pulseSaved();
   };
   // A8 — cambia la caja de ritmos (.bank) de TODA la rejilla; re-emite con el banco nuevo.
@@ -866,10 +882,18 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
   const big = useContext(SeqBigContext); // en el panel de detalle: piano roll grande (9.4)
   // un loop o un sample solo (9.5): su onda (editor de loops) o la rejilla; en grande, la onda
   // una batería en grande (9.7): rejilla o pads
-  const [drumView, setDrumViewState] = useState<'grid' | 'pads'>(() => { try { return localStorage.getItem('telar.seq.drumview') === 'pads' ? 'pads' : 'grid'; } catch { return 'grid'; } });
+  const [drumViewState, setDrumViewState] = useState<'grid' | 'pads'>(() => { try { return localStorage.getItem('telar.seq.drumview') === 'pads' ? 'pads' : 'grid'; } catch { return 'grid'; } });
+  // un golpe suelto que abriste en la rejilla SIGUE en la rejilla cuando ya es un patrón (antes, al
+  // poner el primer golpe saltaba a los pads si los habías usado en otra pista); hasta que elijas tú
+  const gridFromShot = useRef(false);
+  const drumView = gridFromShot.current ? 'grid' : drumViewState;
   const setDrumView = (v: 'grid' | 'pads') => { setDrumViewState(v); try { localStorage.setItem('telar.seq.drumview', v); } catch { /* solo esta sesión */ } };
-  const [clipView, setClipViewState] = useState<'wave' | 'grid'>(() => { try { return localStorage.getItem('telar.seq.clipview') === 'grid' ? 'grid' : 'wave'; } catch { return 'wave'; } });
-  const setClipView = (v: 'wave' | 'grid') => { setClipViewState(v); try { localStorage.setItem('telar.seq.clipview', v); } catch { /* solo esta sesión */ } };
+  // la vista de un sample: la que elijas aquí; si no, un golpe de batería suelto abre en la rejilla y
+  // un loop en su onda (o en la última vista que usaste para loops)
+  const [clipPick, setClipPick] = useState<'wave' | 'grid' | null>(null);
+  const storedClipView = (): 'wave' | 'grid' => { try { return localStorage.getItem('telar.seq.clipview') === 'grid' ? 'grid' : 'wave'; } catch { return 'wave'; } };
+  const clipViewFor = (c: string): 'wave' | 'grid' => clipPick ?? (isDrumOneShot(c) ? 'grid' : storedClipView());
+  const setClipView = (v: 'wave' | 'grid', c: string) => { setClipPick(v); if (!isDrumOneShot(c)) { try { localStorage.setItem('telar.seq.clipview', v); } catch { /* solo esta sesión */ } } };
   // qué sección está SONANDO ahora en el arreglo (punto en la pestaña): posición del
   // reloj módulo el total de compases del arrange → el "entra después" se VE.
   const [live, setLive] = useState(-1);
@@ -956,17 +980,18 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
   ) : isClipCode(c) ? (
     <span className="seqs-viewinline">
       <span className="seqs-sectag">vista</span>
-      <button className={clipView === 'wave' ? 'on' : ''} onClick={() => setClipView('wave')} title="la onda del sample: tramo, fundidos, rebanadas, tempo, al revés y tono">〰 onda</button>
-      <button className={clipView === 'grid' ? 'on' : ''} onClick={() => setClipView('grid')} title="rejilla de pasos (para tocar el sample en golpes)">▦ rejilla</button>
+      <button className={clipViewFor(c) === 'wave' ? 'on' : ''} onClick={() => setClipView('wave', c)} title="la onda del sample: tramo, fundidos, rebanadas, tempo, al revés y tono">〰 onda</button>
+      <button className={clipViewFor(c) === 'grid' ? 'on' : ''} onClick={() => setClipView('grid', c)} title="rejilla de pasos (para escribir el patrón del sample)">▦ rejilla</button>
     </span>
   ) : isDrumCode(c) ? (
     <span className="seqs-viewinline">
       <span className="seqs-sectag">vista</span>
-      <button className={drumView === 'grid' ? 'on' : ''} onClick={() => setDrumView('grid')} title="rejilla de pasos: una fila por sonido">▦ rejilla</button>
-      <button className={drumView === 'pads' ? 'on' : ''} onClick={() => setDrumView('pads')} title="16 pads: tocar, cadena de efectos por pad, grupos de corte y cambiar el sample escuchándolo en el patrón">◫ pads</button>
+      <button className={drumView === 'grid' ? 'on' : ''} onClick={() => { gridFromShot.current = false; setDrumView('grid'); }} title="rejilla de pasos: una fila por sonido">▦ rejilla</button>
+      <button className={drumView === 'pads' ? 'on' : ''} onClick={() => { gridFromShot.current = false; setDrumView('pads'); }} title="16 pads: tocar, cadena de efectos por pad, grupos de corte y cambiar el sample escuchándolo en el patrón">◫ pads</button>
     </span>
   ) : null);
   const plainEditor = (c: string, wrapFn?: (x: string) => string, seedFrom?: string, previewCode?: string, headOff?: boolean) => {
+    if (isClipCode(c) && isDrumOneShot(c) && clipViewFor(c) === 'grid') gridFromShot.current = true;
     const melodic = isMelodicCode(c);
     const plain = c.trim();
     // en grande la vista ya está en la fila de variación (si esa fila se muestra)
@@ -982,7 +1007,7 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
         )}
         {big && drumView === 'pads' && isDrumCode(c)
           ? <DrumPads id={id} code={c} wrap={wrapFn} headOff={headOff} armPos={armPos} />
-          : big && clipView === 'wave' && isClipCode(c)
+          : big && clipViewFor(c) === 'wave' && isClipCode(c)
           ? <SampleEditor id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />
           : melodic && view === 'roll'
           ? (big

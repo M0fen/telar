@@ -1,3 +1,4 @@
+import { categorize } from './sampleCategory';
 // CÓDIGO DE UN CLIP DE AUDIO (Fase 9.5) — lógica PURA (testeable en Node).
 //
 // Un loop o un sample suelto es un solo evento por vuelta: `s("wl_top_ab12").slow(4)`. Lo que el
@@ -155,4 +156,13 @@ export function tempoFromMarker(bar: number, sec: number, durSec: number, bpc = 
   if (!(bpm >= 40 && bpm <= 300)) return null;
   const beats = Math.round((durSec * bpm) / 60);
   return beats >= 1 ? { bpm, beats } : null;
+}
+
+// ¿Un GOLPE de batería suelto (bombo, caja, hat, platillo, percusión) sin tramo ni tono? Se abre en
+// la rejilla, no en la onda: al soltar un hat lo que quieres es escribir el patrón. Un loop o un
+// sample largo sigue abriéndose en su onda.
+export function isDrumOneShot(code: string): boolean {
+  const c = parseClip(code);
+  if (!c || c.slice || c.rev || c.semis || c.begin > 0 || c.end < 1 || c.cycles !== 1 || c.fadeIn || c.fadeOut) return false;
+  return ['kick', 'snare', 'hat', 'cymbal', 'perc'].includes(categorize(c.name));
 }

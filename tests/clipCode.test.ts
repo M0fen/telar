@@ -68,3 +68,13 @@ test('rejilla del tramo, cortes que se mueven y marcador de tempo', () => {
   assert.deepEqual(tempoFromMarker(2, 3.6, 14.4), { bpm: 133.33, beats: 32 });
   assert.equal(tempoFromMarker(1, 0.01, 4), null);
 });
+
+test('un golpe de batería suelto abre en la rejilla; un loop, en su onda', async () => {
+  const { isDrumOneShot } = await import('../src/lib/clipCode.ts');
+  assert.equal(isDrumOneShot('s("rolandtr909_hh")'), true);
+  assert.equal(isDrumOneShot('s("rolandtr909_bd")'), true);
+  assert.equal(isDrumOneShot('s("wl_top_ab12").slow(4)'), false); // loop al tempo
+  assert.equal(isDrumOneShot('s("rolandtr909_hh").begin(0.2)'), false); // ya recortado: es un clip
+  assert.equal(isDrumOneShot('s("amen")'), false); // break
+  assert.equal(isDrumOneShot('s("bd sd")'), false); // ya es un patrón
+});

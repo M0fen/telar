@@ -695,3 +695,35 @@ test('9.3 largo: micro-timing y humanize se escriben ÷compases (suenan igual qu
   assert.ok(Math.abs((back.human ?? 0) - 0.5) < 1e-9);
   assert.equal(rebuild(out), out, 'round-trip inestable');
 });
+test('un golpe por compás se ve en 16 pasos y suena igual', async () => {
+  const { parseSeq, buildSeq, widenOneStep } = await import('../src/nodes/stepseqCode.ts');
+  const p = parseSeq('s("rolandtr909_hh")')!;
+  assert.equal(p.steps, 1);
+  const w = widenOneStep(p.lanes, p.steps, 16);
+  assert.equal(w.steps, 16);
+  assert.equal(w.lanes[0].steps.filter((v) => v > 0).length, 1);
+  assert.ok(w.lanes[0].steps[0] > 0);
+  // al escribir un hat en los contratiempos, el código queda con 16 pasos
+  const l = { ...w.lanes[0], steps: w.lanes[0].steps.map((v, i) => (i % 4 === 2 ? 1 : i === 0 ? 0 : v)) };
+  const code = buildSeq(p, [l], 16);
+  const back = parseSeq(code)!;
+  assert.equal(back.steps, 16);
+  assert.deepEqual(back.lanes[0].steps.map((v) => (v > 0 ? 1 : 0)), [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0]);
+  // un patrón de varios pasos no se toca
+  const q = parseSeq('s("bd sd")')!;
+  assert.equal(widenOneStep(q.lanes, q.steps, 16).steps, q.steps);
+});
+
+test('una fila que se queda sin golpes sigue en la rejilla', async () => {
+  const { parseSeq, buildSeq, keepEmptyLanes } = await import('../src/nodes/stepseqCode.ts');
+  const p = parseSeq('stack(s("bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~"), s("hh ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~"))')!;
+  const cleared = p.lanes.map((l) => (l.sound === 'hh' ? { ...l, steps: l.steps.map(() => 0) } : l));
+  const back = parseSeq(buildSeq(p, cleared, p.steps))!;
+  const kept = keepEmptyLanes(cleared, back.lanes);
+  assert.deepEqual(kept.map((l) => l.sound), ['bd', 'hh']);
+  // una sola fila: el código queda en silencios, la fila no se pierde
+  const one = parseSeq('s("hh ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~ ~")')!;
+  const z = one.lanes.map((l) => ({ ...l, steps: l.steps.map(() => 0) }));
+  const b2 = parseSeq(buildSeq(one, z, one.steps));
+  assert.deepEqual(keepEmptyLanes(z, b2?.lanes ?? []).map((l) => l.sound), ['hh']);
+});
