@@ -1,8 +1,7 @@
 # Telar · plan DAW visual (Fases 8–12)
 
-Estado (26-10-2026): **8.1–9.5 hechas** (desplegadas en main). **Pausado por Carlos** («deja una
-etapa funcional y el resto pendiente»): 9.6, 9.7 y las Fases 10–12 siguen pendientes, sin tocar.
-Cualquier cosa de aquí en adelante: plan corto y esperar su OK.
+Estado (31-10-2026): **Fases 8–12 hechas** (desplegadas en main). Lo que queda es oírlo con Carlos
+(`escuchas-pendientes.md`, §15) y pulir. Cualquier cosa nueva: plan corto y esperar su OK.
 
 | Hecho | Commit |
 |---|---|
@@ -12,14 +11,18 @@ Cualquier cosa de aquí en adelante: plan corto y esperar su OK.
 | 9.3 patrones de 1/2/4 compases, polimetría, condiciones por vuelta | 753865b |
 | 9.4 piano roll grande | e2deec5 |
 | 9.5 editor de loops y samples | 7361bd1 |
+| 9.6 cabeceras de pista y carpetas | df8048d |
+| 9.7 pads de batería | 635f145 |
+| 10.1–10.3 clips libres, editar clips, pista de arreglo (mueve curvas y transiciones) | ffca45f |
+| 10.4–10.5 de la biblioteca al compás, marcadores y minimapa | 90c5bec |
+| 11 mezclador, EQ visual, compresor y sidechain, análisis del máster, cadena y macros, escenario | 4414138 |
+| 12.1–12.4 atajos y Ctrl+K, ayuda contextual, historial de deshacer, carga del audio | b6fd73e |
+| 12.5 lanzador de clips | eb2c089 |
+| Arreglos: ondas de loops en los bloques · piano roll pequeño con acordes y fantasmas · rebanadas «a mano» | c505e3d · 71f5972 · bf798f4 |
 
-**Pendiente:** 9.6 cabeceras de pista · 9.7 pads de batería · Fase 10 (clips libres, editar clips,
-pista de arreglo que mueve curvas y transiciones, biblioteca al compás, marcadores y minimapa) ·
-Fase 11 (mezclador, EQ visual, compresor visible, análisis del máster, cadena y macros, escenario
-espacial) · Fase 12 (atajos y Ctrl+K, ayuda contextual, historial de deshacer, CPU, lanzador de clips).
-**A revisar al retomar:** en el DAW, el bloque de un loop por secciones a veces dibuja cajas en vez
-de su onda (¿la onda aún cargando?); el piano roll pequeño del nodo no tiene notas fantasma ni
-acordes en tono (solo el grande); las rebanadas movidas a mano se marcan como «golpes».
+Aparte de este plan, el modo DJ quedó listo para tocar (volumen, crossfader, filtro y EQ en el bus sin
+recompilar, mute/solo al compás, cue en auriculares, MIDI de la mesa por posición): 011199b.
+
 Informe completo (capturas, comparación de 116 ayudas en 15 áreas, maqueta, fuentes):
 https://claude.ai/artifact/GsngUdVTPAPHDSMoHrxxuF
 
