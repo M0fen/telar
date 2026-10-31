@@ -11,6 +11,7 @@ import { STRUCTURE_TEMPLATES } from '../../lib/arrangeEdit';
 import { playFrom, playSong } from '../../lib/songTransport';
 import { newPadTrack } from '../../audio/padRecorder';
 import { HelpLine } from './HelpLine';
+import { openLibrary } from '../../lib/openLibrary';
 
 // ATAJOS Y PALETA DE COMANDOS (Fase 12.1): Ctrl+K busca cualquier acción (escribe y Enter); «?»
 // abre la hoja de atajos de teclado. Las acciones se arman al abrir (las secciones y las pistas de
@@ -40,7 +41,7 @@ function commands(): Cmd[] {
     { id: 'launch', group: 'DAW', label: daw.launcher && g.mode === 'daw' ? 'volver a la línea de tiempo' : 'lanzador de clips (pistas × variaciones)', run: () => { g.setMode('daw'); daw.setLauncher(!(daw.launcher && g.mode === 'daw')); }, words: 'launcher clips sesion escenas tocar en vivo' },
     { id: 'marker', group: 'DAW', label: 'marcador en el cabezal', keys: 'M', run: () => { g.setMode('daw'); window.dispatchEvent(new CustomEvent('telar:marker')); }, words: 'marca' },
     { id: 'export', group: 'canción', label: 'exportar el tema (WAV, MP3, stems, MIDI)', run: () => { g.setMode('daw'); window.setTimeout(() => (document.querySelector('button[title^="exportar a WAV"]') as HTMLButtonElement | null)?.click(), 120); }, words: 'export guardar audio mp3 wav descargar bajar' },
-    { id: 'library', group: 'sonidos', label: 'explorar sonidos (biblioteca)', run: () => window.dispatchEvent(new CustomEvent('telar:library', { detail: { id: Date.now() } })), words: 'samples sonidos buscar kick bombo hats' },
+    { id: 'library', group: 'sonidos', label: 'explorar sonidos (biblioteca)', run: openLibrary, words: 'samples sonidos buscar kick bombo hats' },
     { id: 'tutorial', group: 'ayuda', label: 'tutorial: hacer música con Telar', run: () => window.dispatchEvent(new CustomEvent('telar:tutorial')), words: 'ayuda guia empezar aprender' },
     { id: 'drum', group: 'pistas', label: '＋ pista de batería para grabar con pads', run: () => newPadTrack('drum'), words: 'nueva drums' },
     { id: 'mel', group: 'pistas', label: '＋ pista de melodía para grabar con pads', run: () => newPadTrack('melody'), words: 'nueva teclado' },
