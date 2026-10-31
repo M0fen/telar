@@ -70,7 +70,8 @@ function Sec({
   );
 }
 
-export function Palette() {
+// `dj`: la biblioteca del modo DJ (sin nodos ni efectos de grafo: solo sonidos, que entran como decks)
+export function Palette({ dj = false }: { dj?: boolean } = {}) {
   const addNode = useGraphStore((s) => s.addNode);
   const addPattern = useGraphStore((s) => s.addPattern);
   const patterns = useLibraryStore((s) => s.patterns);
@@ -86,18 +87,18 @@ export function Palette() {
   // Resultados de búsqueda: fx + transform + items de kits que casen con el texto.
   const results = useMemo(() => {
     if (!ql) return null;
-    const ops = OPS.filter((o) => o.label.toLowerCase().includes(ql) || o.id.toLowerCase().includes(ql));
+    const ops = dj ? [] : OPS.filter((o) => o.label.toLowerCase().includes(ql) || o.id.toLowerCase().includes(ql));
     const kits = URBAN_KITS.flatMap((g) =>
       g.items
         .filter((it) => it.label.toLowerCase().includes(ql) || it.name.toLowerCase().includes(ql) || g.genre.toLowerCase().includes(ql))
         .map((it) => ({ ...it, genre: g.genre }))
     );
     return { ops, kits };
-  }, [ql]);
+  }, [ql, dj]);
 
   return (
-    <aside className={`palette${open ? '' : ' collapsed'}`}>
-      <button
+    <aside className={`palette${open ? '' : ' collapsed'}${dj ? ' palette-dj' : ''}`}>
+      {!dj && <button
         className="pal-collapse"
         onClick={() => setOpen((o) => !o)}
         title={open ? 'colapsar paleta' : 'expandir paleta'}
@@ -106,20 +107,20 @@ export function Palette() {
           <polyline points="15 6 9 12 15 18" />
         </svg>
         <span className="pal-collapse-lbl">paleta</span>
-      </button>
+      </button>}
       {/* el cuerpo se OCULTA con CSS (no se desmonta) para no perder estado de la
           grabadora/descargador al colapsar. */}
       <div className="palette-body">
-        <section>
+        {!dj && <section>
           <h3>nodos</h3>
           <DragItem label="+ source" item={{ kind: 'source' }} hint="patrón / mini-notación" />
           <button className="pal-item pal-out" onClick={() => addNode('out')}>+ out</button>
-        </section>
+        </section>}
 
         <input
           className="pal-search"
           value={q}
-          placeholder="buscar fx, transform, kit…"
+          placeholder={dj ? 'buscar kit…' : 'buscar fx, transform, kit…'}
           onChange={(e) => setQ(e.target.value)}
         />
 
@@ -147,20 +148,20 @@ export function Palette() {
           </section>
         ) : (
           <>
-            <Sec id="fx" title="fx · arrastra al cable" count={fx.length} openSet={openSet} toggle={toggle}>
+            {!dj && <Sec id="fx" title="fx · arrastra al cable" count={fx.length} openSet={openSet} toggle={toggle}>
               <div className="pal-grid">
                 {fx.map((o) => (
                   <DragItem key={o.id} label={o.label} item={{ kind: 'fx', opId: o.id }} hint="suelta sobre un cable → inserción en vivo" />
                 ))}
               </div>
-            </Sec>
-            <Sec id="transform" title="transform" count={transforms.length} openSet={openSet} toggle={toggle}>
+            </Sec>}
+            {!dj && <Sec id="transform" title="transform" count={transforms.length} openSet={openSet} toggle={toggle}>
               <div className="pal-grid">
                 {transforms.map((o) => (
                   <DragItem key={o.id} label={o.label} item={{ kind: 'transform', opId: o.id }} hint="arrastra al lienzo o al cable" />
                 ))}
               </div>
-            </Sec>
+            </Sec>}
             <Sec id="urbano" title="urbano · clic para añadir" openSet={openSet} toggle={toggle}>
               {URBAN_KITS.map((g) => (
                 <div key={g.genre} className="pal-kit">

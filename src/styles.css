@@ -2465,6 +2465,48 @@ button.pal-item { width: 100%; }
 .dj-xf-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 22px; background: var(--accent); border-radius: 2px; cursor: ew-resize; box-shadow: 0 0 6px var(--accent-dim); }
 .dj-xf-range::-moz-range-thumb { width: 14px; height: 22px; background: var(--accent); border: none; border-radius: 2px; cursor: ew-resize; }
 
+/* botón MIDI al final de las pestañas de la consola */
+.dj-tabs { display: flex; align-items: center; }
+.dj-tabs .dj-midibtn { margin-left: auto; padding: 3px 7px; font-size: 9px; }
+/* fila del crossfader + «al compás» */
+.dj-xfrow { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.dj-xfrow .dj-xfader { flex: 1; margin-bottom: 0; position: relative; }
+.dj-xfrow .dj-xf-range { width: 100%; }
+.dj-q { flex: none; background: #04070a; border: 1px solid var(--line); color: var(--dim); font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 7px; border-radius: 1px; cursor: pointer; white-space: nowrap; position: relative; }
+.dj-q.on { border-color: var(--accent-dim); color: var(--accent); }
+/* audífonos (cue) */
+.dj-hp { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 6px 0 8px; border-top: 1px solid rgba(120,150,165,0.08); }
+.dj-hp-ico { font-size: 13px; line-height: 1; }
+.dj-hp-dev { flex: 1 1 120px; min-width: 0; background: #04070a; border: 1px solid var(--line); color: var(--text); font-family: var(--mono); font-size: 10px; padding: 3px 4px; border-radius: 1px; }
+.dj-hp-scan { background: none; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 5px; border-radius: 1px; }
+.dj-hp-scan:hover { color: var(--accent); border-color: var(--accent-dim); }
+.dj-hp-knob { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.dj-hp-knob > span { font-size: 7px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.dj-hp-msg { flex-basis: 100%; margin: 2px 0 0; font-size: 10px; color: var(--warn); line-height: 1.35; }
+/* deck: número, cue, entrada pendiente (parpadea hasta el 1), quitar en dos toques */
+.deck-num { font-family: var(--tech); font-size: 11px; color: var(--accent-dim); min-width: 10px; text-align: center; }
+.deck-ms button { flex: 1; padding-left: 4px; padding-right: 4px; position: relative; }
+.deck-cue { flex: 0 0 34px !important; background: #04070a; border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-size: 12px; line-height: 1; padding: 3px 0; border-radius: 1px; }
+.deck-cue:hover { border-color: #e7b84a; }
+.deck-cue.on { background: #e7b84a; border-color: #e7b84a; color: #1a1205; }
+.ch.cued { box-shadow: inset 0 0 0 1px rgba(231,184,74,0.55); }
+.ch.muted.cued { opacity: 0.85; }
+@keyframes deck-pend { 50% { opacity: 0.35; } }
+.ch.pending .ch-mute, .ch.pending .ch-solo.on { animation: deck-pend 0.32s steps(1) infinite; }
+.ch.pending { border-top-color: #e7b84a; }
+.ch-x.armed { color: #1a0a05; background: var(--warn); font-size: 9px; letter-spacing: 0.04em; padding: 2px 5px; border-radius: 1px; }
+/* soltar audio sobre los decks */
+.dj-decks.dropping { outline: 1px dashed var(--accent); outline-offset: -3px; background: rgba(60,200,180,0.04); }
+/* MIDI: «asignar» resalta lo que se puede asignar; lo elegido, sólido. Etiqueta del control asignado */
+.deck-learn { position: relative; display: inline-flex; flex-direction: column; align-items: center; }
+.dj.learning [data-midi] { outline: 1px dashed rgba(231,184,74,0.65); outline-offset: 1px; cursor: copy !important; }
+.dj.learning [data-midi] * { cursor: copy !important; }
+.mk { position: absolute; top: -6px; right: -6px; font-style: normal; font-family: var(--mono); font-size: 7px; line-height: 1; padding: 1px 2px; border-radius: 2px; background: #e7b84a; color: #1a1205; pointer-events: none; white-space: nowrap; letter-spacing: 0; text-transform: none; z-index: 2; }
+.dj-learn-hint { margin: -2px 0 8px; font-size: 10px; color: #e7b84a; line-height: 1.35; }
+/* biblioteca en la consola DJ */
+.dj-console-body .palette.palette-dj { position: static; width: auto; max-height: none; overflow: visible; background: transparent; backdrop-filter: none; border: none; box-shadow: none; padding: 0; }
+.dj-console-body .palette.palette-dj .palette-body { display: flex; }
+
 /* --- reverb: selector de espacio (IR) en el máster --- */
 .perf-space { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
 .perf-space-tag { font-size: 8px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }

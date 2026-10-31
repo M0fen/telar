@@ -14,8 +14,6 @@ import '@xyflow/react/dist/style.css';
 import { useGraphStore, type GNode } from './store/useGraphStore';
 import { useScenesStore } from './store/useScenesStore';
 import { tapTempo } from './lib/tapTempo';
-import { registerLocalSample } from './audio/engine';
-import { sampleDuration, sampleSourceCode } from './lib/audioMeta';
 import { readSharedProject, clearShareHash } from './lib/share';
 import { nodeTypes } from './nodes/nodeTypes';
 import { SignalEdge } from './nodes/SignalEdge';
@@ -52,8 +50,8 @@ import { useSamplePacksStore } from './store/useSamplePacksStore';
 import { useDownloadsStore } from './store/useDownloadsStore';
 import { loadSamplePack, registerSample } from './audio/engine';
 import { hydrateUserSounds } from './lib/userPacks';
-import { addLoopToCanvas } from './lib/warpActions';
-import { addMidiToCanvas, isMidiFile } from './lib/midiActions';
+import { importDroppedFiles } from './lib/dropFiles';
+import { useMidiSlotRegistry } from './ui/useMidiSlots';
 import { initWarpSync } from './audio/warpLoops';
 import { setVoiceUrl } from './lib/voiceUrls';
 import { tokens } from './theme/tokens';
@@ -87,7 +85,6 @@ export default function App() {
   const onEdgesChange = useGraphStore((s) => s.onEdgesChange);
   const onConnect = useGraphStore((s) => s.onConnect);
   const addNode = useGraphStore((s) => s.addNode);
-  const addPattern = useGraphStore((s) => s.addPattern);
   const insertOnEdge = useGraphStore((s) => s.insertOnEdge);
   const replaceOp = useGraphStore((s) => s.replaceOp);
   const dragItem = useGraphStore((s) => s.dragItem);
@@ -117,6 +114,7 @@ export default function App() {
   const dl = useDockStore((s) => dockWidth(s, dockView, 'l'));
   const dr = useDockStore((s) => dockWidth(s, dockView, 'r'));
   const docked = mode !== 'dj';
+  useMidiSlotRegistry(); // MIDI: el controlador toca aunque el panel EN VIVO esté cerrado
   const trackColors = useTrackColorStore((s) => s.map); // minimapa (8.7)
   // PANEL DE DETALLE (9.2): abajo, entre los laterales; el lienzo y el DAW terminan encima
   const detailH = useDetailStore((s) => (s.nodeId ? s.h : 0));
@@ -405,32 +403,7 @@ export default function App() {
 
   // Suelta archivos de audio locales sobre el lienzo → los registra como samples
   // y crea un Source `s("local_…")` por cada uno, en el punto del drop.
-  const onDropFiles = useCallback(
-    (files: FileList, at: XYPosition) => {
-      // MIDI (.mid de Splice, Fase 5.5): un Source por pista, con el synth, en el punto del drop
-      for (const f of Array.from(files).filter(isMidiFile)) void addMidiToCanvas(f, { x: at.x - 60, y: at.y - 30 });
-      const audio = Array.from(files).filter((f) => !isMidiFile(f) && (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aac|m4a|webm)$/i.test(f.name)));
-      audio.forEach((f, i) => {
-        const base = f.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'sample';
-        const name = `local_${base}`.slice(0, 40);
-        // Registrar ANTES de compilar (si no, el 1er compile no encuentra el sample →
-        // suena mudo) y medir la duración: un sample LARGO va con loopAt(N) para que no
-        // se re-dispare cada ciclo y se solape consigo mismo. Los cortos quedan s("name").
-        void (async () => {
-          const pos = { x: at.x - 60 + i * 24, y: at.y - 30 + i * 24 };
-          // un LOOP (BPM en el nombre de Splice, o un pulso que encaja con su duración) entra
-          // AL TEMPO DEL TEMA, sin cambiar el tono (Fase 5.2); lo demás, a su tempo natural
-          if (await addLoopToCanvas(f, f.name, { pos }).catch(() => null)) return;
-          await registerLocalSample(name, f).catch(() => {});
-          const cps = useGraphStore.getState().cps || 0.5;
-          const dur = await sampleDuration(URL.createObjectURL(f)).catch(() => 0);
-          const code = sampleSourceCode(name, dur, cps);
-          addPattern(code, base, undefined, pos);
-        })();
-      });
-    },
-    [addPattern]
-  );
+  const onDropFiles = useCallback((files: FileList, at: XYPosition) => { importDroppedFiles(files, at); }, []);
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -590,7 +563,7 @@ export default function App() {
             </svg>
           </button>
           <div className="rt-group">
-          {mode !== 'dj' && (
+          {(
             <div className="edit-tools">
               <button className="et-btn" onClick={undo} disabled={!canUndo} title="deshacer (Ctrl+Z)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M9 7 4 12l5 5" /><path d="M4 12h11a5 5 0 0 1 0 10h-1" /></svg>

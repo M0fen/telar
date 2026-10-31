@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import './MidiLive.css';
 import { useTrackColorStore } from '../store/useTrackColorStore';
-import { startMidiInput, setLiveFx, releaseAllLiveFx, getScheduler, type LiveFxKey } from '../audio/engine';
-import { registerSlots, handleMidi, type MidiSlot } from '../audio/midiIn';
+import { setLiveFx, releaseAllLiveFx, getScheduler, type LiveFxKey } from '../audio/engine';
+import { connectMidi, type MidiSlot } from '../audio/midiIn';
+import { djSlotName } from '../audio/djMidi';
 import { toggleAB, useRefStore } from '../audio/refTrack';
 import { togglePadRec } from '../audio/padRecorder';
 import { PadRecSection } from './PadRecSection';
@@ -164,6 +165,32 @@ const resetAll = () => {
   if (Object.keys(upd).length) g.applyNodeStates(upd);
 };
 
+// SLOTS MIDI del panel EN VIVO (perillas, pads, pistas, escenas). Los registra la app entera (aunque
+// el panel esté cerrado o en otra pestaña), así el controlador sigue tocando.
+export function buildLiveSlots(): Record<string, MidiSlot> {
+  const sources = gs().nodes.filter((n) => n.data.kind === 'source');
+  const slots: Record<string, MidiSlot> = {};
+  for (const k of KNOBS) {
+    slots[`fx.${k.id}`] = {
+      kind: 'knob',
+      get: () => knobFrom(k, (gs().master[k.param] as number) ?? 0),
+      set: (v) => setM({ [k.param]: knobTo(k, v) } as Partial<MasterFx>),
+    };
+  }
+  for (const m of MOMENTARY) slots[`mom.${m.id}`] = { kind: 'pad', down: () => engageMom(m), up: () => releaseMom(m) };
+  slots['reset'] = { kind: 'tap', tap: () => resetAll() };
+  for (const s of sources) {
+    const id = s.id;
+    slots[`src.${id}.mute`] = { kind: 'tap', tap: () => gs().updateNodeData(id, { mute: !srcMuted(id) }) };
+    slots[`src.${id}.gain`] = { kind: 'knob', get: () => srcGain(id) / 1.5, set: (v) => gs().updateNodeData(id, { gain: v * 1.5 }) };
+    slots[`src.${id}.filter`] = { kind: 'knob', get: () => (srcFilter(id) + 1) / 2, set: (v) => gs().updateNodeData(id, { chFilter: v * 2 - 1 }) };
+  }
+  for (let n = 1; n <= 8; n++) slots[`scene.${n}`] = { kind: 'tap', tap: () => useScenesStore.getState().trigger(n) };
+  slots['ref.ab'] = { kind: 'tap', tap: () => void toggleAB() }; // A/B con la referencia (6.3)
+  slots['padrec.rec'] = { kind: 'tap', tap: () => togglePadRec() }; // ● grabar desde los pads (7.1)
+  return slots;
+}
+
 // Monitor aparte: es lo ÚNICO que se repinta con cada mensaje del controlador (un barrido de
 // perilla manda decenas por segundo; antes se repintaba el panel entero). El punto parpadea
 // con una animación CSS que reinicia `key` → se apaga solo (antes quedaba encendido).
@@ -192,7 +219,6 @@ export function MidiLive({ docked = false }: { docked?: boolean } = {}) {
   const nodes = useGraphStore((s) => s.nodes);
   const sources = nodes.filter((n) => n.data.kind === 'source');
   const colors = useTrackColorStore((s) => s.map); // color de cada pista (8.5)
-  const srcSig = sources.map((s) => s.id).join('|');
 
   // minimizar: persiste en localStorage, uno por vista (el panel puede seguir montado al pasar
   // de DJ a DAW, por eso se guardan los dos y se elige por la vista actual).
@@ -205,45 +231,13 @@ export function MidiLive({ docked = false }: { docked?: boolean } = {}) {
     return { ...c, [view]: v };
   });
 
-  useEffect(() => {
-    const slots: Record<string, MidiSlot> = {};
-    for (const k of KNOBS) {
-      slots[`fx.${k.id}`] = {
-        kind: 'knob',
-        get: () => knobFrom(k, (gs().master[k.param] as number) ?? 0),
-        set: (v) => setM({ [k.param]: knobTo(k, v) } as Partial<MasterFx>),
-      };
-    }
-    for (const m of MOMENTARY) slots[`mom.${m.id}`] = { kind: 'pad', down: () => engageMom(m), up: () => releaseMom(m) };
-    slots['reset'] = { kind: 'tap', tap: () => resetAll() };
-    for (const s of sources) {
-      const id = s.id;
-      slots[`src.${id}.mute`] = { kind: 'tap', tap: () => gs().updateNodeData(id, { mute: !srcMuted(id) }) };
-      slots[`src.${id}.gain`] = { kind: 'knob', get: () => srcGain(id) / 1.5, set: (v) => gs().updateNodeData(id, { gain: v * 1.5 }) };
-      slots[`src.${id}.filter`] = { kind: 'knob', get: () => (srcFilter(id) + 1) / 2, set: (v) => gs().updateNodeData(id, { chFilter: v * 2 - 1 }) };
-    }
-    for (let n = 1; n <= 8; n++) slots[`scene.${n}`] = { kind: 'tap', tap: () => useScenesStore.getState().trigger(n) };
-    slots['ref.ab'] = { kind: 'tap', tap: () => void toggleAB() }; // A/B con la referencia (6.3)
-    slots['padrec.rec'] = { kind: 'tap', tap: () => togglePadRec() }; // ● grabar desde los pads (7.1)
-    registerSlots(slots);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [srcSig]);
 
   const onMidiBtn = async () => {
     if (on) {
       setStatus({ learn: !learn, pick: null });
       return;
     }
-    if (!('requestMIDIAccess' in navigator)) {
-      setStatus({ err: 'Este navegador no tiene MIDI. Usa Chrome o Edge y conecta el controlador por cable USB.' });
-      return;
-    }
-    const list = await startMidiInput(handleMidi, (l) => setStatus({ inputs: l }));
-    if (!list) {
-      setStatus({ err: 'No pude abrir el MIDI: acepta el permiso del navegador (Chrome/Edge) y vuelve a pulsar «Conectar MIDI».' });
-      return;
-    }
-    setStatus({ on: true, inputs: list, err: '', learn: Object.keys(map).length === 0 });
+    await connectMidi();
   };
 
   const pickIf = (slot: string): boolean => {
@@ -253,6 +247,8 @@ export function MidiLive({ docked = false }: { docked?: boolean } = {}) {
   };
   const pickName = (slot: string | null): string => {
     if (!slot) return '';
+    const dj = djSlotName(slot);
+    if (dj) return dj;
     const [kind, a, b] = slot.split('.');
     if (kind === 'fx') return `${KNOBS.find((k) => k.id === a)?.label ?? a} · perilla`;
     if (kind === 'mom') { const m = MOMENTARY.find((x) => x.id === a); return m ? `${m.group} ${m.label}` : a; }

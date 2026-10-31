@@ -51,6 +51,10 @@ export interface ChannelEqRoute {
   comp: { thr: number; ratio: number; att: number; rel: number; makeup: number } | null;
   sends: { rev: number; del: number }; // envíos a los retornos compartidos (6.4), desde la tira
   autoSends?: boolean; // los envíos tienen curva (7.2): la tira y los retornos hacen falta aunque estén en 0
+  // MEZCLA EN EL BUS (modo DJ): fader (volumen × crossfader; 0 = mute) y filtro DJ (−1..1) de la
+  // pista, como nodos de audio de su tira → se mueven al instante, sin recompilar. undefined = 1 / 0.
+  fader?: number;
+  filter?: number;
 }
 
 export interface CompileResult {
@@ -718,6 +722,18 @@ export interface CompileOpts {
   // false = sin `.analyze()` (los medidores en vivo): el render offline corre en OTRO contexto de
   // audio y no puede conectarse a los analizadores del contexto en vivo.
   analyze?: boolean;
+  // MEZCLA EN EL BUS (modo DJ): cada Source va a su propio bus (orbit) y su volumen, crossfader,
+  // filtro DJ, mute y solo son nodos de audio de esa tira (engine: setStripLive) — actúan en el
+  // acto, aunque suene una nota larga (un loop de 4 compases es UNA nota). El código ya no los
+  // lleva. El sidechain duck apunta a los buses de las pistas que pasan por él.
+  busMix?: boolean;
+}
+
+// fader de bus de una pista (modo DJ): volumen × crossfader; 0 si está en mute o si hay solos y no es uno
+export function busFaderOf(d: { gain?: number; mute?: boolean; solo?: boolean; xfa?: unknown }, xfader: number, anySolo: boolean): number {
+  if (d.mute || (anySolo && !d.solo)) return 0;
+  const g = Math.max(0, Math.min(4, Number.isFinite(Number(d.gain)) ? Number(d.gain ?? 1) : 1));
+  return g * xfaderGain(d.xfa as 'a' | 'b' | undefined, xfader);
 }
 
 // Orbits fijos (Fase 4.1): sidechain duck por id del nodo fx, EQ por canal por id del source.
@@ -769,7 +785,7 @@ function compRoute(c: ChannelComp | undefined): ChannelEqRoute['comp'] {
 
 // Ganancia de crossfader por lado (curva de potencia constante: ambos a −3 dB en el
 // centro, como una mesa de DJ). asign 'a'|'b'|undefined; undefined = fuera del fader (1).
-function xfaderGain(assign: 'a' | 'b' | undefined, pos: number): number {
+export function xfaderGain(assign: 'a' | 'b' | undefined, pos: number): number {
   if (assign !== 'a' && assign !== 'b') return 1;
   const p = Math.max(0, Math.min(1, pos));
   return assign === 'a' ? Math.cos((p * Math.PI) / 2) : Math.sin((p * Math.PI) / 2);
@@ -803,12 +819,15 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   const plan = opts.orbitPlan;
   // con plan, los orbits libres empiezan después de TODOS los del plan (no chocan)
   let nextOrbit = plan ? Math.max(1, ...plan.sidechain.values(), ...plan.eq.values()) + 1 : 2; // 0/1 reservados al bus por defecto
+  const busMix = !!opts.busMix && !plan;
+  const busDuck = new Set<string>(); // nodos sidechain duck que, en busMix, duckean las tiras de sus pistas
   for (const n of nodes) {
     if (n.data.kind !== 'fx' || n.data.opId !== 'sidechain') continue;
     if (String(n.data.params?.mode ?? 'gen') !== 'duck') continue;
     const trig = String(n.data.params?.trigger ?? '');
     const trigNode = byId.get(trig);
     if (!trig || !trigNode || trigNode.data.kind !== 'source') continue; // → genérico
+    if (busMix) { busDuck.add(n.id); continue; }
     const orbit = plan?.sidechain.get(n.id) ?? nextOrbit++;
     sidechainOrbit.set(n.id, orbit);
     const depth = Math.max(0.05, Math.min(1, Number(n.data.params?.depth ?? 0.7)));
@@ -834,8 +853,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
     const sendsOn = sendsActive(n.data.sends) || autoSends;
     const planned = plan?.eq.get(n.id);
     // con plan: TODA pista del plan va a su orbit (EQ plano / compresor en bypass / envíos a 0 en
-    // las secciones donde no los tiene)
-    if (!eqOn && !comp && !sendsOn && planned == null) continue;
+    // las secciones donde no los tiene). En busMix (modo DJ), toda pista que no sea de transiciones.
+    const onBus = busMix && !Array.isArray(n.data.transitions);
+    if (!eqOn && !comp && !sendsOn && planned == null && !onBus) continue;
     const eq = eqOn ? n.data.eq! : { low: 0, mid: 0, high: 0 };
     const orbit = planned ?? nextOrbit++;
     eqOrbitBySource.set(n.id, orbit);
@@ -850,7 +870,38 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
       comp,
       sends: cleanSends(n.data.sends),
       ...(autoSends ? { autoSends: true } : {}),
+      ...(onBus ? { fader: busFaderOf(n.data, xfader, anySolo), filter: Math.max(-1, Math.min(1, Number(n.data.chFilter) || 0)) } : {}),
     });
+  }
+  // busMix: cada sidechain duck baja las TIRAS de las pistas que pasan por él (no un bus propio)
+  if (busMix) {
+    const upstream = (id: string): string[] => {
+      const out = new Set<string>();
+      const seen = new Set<string>();
+      const walk = (x: string) => {
+        if (seen.has(x)) return;
+        seen.add(x);
+        if (byId.get(x)?.data.kind === 'source') { out.add(x); return; }
+        for (const s of incoming.get(x) ?? []) walk(s);
+      };
+      for (const s of incoming.get(id) ?? []) walk(s);
+      return [...out];
+    };
+    for (const id of busDuck) {
+      const n = byId.get(id)!;
+      const trig = String(n.data.params?.trigger ?? '');
+      // un bombo callado (mute, o hay solos y no es uno) no bombea: su patrón sigue (para entrar en
+      // el 1) pero el fader de su tira lo calla, así que tampoco debe duckear a nadie
+      const td = byId.get(trig)?.data;
+      if (!td || td.mute || (anySolo && !td.solo)) continue;
+      const orbits = upstream(id).filter((sid) => sid !== trig).map((sid) => eqOrbitBySource.get(sid)).filter((o): o is number => o != null);
+      if (!orbits.length) continue;
+      const depth = Math.max(0.05, Math.min(1, Number(n.data.params?.depth ?? 0.7)));
+      const attack = Math.max(0.005, Math.min(0.5, Number(n.data.params?.attack ?? 0.1)));
+      const cur = duckByTrigger.get(trig) ?? { orbits: [], depth, attack };
+      for (const o of orbits) if (!cur.orbits.includes(o)) cur.orbits.push(o);
+      duckByTrigger.set(trig, cur);
+    }
   }
 
   const resolve = (id: string, stack: Set<string>): Expr | null => {
@@ -861,7 +912,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
     if (!node) return null;
     // nodo cortado (click derecho) → su salida es silencio, corta toda la rama.
     // Incluye el Out: anularlo silencia su mezcla (kill maestro si es el único).
-    if (node.data.mute) {
+    // (modo DJ: un DECK en mute no se corta — su fader lo calla y así puede entrar en el 1 sin recompilar)
+    if (node.data.mute && !(busMix && node.data.kind === 'source' && eqOrbitBySource.has(id))) {
       stack.delete(id);
       const cut: Expr = { text: 'silence', spans: [] };
       memo.set(id, cut);
@@ -889,8 +941,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         const code = raw.replace(INLINE_VIZ_RE, '').trim();
         if (!code) {
           firstError ??= 'Source vacío';
-        } else if (node.data.mute || (anySolo && !node.data.solo)) {
+        } else if ((node.data.mute || (anySolo && !node.data.solo)) && !(busMix && eqOrbitBySource.has(id))) {
           // canal en mute, o hay solos activos y éste no es uno: no aporta al máster.
+          // (modo DJ: el patrón sigue y el fader de su bus lo calla — así puede ENTRAR justo en el 1)
           expr = { text: 'silence', spans: [] };
         } else if (!sourceCompiles(code)) {
           // AÍSLA una fuente con código roto: suena `silence` en vez de tumbar el stack
@@ -985,9 +1038,11 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           // performance). Así el throw de wash SIEMPRE se oye, aunque el canal tenga reverb.
           const chRoom = Math.max(0, Math.min(0.8, Number(node.data.chRoom) || 0));
           const perfWash = perf?.wash && perf.wash > 0.02 ? Math.min(0.9, perf.wash) : 0;
+          // modo DJ: volumen, crossfader y filtro viven en el bus de la pista (no en el código)
+          const onBus = busMix && eqOrbitBySource.has(id);
           let text = applyMaster(`(${inner})`, {
-            gain: (node.data.gain ?? 1) * xf,
-            filter: node.data.chFilter ?? 0,
+            gain: onBus ? 1 : (node.data.gain ?? 1) * xf,
+            filter: onBus ? 0 : node.data.chFilter ?? 0,
             room: Math.max(chRoom, perfWash),
           });
           // AUTOMATIZACIÓN (Fase 3.1): volumen y filtro por compás de la canción, DESPUÉS de la
@@ -1014,7 +1069,10 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         } else if (op.id === 'sidechain') {
           const base = combine(inputs);
           const orbit = sidechainOrbit.get(node.id);
-          if (orbit != null) {
+          if (busDuck.has(node.id)) {
+            // modo DJ: el ducking lo hace el bombo sobre las tiras de las pistas de esta rama
+            expr = base;
+          } else if (orbit != null) {
             // DUCK REAL: enruta esta rama a un orbit propio; el bombo elegido
             // (params.trigger) genera el ducking de ese bus con `.duck(orbit)…`.
             expr = { text: `${base.text}.orbit(${orbit})`, spans: base.spans };

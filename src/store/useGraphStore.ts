@@ -14,6 +14,21 @@ import { OPS_BY_ID, defaultParams } from '../graph/ops';
 import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
+import { applyDjLive, djEntryNeedsCode, DJ_LIVE_KEYS, swapDelayForBar } from '../audio/djMix';
+let djSwapTimer: number | undefined;
+// MODO DJ: un deck nuevo entra EN SILENCIO (como cargar un tema en una bandeja): se escucha con 🎧 cue y
+// entra con mute, en el compás. Se avisa una vez por sesión.
+let djNewDeckTold = false;
+const djNewDeck = (mode: string): Partial<NodeData> => {
+  if (mode !== 'dj') return {};
+  if (!djNewDeckTold) {
+    djNewDeckTold = true;
+    toast.info('Deck nuevo en silencio: escúchalo con 🎧 cue y hazlo entrar con «mute» (cae en el compás).');
+  }
+  return { mute: true };
+};
+// claves que no cambian el sonido (pueden venir junto a las del modo DJ sin forzar recompilar)
+const DJ_QUIET_KEYS = new Set(['label', 'collapsed', 'showSynth', 'color']);
 import { registerIrReverbs } from '../audio/irReverb';
 import { registerUserPacks } from '../lib/userPacks';
 import { registerCloudBank } from '../lib/cloudBank';
@@ -268,7 +283,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
   const recompile = () => {
     const { nodes, edges, cps, playing, master, transpose, xfader, songKey } = get();
     const songBars = songTotal(useSongStore.getState().steps);
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly });
+    // modo DJ: volumen, crossfader, filtro, mute y solo de cada deck van a su tira del bus (en vivo)
+    const busMix = get().mode === 'dj';
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly, busMix });
     setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
@@ -510,7 +527,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         id,
         type: 'source',
         position: { x: 120 + Math.random() * 280, y: 200 + Math.random() * 220 },
-        data: { kind: 'source', code: 's("hh*8")' },
+        data: { kind: 'source', code: 's("hh*8")', ...djNewDeck(get().mode) },
       };
       nodes.push(src);
       let out = nodes.find((n) => n.data.kind === 'out');
@@ -559,6 +576,21 @@ export const useGraphStore = create<GraphState>((set, get) => {
       set({
         nodes: get().nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, ...patch } } : n)),
       });
+      // MODO DJ: volumen, filtro, EQ, crossfader, mute y solo de un deck se aplican en su tira del bus
+      // en el acto (sin recompilar); mute/solo caen en el 1 del próximo compás si «al compás» está activo.
+      if (get().mode === 'dj') {
+        const keys = Object.keys(patch);
+        if (keys.length && keys.every((k) => DJ_LIVE_KEYS.has(k) || DJ_QUIET_KEYS.has(k)) && keys.some((k) => DJ_LIVE_KEYS.has(k))) {
+          if (applyDjLive(get().nodes, get().xfader, { id, keys })) {
+            // el bombo de un sidechain entra o sale: el código (quién duckea) cambia justo en el compás
+            if (djEntryNeedsCode(get().nodes, id, keys)) {
+              window.clearTimeout(djSwapTimer);
+              djSwapTimer = window.setTimeout(() => get().recompile(), swapDelayForBar() * 1000);
+            }
+            return;
+          }
+        }
+      }
       // Sólo recompilamos (y re-evaluamos el audio) si el cambio afecta el sonido.
       // Renombrar o plegar son puramente visuales: no deben hacer hot-swap.
       // params/gain/chFilter cambian al arrastrar perillas → coalescido;
@@ -755,7 +787,11 @@ export const useGraphStore = create<GraphState>((set, get) => {
       }
     },
 
-    setMode: (mode) => set({ mode }),
+    setMode: (mode) => {
+      const was = get().mode === 'dj';
+      set({ mode });
+      if (was !== (mode === 'dj')) get().recompile(); // entrar/salir del modo DJ cambia dónde vive la mezcla
+    },
     setDjOrientation: (djOrientation) => set({ djOrientation }),
     setDjShowCode: (djShowCode) => set({ djShowCode }),
     setVizMode: (vizMode) => set({ vizMode }),
@@ -777,7 +813,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         id,
         type: 'source',
         position: pos ?? { x: 120 + Math.random() * 260, y: 220 + Math.random() * 200 },
-        data: { kind: 'source', code, name, ...extra },
+        data: { kind: 'source', code, name, ...(extra?.mute == null ? djNewDeck(get().mode) : {}), ...extra },
       };
       const { nodes, edges } = get();
       // AUTO-CONEXIÓN al Out (por defecto): un Source suelto no suena; conectarlo hace
@@ -931,7 +967,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
 
     setXfader: (n) => {
       set({ xfader: Math.max(0, Math.min(1, n)) });
-      scheduleRecompile(); // hot-swap en vivo, coalescido por frame (arrastre del fader)
+      // modo DJ: el crossfader mueve los faders del bus en el acto; si no, hot-swap coalescido
+      if (get().mode === 'dj' && applyDjLive(get().nodes, get().xfader, { keys: ['xfader'] })) return;
+      scheduleRecompile();
     },
 
     // los tres estudios son modales: abrir uno cierra los otros (no se apilan).

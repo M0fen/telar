@@ -953,12 +953,14 @@ export async function getMasterPostLatency(): Promise<number> {
 // y cut, que superdough no ofrece en el patrón. Mismo patrón defensivo que el
 // máster: todo en try/catch, y si el orbit aún no existe (se crea al primer evento)
 // se reintenta tras el siguiente swap.
-interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null; sends?: { rev: number; del: number }; autoSends?: boolean }
+interface ChannelEqRouteRT { orbit: number; source?: string; low: number; mid: number; high: number; midFreq: number; comp?: CompRoute | null; sends?: { rev: number; del: number }; autoSends?: boolean; fader?: number; filter?: number }
 export interface SdOrbit { output?: AudioNode }
 export interface SdController { nodes?: Record<number, SdOrbit>; output?: { connectToDestination?: (node: AudioNode, chans?: number[]) => void; destinationGain?: AudioNode }; getOrbit?: (orbit: number, chans: number[]) => SdOrbit }
 // tira de canal: EQ de 3 bandas → compresor (si su procesador está cargado en ese contexto) → salida,
 // y de la salida, los dos ENVÍOS a los retornos compartidos (6.4: post EQ, compresor y fader)
-export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; out: GainNode; rev: GainNode; del: GainNode; src: AudioNode; ctx: BaseAudioContext; autoSend?: { rev?: boolean; del?: boolean } }
+// (modo DJ) + FILTRO DJ (paso-alto → paso-bajo) y FADER de la pista, nodos de audio que se mueven en el
+// acto (setStripLive): `faderT`/`filterT` = el último valor pedido (para no pisar una rampa agendada)
+export interface ChanEqChain { orbit: number; low: BiquadFilterNode; mid: BiquadFilterNode; high: BiquadFilterNode; comp: AudioWorkletNode | null; hp: BiquadFilterNode; lp: BiquadFilterNode; fader: GainNode; out: GainNode; rev: GainNode; del: GainNode; src: AudioNode; ctx: BaseAudioContext; autoSend?: { rev?: boolean; del?: boolean }; faderT?: number; filterT?: number; faderAt?: number; cue?: GainNode }
 
 let channelEqRoutes: ChannelEqRouteRT[] = [];
 const chanEqChains = new Map<number, ChanEqChain>();
@@ -1007,13 +1009,62 @@ export function getSourceCompGr(sourceId: string): number {
   return o == null ? 0 : getOrbitGr(o);
 }
 
+// FILTRO DJ de la tira (−1..1: <0 paso-bajo hasta 100 Hz, >0 paso-alto hasta 5 kHz — la misma curva
+// que el filtro de canal en el código), deslizando para que barrerlo no haga «zipper»
+function setStripFilter(st: ChanEqChain, v: number, at?: number): void {
+  const t = Math.max(st.ctx.currentTime, at ?? 0);
+  const f = Math.max(-1, Math.min(1, Number.isFinite(v) ? v : 0));
+  const lp = f < -0.02 ? 18000 * Math.pow(100 / 18000, -f) : 20000;
+  const hp = f > 0.02 ? 20 * Math.pow(5000 / 20, f) : 10;
+  const nyq = st.ctx.sampleRate / 2 - 100;
+  for (const [node, hz] of [[st.lp, Math.min(nyq, lp)], [st.hp, hp]] as [BiquadFilterNode, number][]) {
+    try {
+      node.frequency.cancelScheduledValues(t);
+      node.frequency.setTargetAtTime(hz, t, 0.012);
+    } catch {
+      node.frequency.value = hz;
+    }
+  }
+  st.filterT = f;
+}
+// FADER de la tira: `at` (hora del contexto) = cambiar justo ahí (entrar en el 1 del compás);
+// sin `at`, ya. Rampa corta (sin clic) en ambos casos.
+function setStripFader(st: ChanEqChain, v: number, at?: number): void {
+  const g = Math.max(0, Math.min(4, Number.isFinite(v) ? v : 1));
+  const p = st.fader.gain;
+  const now = st.ctx.currentTime;
+  // una entrada ya agendada para el compás sigue en el compás (solo cambia el nivel al que llega)
+  if (at == null && st.faderAt != null && st.faderAt > now + 0.003) at = st.faderAt;
+  st.faderAt = at != null && at > now + 0.003 ? at : undefined;
+  try {
+    if (at != null && at > now + 0.003) {
+      p.cancelScheduledValues(now);
+      p.setValueAtTime(p.value, now);
+      p.setValueAtTime(p.value, at - 0.004);
+      p.linearRampToValueAtTime(g, at + 0.004);
+    } else {
+      p.cancelScheduledValues(now);
+      p.setTargetAtTime(g, now, 0.006);
+    }
+  } catch {
+    p.value = g;
+  }
+  st.faderT = g;
+}
+
 // valores de una tira de canal (EQ + compresor); los usan el audio en vivo y el render offline
 export function setChanStrip(st: ChanEqChain, r: ChannelEqRouteRT): void {
   st.low.gain.value = r.low; // dB
   st.mid.gain.value = r.mid;
   st.mid.frequency.value = r.midFreq;
   st.high.gain.value = r.high;
+  // fader y filtro de la pista (modo DJ): solo si cambiaron — no pisan una entrada agendada
+  const fv = r.fader ?? 1;
+  if (st.faderT == null || Math.abs(st.faderT - fv) > 1e-6) setStripFader(st, fv);
+  const flt = r.filter ?? 0;
+  if (st.filterT == null || Math.abs(st.filterT - flt) > 1e-6) setStripFilter(st, flt);
   if (st.comp) setCompParams(st.comp, r.comp ?? null);
+  if (st.cue) { const on = r.source != null && cueOn.has(r.source) ? 1 : 0; if (Math.abs(st.cue.gain.value - on) > 1e-3) st.cue.gain.setTargetAtTime(on, st.ctx.currentTime, 0.01); }
   // envíos: deslizan (sin «zipper» al girar la perilla). Uno automatizado lo lleva su curva.
   const t = st.ctx.currentTime;
   const ov = (w: 'rev' | 'del') => (r.source != null && st.ctx === liveCtxOrNull() ? sendOverride.get(`${r.source}:${w}`) : undefined);
@@ -1042,6 +1093,8 @@ function teardownChanEq(ctrl: SdController, st: ChanEqChain): void {
   try { st.out.disconnect(); } catch { /* */ }
   try { st.low.disconnect(); st.mid.disconnect(); st.high.disconnect(); } catch { /* */ }
   try { st.comp?.disconnect(); } catch { /* */ }
+  try { st.hp.disconnect(); st.lp.disconnect(); st.fader.disconnect(); } catch { /* */ }
+  try { st.cue?.disconnect(); } catch { /* */ }
   try { st.rev.disconnect(); st.del.disconnect(); } catch { /* */ }
   try { ctrl.output?.connectToDestination?.(st.src, [0, 1]); } catch { /* */ }
 }
@@ -1051,11 +1104,21 @@ export function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: Audi
     const low = new BiquadFilterNode(ctx, { type: 'lowshelf', frequency: 120 });
     const mid = new BiquadFilterNode(ctx, { type: 'peaking', frequency: 1000, Q: 1.0 });
     const high = new BiquadFilterNode(ctx, { type: 'highshelf', frequency: 4500 });
+    // filtro DJ y fader de la pista (modo DJ; neutros en las demás vistas)
+    const hp = new BiquadFilterNode(ctx, { type: 'highpass', frequency: 10, Q: 0.9 });
+    const lp = new BiquadFilterNode(ctx, { type: 'lowpass', frequency: Math.min(20000, ctx.sampleRate / 2 - 100), Q: 0.9 });
+    const fader = new GainNode(ctx, { gain: 1 });
     const out = new GainNode(ctx, { gain: 1 });
     // compresor del canal (6.1) detrás del EQ; sin su procesador cargado, la tira queda solo con EQ
     const comp = createCompNode(ctx, orbit, ctx === liveCtxOrNull());
     low.connect(mid); mid.connect(high);
-    if (comp) { high.connect(comp); comp.connect(out); } else high.connect(out);
+    if (comp) { high.connect(comp); comp.connect(hp); } else high.connect(hp);
+    hp.connect(lp); lp.connect(fader); fader.connect(out);
+    // toma de CUE (audífonos, modo DJ): antes del fader y después del EQ y el filtro, como el PFL de
+    // una mesa → un deck en silencio en la sala se puede escuchar antes de entrar
+    const cueSum = cueSumFor(ctx);
+    let cue: GainNode | undefined;
+    if (cueSum) { cue = new GainNode(ctx, { gain: 0 }); lp.connect(cue); cue.connect(cueSum); }
     if (comp) setCompParams(comp, null); // en bypass hasta que la ruta diga otra cosa
     // envíos a los retornos compartidos de ESTE contexto (en 0 hasta que la ruta diga otra cosa)
     const ret = returnsFor(ctx);
@@ -1068,7 +1131,7 @@ export function buildChanEq(ctx: BaseAudioContext, ctrl: SdController, src: Audi
     src.disconnect();
     src.connect(low);
     ctrl.output?.connectToDestination?.(out, [0, 1]);
-    return { orbit, low, mid, high, comp, out, rev, del, src, ctx };
+    return { orbit, low, mid, high, comp, hp, lp, fader, out, rev, del, src, ctx, cue };
   } catch {
     return undefined;
   }
@@ -1129,6 +1192,90 @@ export function applyChannelEqs(): void {
     applyLiveReturns(ctx, out?.destinationGain ?? null, (n) => out?.connectToDestination?.(n, [0, 1]), needed && !!out?.destinationGain);
   } catch {
     /* nunca romper el audio */
+  }
+}
+
+// MEZCLA EN VIVO (modo DJ): mueve el fader, el filtro o el EQ de la tira de una pista en el acto, sin
+// recompilar (y deja el valor en su ruta, para que el próximo swap no lo pise). `at` = hora del
+// contexto en que cambia el fader (entrar en el 1). false = la pista aún no tiene tira (recompilar).
+export function setStripLive(sourceId: string, patch: { fader?: number; filter?: number; low?: number; mid?: number; high?: number; midFreq?: number }, at?: number): boolean {
+  const o = sourceStrip.get(sourceId);
+  if (o == null) return false;
+  const r = channelEqRoutes.find((x) => x.orbit === o);
+  if (!r) return false;
+  // solo lo que CAMBIA (recalcular todos los faders no debe pisar la entrada agendada de otro deck)
+  const faderChanged = patch.fader != null && Math.abs((r.fader ?? 1) - patch.fader) > 1e-6;
+  const filterChanged = patch.filter != null && Math.abs((r.filter ?? 0) - patch.filter) > 1e-6;
+  Object.assign(r, patch);
+  const st = chanEqChains.get(o);
+  if (!st) return true; // la tira se arma en el próximo applyChannelEqs, ya con estos valores
+  try {
+    if (faderChanged) setStripFader(st, patch.fader!, at);
+    if (filterChanged) setStripFilter(st, patch.filter!);
+    if (patch.low != null || patch.mid != null || patch.high != null || patch.midFreq != null) {
+      const t = st.ctx.currentTime;
+      for (const [node, v] of [[st.low, r.low], [st.mid, r.mid], [st.high, r.high]] as [BiquadFilterNode, number][]) {
+        node.gain.cancelScheduledValues(t);
+        node.gain.setTargetAtTime(v, t, 0.008);
+      }
+      st.mid.frequency.value = r.midFreq;
+    }
+  } catch { /* nunca romper el audio */ }
+  return true;
+}
+// ¿tiene esta pista tira en el bus? (modo DJ: todas)
+export const hasStrip = (sourceId: string) => sourceStrip.has(sourceId);
+// BUS DE CUE (audífonos, modo DJ): las tomas pre-fader de las tiras del contexto en vivo suman aquí;
+// cueOut.ts lo manda (con algo de máster, a gusto) a la salida de audífonos.
+let cueSum: GainNode | null = null;
+function cueSumFor(ctx: BaseAudioContext): GainNode | null {
+  if (ctx !== liveCtxOrNull()) return null;
+  if (!cueSum || cueSum.context !== ctx) cueSum = new GainNode(ctx, { gain: 1 });
+  return cueSum;
+}
+export const getCueSum = (): GainNode | null => { try { return repl ? cueSumFor(getAudioContext()) : null; } catch { return null; } };
+const cueOn = new Set<string>(); // pistas en cue (por id del Source)
+export function setCue(sourceId: string, on: boolean): void {
+  if (on) cueOn.add(sourceId); else cueOn.delete(sourceId);
+  const o = sourceStrip.get(sourceId);
+  const st = o == null ? undefined : chanEqChains.get(o);
+  try { st?.cue?.gain.setTargetAtTime(on ? 1 : 0, st.ctx.currentTime, 0.01); } catch { /* */ }
+}
+
+// estado real de la tira de una pista (pruebas y medidores): ganancia del fader, filtros y cue
+export function stripState(sourceId: string): { fader: number; lp: number; hp: number; cue: number } | null {
+  const o = sourceStrip.get(sourceId);
+  const st = o == null ? undefined : chanEqChains.get(o);
+  if (!st) return null;
+  return { fader: st.fader.gain.value, lp: st.lp.frequency.value, hp: st.hp.frequency.value, cue: st.cue ? st.cue.gain.value : -1 };
+}
+
+// hora actual del contexto de audio en vivo (0 si aún no hay)
+export const audioNow = (): number => { try { return getAudioContext().currentTime; } catch { return 0; } };
+// valor del fader de bus de una pista (el último pedido; 1 si no tiene tira)
+export const stripFader = (sourceId: string): number => {
+  const o = sourceStrip.get(sourceId);
+  const r = o == null ? undefined : channelEqRoutes.find((x) => x.orbit === o);
+  return r?.fader ?? 1;
+};
+
+// HORA DEL PRÓXIMO COMPÁS (en el reloj del contexto de audio): la misma cuenta con la que el
+// planificador agenda las notas (cyclist: (ciclo − n0)/cps + s0 + latencia), así un cambio de fader
+// agendado ahí cae junto con el primer golpe del compás. null = no está sonando.
+export function nextBarAudioTime(margin = 0.02): { at: number; cycle: number } | null {
+  try {
+    const sch = repl?.scheduler as unknown as { started?: boolean; cps?: number; num_cycles_at_cps_change?: number; seconds_at_cps_change?: number; latency?: number } | undefined;
+    if (!sch || !sch.started) return null;
+    const cps = Number(sch.cps) || 0.5;
+    const n0 = Number(sch.num_cycles_at_cps_change ?? 0);
+    const s0 = Number(sch.seconds_at_cps_change ?? 0);
+    const lat = Number(sch.latency ?? 0.1);
+    if (!Number.isFinite(n0) || !Number.isFinite(s0)) return null;
+    const now = getAudioContext().currentTime;
+    const cycle = Math.floor(n0 + (now + margin - s0 - lat) * cps + 1e-9) + 1;
+    return { at: (cycle - n0) / cps + s0 + lat, cycle };
+  } catch {
+    return null;
   }
 }
 

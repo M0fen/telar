@@ -1,4 +1,5 @@
 import { useMidiStore } from '../store/useMidiStore';
+import { startMidiInput } from './engine';
 
 // Despachador de MIDI IN para el modo EN VIVO. Recibe los bytes crudos de un
 // mensaje (de `engine.startMidiInput`), los parsea a una FIRMA estable y los
@@ -42,9 +43,12 @@ export function releaseNoteSink(fn: NoteSink): void {
   onLost = null;
 }
 
-export function registerSlots(slots: Record<string, MidiSlot>): void {
+// Grupos de slots (el panel EN VIVO, la mesa DJ…): cada uno se reemplaza entero sin tocar a los demás.
+const groups: Record<string, Record<string, MidiSlot>> = {};
+export function registerSlots(slots: Record<string, MidiSlot>, group = 'live'): void {
+  groups[group] = slots;
   for (const k of Object.keys(ctl)) delete ctl[k];
-  Object.assign(ctl, slots);
+  for (const g of Object.values(groups)) Object.assign(ctl, g);
 }
 
 const clamp = (x: number, a: number, b: number) => (x < a ? a : x > b ? b : x);
@@ -132,4 +136,23 @@ export function handleMidi(data: Uint8Array | number[]): void {
   } else if (slot.kind === 'tap' && down) {
     slot.tap();
   }
+}
+
+// CONECTAR el controlador (permiso WebMIDI). La primera vez, sin nada asignado, entra en «aprender».
+// Devuelve un aviso o null si quedó conectado.
+export async function connectMidi(): Promise<string | null> {
+  const st = useMidiStore.getState();
+  if (!('requestMIDIAccess' in navigator)) {
+    const err = 'Este navegador no tiene MIDI. Usa Chrome o Edge y conecta el controlador por cable USB.';
+    st.setStatus({ err });
+    return err;
+  }
+  const list = await startMidiInput(handleMidi, (l) => useMidiStore.getState().setStatus({ inputs: l }));
+  if (!list) {
+    const err = 'No pude abrir el MIDI: acepta el permiso del navegador (Chrome/Edge) y vuelve a pulsar «Conectar MIDI».';
+    st.setStatus({ err });
+    return err;
+  }
+  st.setStatus({ on: true, inputs: list, err: '', learn: Object.keys(useMidiStore.getState().map).length === 0 });
+  return null;
 }
