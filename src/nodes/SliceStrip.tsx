@@ -15,6 +15,7 @@ import {
   normalizeCuts,
   detectOnsets,
   sliceCount,
+  cutsKind,
   shuffleSlots,
   reverseSlots,
   type SliceState,
@@ -50,6 +51,16 @@ export function SliceStrip({ id, code, warp }: { id: string; code: string; warp?
   const midiOn = useMidiStore((s) => s.on);
   const stRef = useRef(st);
   stRef.current = st;
+  // los golpes que daría «golpes» ahora: con esos cortes la etiqueta es «golpes»; si no, «a mano»
+  const [detected, setDetected] = useState<{ base: string; cuts: number[] | null } | null>(null);
+  const hasCutList = !!st && Array.isArray(st.cuts);
+  const stBase = st?.base ?? '';
+  useEffect(() => {
+    if (!hasCutList || detected?.base === stBase) return;
+    let alive = true;
+    void transientCuts(nameOf(stBase), warp).then((c) => { if (alive) setDetected({ base: stBase, cuts: c }); }, () => { if (alive) setDetected({ base: stBase, cuts: null }); });
+    return () => { alive = false; };
+  }, [hasCutList, stBase, warp, detected?.base]);
 
   // cabezal: qué hueco suena ahora (posición en la vuelta)
   useEffect(() => {
@@ -80,6 +91,7 @@ export function SliceStrip({ id, code, warp }: { id: string; code: string; warp?
 
   const commit = (next: SliceState) => update(id, { code: buildSliceCode(next) });
   const n = sliceCount(st.cuts);
+  const kind = cutsKind(st.cuts, detected?.base === st.base ? detected.cuts : undefined);
   const cut = async (kind: 8 | 16 | 32 | 'tr') => {
     if (kind !== 'tr') { commit(evenSlices(st.base, kind, st.cycles)); setSel(null); return; }
     setBusy(true);
@@ -87,6 +99,7 @@ export function SliceStrip({ id, code, warp }: { id: string; code: string; warp?
       const cuts = await transientCuts(nameOf(st.base), warp);
       if (!cuts || cuts.length < 3) { toast.warn('No encontré transientes claros en este sample: prueba con 8, 16 o 32 iguales.'); return; }
       commit(transientSlices(st.base, cuts, st.cycles));
+      setDetected({ base: st.base, cuts });
       setSel(null);
       toast.ok(`${cuts.length - 1} rebanadas en los golpes del loop. En orden suena igual que el original.`);
     } finally {
@@ -114,9 +127,10 @@ export function SliceStrip({ id, code, warp }: { id: string; code: string; warp?
           {([8, 16, 32] as const).map((k) => (
             <button key={k} className={st.cuts === k ? 'on' : ''} onClick={() => void cut(k)} title={`${k} rebanadas iguales`}>{k}</button>
           ))}
-          <button className={Array.isArray(st.cuts) ? 'on' : ''} disabled={busy} onClick={() => void cut('tr')} title="cortar en los golpes (transientes): cada rebanada es un golpe del loop">
+          <button className={kind === 'tr' ? 'on' : ''} disabled={busy} onClick={() => void cut('tr')} title="cortar en los golpes (transientes): cada rebanada es un golpe del loop">
             {busy ? '…' : 'golpes'}
           </button>
+          {kind === 'hand' && <span className="slc-hand" title="rebanadas tocadas a mano en el editor de la onda (movidas, añadidas o quitadas). «golpes» vuelve a cortar en los golpes.">a mano · {n}</span>}
         </div>
         {st.cuts != null && (
           <button className="gate-clear" onClick={() => { armSlicePads(null); commit({ ...st, cuts: null, slots: [], weights: null }); }} title="quitar las rebanadas: el loop entero otra vez">quitar</button>

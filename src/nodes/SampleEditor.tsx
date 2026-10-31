@@ -9,7 +9,7 @@ import { retuneWarp, setWarpKeyOpts, warpExistingSource } from '../lib/warpActio
 import { bareSampleName } from '../lib/sampleFit';
 import { toast } from '../store/useNotifyStore';
 import { addCut, buildClip, moveCut, parseClip, removeCut, snapFrac, tempoFromMarker, type ClipState } from '../lib/clipCode';
-import { buildSliceCode, detectOnsets, evenSlices, normalizeCuts, parseSliceCode, sliceBounds, sliceCount, transientSlices, type SliceState } from '../lib/slicer';
+import { buildSliceCode, cutsKind, detectOnsets, evenSlices, normalizeCuts, parseSliceCode, sliceBounds, sliceCount, transientSlices, type SliceState } from '../lib/slicer';
 import { heardPatternTime, type ArmPos } from './patternClock';
 
 // EDITOR DE LOOPS Y SAMPLES (Fase 9.5), en el panel de detalle. La onda grande del sample (de un loop
@@ -33,6 +33,14 @@ type Drag =
 
 const fmtSec = (s: number) => (s < 1 ? `${Math.round(s * 1000)} ms` : `${Math.round(s * 100) / 100} s`);
 const nameOf = (base: string) => /["'`]([A-Za-z0-9_]+)["'`]/.exec(base)?.[1] ?? '';
+
+// los golpes del tramo musical del original (lo mismo que «golpes» aquí y en el rebanador del nodo)
+function detectCutsIn(buf: AudioBuffer | null, waveSec: number): number[] | null {
+  if (!buf || waveSec <= 0) return null;
+  const n = Math.min(buf.length, Math.round(waveSec * buf.sampleRate));
+  const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c).subarray(0, n));
+  return normalizeCuts(detectOnsets(chans, buf.sampleRate, { maxCount: 32 }).map((x) => x / n));
+}
 
 export function SampleEditor({ id, code, wrap, previewCode, headOff, armPos }: { id: string; code: string; wrap?: (c: string) => string; previewCode?: string; headOff?: boolean; armPos?: ArmPos }) {
   const update = useGraphStore((s) => s.updateNodeData);
@@ -80,6 +88,9 @@ export function SampleEditor({ id, code, wrap, previewCode, headOff, armPos }: {
   // segundos del ORIGINAL que se ven (un loop: su vuelta musical; un sample: entero)
   const loopSecOrig = isLoop ? (warp!.beats * 60) / warp!.srcBpm : 0;
   const waveSec = buf ? (isLoop ? Math.min(buf.duration, loopSecOrig) : buf.duration) : 0;
+  // los golpes que daría «golpes» ahora: si los cortes son esos, la etiqueta es «golpes»; si no, «a mano»
+  const hasCutList = Array.isArray(sl?.cuts);
+  const detectedCuts = useMemo(() => (hasCutList ? detectCutsIn(buf, waveSec) : null), [hasCutList, buf, waveSec]);
   // segundos que dura al SONAR (un loop: estirado al tempo del tema; un sample: a su velocidad)
   const speedAbs = Math.pow(2, (st?.semis ?? 0) / 12);
   const playedSec = isLoop ? (warp!.beats * 60) / songBpm : buf ? buf.duration / speedAbs : 0;
@@ -289,11 +300,8 @@ export function SampleEditor({ id, code, wrap, previewCode, headOff, armPos }: {
   const sliceInto = async (kind: 8 | 16 | 32 | 'tr') => {
     const base = `s("${parsed.name}")`;
     if (kind !== 'tr') { commitSlices(evenSlices(base, kind, st.cycles)); setSel(null); return; }
-    if (!buf) return;
-    const n = Math.min(buf.length, Math.round(waveSec * buf.sampleRate));
-    const chans = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c).subarray(0, n));
-    const on = detectOnsets(chans, buf.sampleRate, { maxCount: 32 });
-    const cuts = normalizeCuts(on.map((x) => x / n));
+    const cuts = detectedCuts ?? detectCutsIn(buf, waveSec);
+    if (!cuts) return;
     if (cuts.length < 3) { toast.warn('No encontré golpes claros en este sample: prueba con 8, 16 o 32 iguales.'); return; }
     commitSlices(transientSlices(base, cuts, st.cycles));
     setSel(null);
@@ -308,6 +316,7 @@ export function SampleEditor({ id, code, wrap, previewCode, headOff, armPos }: {
 
   const cuts = cutsOf(sl);
   const nSlices = sl ? sliceCount(sl.cuts) : 0;
+  const cutKind = cutsKind(sl?.cuts ?? null, detectedCuts);
   const k = waveSec > 0 ? playedSec / waveSec : 1;
   const fiF = waveSec > 0 ? st.fadeIn / k / waveSec : 0;
   const foF = waveSec > 0 ? st.fadeOut / k / waveSec : 0;
@@ -359,7 +368,8 @@ export function SampleEditor({ id, code, wrap, previewCode, headOff, armPos }: {
         <span className="proll-tools sedit-slices" role="group" aria-label="rebanadas">
           <span className="seqs-tools-tag">rebanar</span>
           {([8, 16, 32] as const).map((n) => <button key={n} className={sl?.cuts === n ? 'on' : ''} onClick={() => void sliceInto(n)} title={`${n} rebanadas iguales`}>{n}</button>)}
-          <button className={Array.isArray(sl?.cuts) ? 'on' : ''} onClick={() => void sliceInto('tr')} title="cortar en los golpes (transientes)">golpes</button>
+          <button className={cutKind === 'tr' ? 'on' : ''} onClick={() => void sliceInto('tr')} title="cortar en los golpes (transientes)">golpes</button>
+          {cutKind === 'hand' && <span className="slc-hand" title="rebanadas tocadas a mano (movidas, añadidas o quitadas). «golpes» vuelve a cortar en los golpes; 8, 16 o 32, en partes iguales.">a mano · {nSlices}</span>}
           {sl && <button onClick={removeSlices} title="quitar las rebanadas">quitar</button>}
         </span>
       </div>

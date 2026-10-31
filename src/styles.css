@@ -3210,3 +3210,5 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .sheet-grid h4 { margin: 0 0 6px; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); font-weight: 500; }
 .sheet-row { display: flex; gap: 8px; align-items: baseline; font-size: 11px; color: var(--text); padding: 2px 0; }
 .sheet-row span { color: var(--dim); }
+/* rebanadas tocadas a mano (no son las de «golpes» ni iguales) */
+.slc-hand { display: inline-flex; align-items: center; font-family: var(--mono); font-size: 9.5px; padding: 3px 7px; border-radius: 2px; color: var(--accent); border: 1px solid var(--accent); background: color-mix(in srgb, #3df0d0 10%, #0a1016); white-space: nowrap; }

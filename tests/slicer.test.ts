@@ -92,3 +92,19 @@ test('5.4 transientes: encuentra los golpes (±3 ms) y no inventa en el silencio
   // nunca más de maxCount
   assert.ok(detectOnsets([x], sr, { maxCount: 3 }).length <= 3);
 });
+
+test('de dónde salen las rebanadas: iguales, golpes o a mano', async () => {
+  const { cutsKind } = await import('../src/lib/slicer.ts');
+  const det = [0, 0.061, 0.13, 0.25, 0.5, 1];
+  assert.equal(cutsKind(null, det), null);
+  assert.equal(cutsKind(16, det), 'even');
+  // tal cual las detectó «golpes» (con su redondeo) → golpes
+  assert.equal(cutsKind([0, 0.061, 0.13, 0.25, 0.5, 1], [0.0611, 0.13, 0.25, 0.5]), 'tr');
+  // una movida a mano (a la rejilla), una añadida o una quitada → a mano
+  assert.equal(cutsKind([0, 0.0625, 0.13, 0.25, 0.5, 1], det), 'tr'); // 1,5 milésimas: el mismo golpe
+  assert.equal(cutsKind([0, 0.125, 0.13, 0.25, 0.5, 1], det), 'hand');
+  assert.equal(cutsKind([0, 0.061, 0.13, 0.25, 0.375, 0.5, 1], det), 'hand');
+  assert.equal(cutsKind([0, 0.061, 0.25, 0.5, 1], det), 'hand');
+  // sin poder detectar (sin el audio) no se sabe
+  assert.equal(cutsKind([0, 0.2, 1], null), null);
+});

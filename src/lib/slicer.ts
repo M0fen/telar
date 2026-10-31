@@ -83,6 +83,18 @@ export function transientSlices(base: string, cuts: number[], cycles: number): S
   return { base, cuts: c, slots: weights.map((_, i) => i), weights, cycles };
 }
 
+// DE DÓNDE SALEN las rebanadas (para la etiqueta del rebanador): 'even' = N iguales; 'tr' = las de
+// cortar en los golpes (iguales a lo que da detectarlos ahora, `detected`); 'hand' = tocadas a mano
+// (movidas, añadidas o quitadas). null = sin rebanar o sin poder saberlo todavía (sin `detected`).
+// Antes toda lista de cortes se marcaba «golpes», también las movidas a mano.
+export function cutsKind(cuts: number | number[] | null, detected: number[] | null | undefined): 'even' | 'tr' | 'hand' | null {
+  if (cuts == null) return null;
+  if (!Array.isArray(cuts)) return 'even';
+  if (!detected) return null;
+  const d = normalizeCuts(detected);
+  return d.length === cuts.length && cuts.every((c, i) => Math.abs(c - d[i]) < 0.002) ? 'tr' : 'hand';
+}
+
 // ordenados, en [0, 1), sin duplicados cercanos (< 0,5 % de la vuelta), con 0 y 1
 export function normalizeCuts(cuts: number[]): number[] {
   const s = [...new Set(cuts.filter((x) => x > 0 && x < 0.995).map((x) => Math.round(x * 10000) / 10000))].sort((a, b) => a - b);
