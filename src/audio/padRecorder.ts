@@ -17,7 +17,8 @@ import { useMetroStore } from '../store/useMetroStore';
 import { toast } from '../store/useNotifyStore';
 import { timelinePos } from '../lib/songClock';
 import { bankExempt, isMelodicCode, laneOwnBank, parseSeq, splitArrange, isSilenceArm, unmuteArm, isMutedArm } from '../nodes/stepseqCode';
-import { PADS, baseOctave, drumPadMap, recordPadHit, scaleNote, velToGain, type PadMode } from '../lib/padRecord';
+import { PADS, baseOctave, drumPadMap, recordPadHit, scaleNote, velToGain, type PadHit, type PadMode } from '../lib/padRecord';
+import { padFxValues, parsePadFx } from '../lib/padFx';
 
 const BASE_KEY = 'telar.padrec.base';
 const loadBase = () => {
@@ -40,6 +41,8 @@ interface PadRecState {
   map: (string | null)[]; // modo batería: sonido de cada pad (fijo mientras la pista esté armada)
   hits: number; // golpes grabados en esta toma
   last: { pad: number; at: number } | null; // último pad tocado (para iluminarlo)
+  // 9.7 · lo que tocaste SIN grabar (con ▶): se puede guardar después («guardar lo tocado»)
+  recent: { track: string; hit: PadHit; at: number }[];
 }
 export const usePadRecStore = create<PadRecState>(() => ({
   armed: null,
@@ -51,6 +54,7 @@ export const usePadRecStore = create<PadRecState>(() => ({
   map: Array(PADS).fill(null),
   hits: 0,
   last: null,
+  recent: [],
 }));
 
 const st = () => usePadRecStore.getState();
@@ -93,23 +97,47 @@ function sink(note: number, vel: number, down: boolean): void {
     usePadRecStore.setState({ base: note, learning: false });
     return;
   }
-  const pad = note - s.base;
+  padHit(note - s.base, vel);
+}
+
+// cadena del pad (9.7) para oírlo como suena en el patrón
+function laneFxFor(code: string, snd: string): Record<string, unknown> | undefined {
+  for (const c of patterns(code)) {
+    const lane = parseSeq(c)?.lanes.find((l) => l.sound === snd);
+    if (lane) return lane.sfx ? padFxValues(parsePadFx(lane.sfx)) : undefined;
+  }
+  return undefined;
+}
+
+const RECENT_MAX = 128;
+const RECENT_MS = 60_000; // lo tocado hace más de un minuto ya no se ofrece
+
+// UN GOLPE DE PAD (0..15, fuerza 0..1): suena y, con ▶, entra en la toma (● grabar) o en «lo
+// tocado» para guardarlo después. `trackId`: tocar una pista aunque no sea la armada (los pads de
+// la pantalla, 9.7); sin él, la pista armada (los pads del controlador).
+export function padHit(pad: number, vel: number, trackId?: string): void {
+  const s = st();
+  const id = trackId ?? s.armed;
+  if (!id || isOfflineRendering()) return;
   if (pad < 0 || pad >= PADS) return;
   const g = useGraphStore.getState();
-  if (!g.nodes.some((n) => n.id === s.armed)) { armPadRec(null); return; }
-  const code = codeOf(s.armed);
+  if (!g.nodes.some((n) => n.id === id)) { if (!trackId) armPadRec(null); return; }
+  const code = codeOf(id);
+  const own = id === s.armed;
+  const mode: PadMode = own ? s.mode : isMelodicCode(code) ? 'scale' : 'drum';
+  const map = own ? s.map : drumPadMap(code);
   const gain = velToGain(vel);
   // lo que suena al pulsar (aunque no grabes)
-  if (s.mode === 'scale') {
+  if (mode === 'scale') {
     const snd = melodicSound(code);
     void playDrumHit(snd, bankFor(code, snd), scaleNote(pad, g.songKey, s.octave), 0.45, 0.75 * gain);
   } else {
-    const snd = s.map[pad];
+    const snd = map[pad];
     if (!snd) return;
-    void playDrumHit(snd, bankFor(code, snd), undefined, 0.6, 0.75 * gain);
+    void playDrumHit(snd, bankFor(code, snd), undefined, 0.6, 0.75 * gain, laneFxFor(code, snd));
   }
   usePadRecStore.setState({ last: { pad, at: performance.now() } });
-  if (!s.rec || !g.playing) return;
+  if (!g.playing) return;
   // dónde cae: lo que oyes = el reloj − lo que tarda en salir el audio
   const sched = getScheduler() as { now?: () => number; cps?: number } | undefined;
   const now = Number(sched?.now?.() ?? NaN);
@@ -122,15 +150,48 @@ function sink(note: number, vel: number, down: boolean): void {
   const cps = Number(sched?.cps) || g.cps || 0.5;
   const bar = timelinePos(now - lat * cps, useSongStore.getState());
   if (bar < 0) return; // en la cuenta previa (8.3): suena, pero no entra en la toma
-  const r = recordPadHit(code, { pad, sound: s.mode === 'drum' ? s.map[pad] : undefined, vel, bar, mode: s.mode, key: g.songKey, octave: s.octave });
+  const hit: PadHit = { pad, sound: mode === 'drum' ? map[pad] : undefined, vel, bar, mode, key: g.songKey, octave: s.octave };
+  if (!(s.rec && own)) {
+    // sin grabar: queda en «lo tocado» por si quieres guardarlo
+    const t = performance.now();
+    const recent = [...st().recent.filter((r) => t - r.at < RECENT_MS), { track: id, hit, at: t }].slice(-RECENT_MAX);
+    usePadRecStore.setState({ recent });
+    return;
+  }
+  const r = recordPadHit(code, hit);
   if (r) {
-    g.updateNodeData(s.armed, { code: r.code });
+    g.updateNodeData(id, { code: r.code });
     usePadRecStore.setState({ hits: st().hits + 1 });
   } else if (performance.now() - warnedAt > 4000) {
     warnedAt = performance.now();
     toast.warn('Esta pista no tiene una rejilla donde grabar (es un loop o un patrón avanzado). Crea una con «＋ batería» o «＋ melodía».');
   }
 }
+
+// GUARDAR LO TOCADO (9.7): lo que tocaste con ▶ sin grabar entra en la rejilla de su pista, donde
+// sonó, en UN paso de deshacer. `trackId`: solo lo de esa pista.
+export function capturePads(trackId?: string): number {
+  const all = st().recent;
+  const take = all.filter((r) => !trackId || r.track === trackId);
+  if (!take.length) { toast.info('No hay nada tocado para guardar: toca los pads con ▶ y vuelve aquí.'); return 0; }
+  const g = useGraphStore.getState();
+  g.beginTake();
+  let n = 0;
+  try {
+    for (const r of take) {
+      if (!g.nodes.some((x) => x.id === r.track)) continue;
+      const res = recordPadHit(codeOf(r.track), r.hit);
+      if (res) { useGraphStore.getState().updateNodeData(r.track, { code: res.code }); n++; }
+    }
+  } finally {
+    useGraphStore.getState().endTake();
+  }
+  usePadRecStore.setState({ recent: all.filter((r) => !take.includes(r)) });
+  if (n) toast.ok(`Guardé ${n} golpe${n === 1 ? '' : 's'} de lo que tocaste. Ctrl+Z lo deshace.`);
+  else toast.warn('No pude guardarlo: esta pista no tiene rejilla (es un loop o un patrón avanzado).');
+  return n;
+}
+export const recentCount = (trackId?: string) => st().recent.filter((r) => !trackId || r.track === trackId).length;
 
 const lost = () => {
   if (st().rec) useGraphStore.getState().endTake();

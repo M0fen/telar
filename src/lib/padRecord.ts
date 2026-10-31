@@ -44,13 +44,17 @@ export function scaleNote(pad: number, key: SongKey | null, octave: number): str
 export function drumPadMap(code: string): (string | null)[] {
   const arms = splitArrange(code);
   const pats = arms ? arms.map((a) => (isMutedArm(a.code) ? unmuteArm(a.code) : a.code)) : [code];
-  const own: string[] = [];
+  // 9.7: una variante «bd:3» (otro sample del mismo sonido) se queda en el pad del bombo
+  const base = (x: string) => x.replace(/:\d+$/, '');
+  const sounds: string[] = [];
   for (const c of pats) {
     const p = isSilenceArm(c) ? null : parseSeq(c);
     if (!p || p.complex) continue;
-    for (const l of p.lanes) if (!DRUM_PADS.includes(l.sound) && !own.includes(l.sound)) own.push(l.sound);
+    for (const l of p.lanes) if (!sounds.includes(l.sound)) sounds.push(l.sound);
   }
-  const map = [...own, ...DRUM_PADS].slice(0, PADS);
+  const drum = DRUM_PADS.map((d) => sounds.find((x) => base(x) === d) ?? d);
+  const own = sounds.filter((x) => !drum.includes(x));
+  const map = [...own, ...drum].slice(0, PADS);
   return Array.from({ length: PADS }, (_, i) => map[i] ?? null);
 }
 

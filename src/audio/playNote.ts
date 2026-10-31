@@ -307,13 +307,14 @@ export async function playVoiceMelody(name: string, v: VoiceParams, notes: (stri
 // Audiciona UN golpe de batería/sample (una celda del secuenciador) al instante, con
 // su banco. Feedback inmediato al colocar/probar pasos. note opcional (para pitchear
 // samples melódicos como el cencerro).
-export async function playDrumHit(sound: string, bank?: string, note?: string | number, holdSec = 0.5, gain = 0.9): Promise<void> {
+export async function playDrumHit(sound: string, bank?: string, note?: string | number, holdSec = 0.5, gain = 0.9, extra?: Record<string, unknown>): Promise<void> {
   if (isOfflineRendering()) return; // exportando: el audio en vivo espera
   await ensureEngine();
   await ensureAudioReady();
   const ctx = getAudioContext();
   try {
-    const val: Record<string, unknown> = { s: sound, gain: Math.max(0.05, gain) };
+    // `extra`: la cadena del pad (9.7: tono, decaimiento, filtro, paneo, reverb, grupo de corte)
+    const val: Record<string, unknown> = { ...(extra ?? {}), s: sound, gain: Math.max(0.05, gain) };
     if (bank) val.bank = bank;
     if (note != null) val.note = note;
     await superdough(val, ctx.currentTime + 0.02, holdSec, 0.5, 0.5);
