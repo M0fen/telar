@@ -23,7 +23,7 @@ export function arrangeState(): E.ArrangeState {
   let trans: E.ArrangeState['trans'];
   for (const n of useGraphStore.getState().nodes) {
     // la pista de transiciones (7.4) no sigue la estructura: su código lo escribe el compilador
-    if (n.data.kind === 'source' && !Array.isArray(n.data.transitions)) codes[n.id] = n.data.code ?? '';
+    if (n.data.kind === 'source' && !Array.isArray(n.data.transitions) && !n.data.djTrack) codes[n.id] = n.data.code ?? '';
     if (Array.isArray(n.data.transitions)) trans = { id: n.id, items: cleanTransitions(n.data.transitions) };
     // curvas de automatización de cualquier nodo (pista, FX, máster): se mueven con su tramo (10.3)
     const au = n.data.auto as Record<string, unknown> | undefined;

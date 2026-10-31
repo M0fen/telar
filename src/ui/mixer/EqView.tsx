@@ -33,7 +33,7 @@ export function EqView({ id }: { id: string }) {
   const drag = useRef<Band | null>(null);
   const eqRef = useRef(eq);
   eqRef.current = eq;
-  const others = nodes.filter((n) => n.data.kind === 'source' && n.id !== id && !Array.isArray(n.data.transitions));
+  const others = nodes.filter((n) => n.data.kind === 'source' && n.id !== id && !Array.isArray(n.data.transitions) && !n.data.djTrack);
 
   // curva (256 puntos) cuando cambia el EQ
   const freqs = useMemo(() => Array.from({ length: 256 }, (_, i) => xToFreq(i, 255)), []);

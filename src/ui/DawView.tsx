@@ -163,7 +163,7 @@ export function DawView() {
   // Solo lo que cambia el modelo: id, nombre, código, mute y solo de cada pista (mover una
   // perilla de ganancia o un nodo en el lienzo no lo recalcula).
   // la pista de transiciones (7.4) va en su propia fila
-  const sources = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
+  const sources = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions) && !n.data.djTrack); // los decks de tema (DJ) no son pistas de la canción
   const outNode = nodes.find((n) => n.data.kind === 'out');
   const srcSig = sources.map((n) => `${n.id}\u0000${n.data.name ?? ''}\u0000${n.data.code ?? ''}\u0000${n.data.mute ? 1 : 0}${n.data.solo ? 1 : 0}`).join('\u0001');
   const model = useMemo(

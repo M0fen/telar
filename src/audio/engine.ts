@@ -1190,8 +1190,56 @@ export function applyChannelEqs(): void {
     const out = ctrl.output;
     const needed = channelEqRoutes.some((r) => r.autoSends || (r.sends?.rev ?? 0) > 0.005 || (r.sends?.del ?? 0) > 0.005);
     applyLiveReturns(ctx, out?.destinationGain ?? null, (n) => out?.connectToDestination?.(n, [0, 1]), needed && !!out?.destinationGain);
+    linkStripInputs();
   } catch {
     /* nunca romper el audio */
+  }
+}
+
+// ENTRADAS EXTERNAS DE UNA TIRA (decks de tema, DJ-1): un reproductor nativo entra en la tira de su
+// Source (EQ → filtro → fader → cue → crossfader) como si fuera el audio de su orbit. Se re-enlaza
+// cada vez que las tiras se rearman; sin tira (fuera del modo DJ) queda desconectado, en silencio.
+const stripInputs = new Map<string, AudioNode>(); // id del Source → nodo que entra en su tira
+const stripLinked = new Map<AudioNode, AudioNode>(); // nodo externo → entrada de la tira a la que va
+function linkStripInputs(): void {
+  for (const [id, node] of stripInputs) {
+    const o = sourceStrip.get(id);
+    const st = o == null ? undefined : chanEqChains.get(o);
+    const target = st && st.ctx === node.context ? st.low : undefined;
+    const cur = stripLinked.get(node);
+    if (cur === target) continue;
+    if (cur) { try { node.disconnect(cur); } catch { /* ya no estaba */ } }
+    if (target) { try { node.connect(target); stripLinked.set(node, target); } catch { stripLinked.delete(node); } }
+    else stripLinked.delete(node);
+  }
+}
+export function setStripInput(sourceId: string, node: AudioNode | null): void {
+  const prev = stripInputs.get(sourceId);
+  if (prev && prev !== node) {
+    const cur = stripLinked.get(prev);
+    if (cur) { try { prev.disconnect(cur); } catch { /* */ } }
+    stripLinked.delete(prev);
+    stripInputs.delete(sourceId);
+  }
+  if (node) stripInputs.set(sourceId, node);
+  linkStripInputs();
+}
+// ¿el reproductor de este deck está entrando en una tira? (sin tira, suena mudo)
+export const stripInputLinked = (sourceId: string): boolean => { const n = stripInputs.get(sourceId); return !!n && stripLinked.has(n); };
+
+// RELOJ DE LA SESIÓN (decks de tema): el mismo con el que el planificador agenda las notas — ciclo
+// (compás) en la hora t del contexto = n0 + (t − s0 − latencia)·cps. null = parado.
+export function sessionClock(): { cps: number; n0: number; s0: number; lat: number } | null {
+  try {
+    const sch = repl?.scheduler as unknown as { started?: boolean; cps?: number; num_cycles_at_cps_change?: number; seconds_at_cps_change?: number; latency?: number } | undefined;
+    if (!sch || !sch.started) return null;
+    const cps = Number(sch.cps) || 0.5;
+    const n0 = Number(sch.num_cycles_at_cps_change ?? 0);
+    const s0 = Number(sch.seconds_at_cps_change ?? 0);
+    const lat = Number(sch.latency ?? 0.1);
+    return Number.isFinite(n0) && Number.isFinite(s0) ? { cps, n0, s0, lat } : null;
+  } catch {
+    return null;
   }
 }
 

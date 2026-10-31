@@ -30,7 +30,7 @@ export function Tutorial({ open, onClose }: { open: boolean; onClose: () => void
   };
   // el bajo en el piano roll (o la primera pista con notas, o la primera que haya)
   const openBig = () => {
-    const ns = g().nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
+    const ns = g().nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions) && !n.data.djTrack);
     const melodic = (n: (typeof ns)[number]) => /\b(?:note|n)\(/.test(n.data.code ?? '');
     const t = ns.find((n) => melodic(n) && /bajo|bass/i.test(n.data.name ?? '')) ?? ns.find(melodic) ?? ns[0];
     if (!t) return;

@@ -56,7 +56,7 @@ function commands(): Cmd[] {
   });
   for (const m of song.markers) out.push({ id: `mk-${m.id}`, group: 'marcadores', label: `ir al marcador «${m.name}» (compás ${Math.floor(m.bar) + 1})`, run: () => void playFrom(Math.floor(m.bar)) });
   for (const n of g.nodes) {
-    if (n.data.kind !== 'source' || Array.isArray(n.data.transitions)) continue;
+    if (n.data.kind !== 'source' || Array.isArray(n.data.transitions) || n.data.djTrack) continue;
     const nm = (n.data.name ?? '').trim() || n.id;
     out.push({ id: `ed-${n.id}`, group: 'pistas', label: `editar «${nm}» en grande`, run: () => { if (g.mode === 'dj') g.setMode('daw'); useDetailStore.getState().open(n.id); } });
     out.push({ id: `mx-${n.id}`, group: 'pistas', label: `mezclar «${nm}» (EQ, compresor, cadena)`, run: () => { if (g.mode === 'dj') g.setMode('daw'); useMixerStore.getState().setOpen(true); useMixerStore.getState().select(n.id, 'eq'); } });

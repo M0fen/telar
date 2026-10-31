@@ -54,7 +54,7 @@ export function backToArrangement(): void {
   const ids = [...new Set([...Object.keys(st().launch), ...Object.keys(pending)])];
   if (ids.length) launch(Object.fromEntries(ids.map((id) => [id, null])));
 }
-const trackIds = () => useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions)).map((n) => n.id);
+const trackIds = () => useGraphStore.getState().nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions) && !n.data.djTrack).map((n) => n.id);
 
 // ● GRABAR LA TOMA: desde el próximo compás; al parar, lo lanzado pasa al arreglo
 export function toggleTakeRec(): void {

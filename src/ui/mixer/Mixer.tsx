@@ -187,7 +187,7 @@ export function Mixer() {
   const colors = useTrackColorStore((s) => s.map);
   const setH = useDetailStore((s) => s.setH);
   const drag = useRef<{ y0: number; h0: number } | null>(null);
-  const tracks = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
+  const tracks = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions) && !n.data.djTrack); // los decks de tema son del modo DJ
   // X abre/cierra el mezclador (fuera de los campos de texto y del código)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

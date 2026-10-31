@@ -22,7 +22,7 @@ export function Launcher() {
   const rec = useLaunchStore((s) => s.rec);
   const recStart = useLaunchStore((s) => s.recStart);
   const steps = useSongStore((s) => s.steps);
-  const tracks = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions));
+  const tracks = nodes.filter((n) => n.data.kind === 'source' && !Array.isArray(n.data.transitions) && !n.data.djTrack);
   const sig = tracks.map((t) => `${t.id}\u0000${t.data.code ?? ''}`).join('\u0001');
   const vars = useMemo(() => Object.fromEntries(tracks.map((t) => [t.id, trackVariations(t.data.code ?? '').slice(0, MAX_ROWS)])), [sig]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = Math.max(1, ...Object.values(vars).map((v) => v.length));

@@ -1,3 +1,4 @@
+import type { DjTrack } from '../lib/djDeck';
 // Tipos de nodo del grafo. Todo cable transporta un Pattern (cables tipados,
 // master-prompt §3). Los parámetros de un efecto se teclean en el nodo en v1.
 
@@ -279,6 +280,9 @@ export interface NodeData {
   kind: NodeKind;
   // source
   code?: string; // mini-notación, ej. s("bd*4")
+  // DECK DE TEMA (modo DJ, DJ-1): un tema completo que suena en un reproductor nativo dentro de la
+  // tira de este Source (su código es `silence`). El audio vive en IndexedDB (trackStore).
+  djTrack?: DjTrack;
   // transform / fx
   opId?: string;
   params?: Record<string, number | string>;

@@ -5,6 +5,7 @@ import type { MidiSlot } from './midiIn';
 import { useGraphStore } from '../store/useGraphStore';
 import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, useDjStore, type EqBand } from './djMix';
 import type { NodeData } from '../graph/types';
+import { deckCueDown, deckCueUp, deckHot, deckJump, deckLoop, deckNudge, deckSync, deckToggle } from './songDeck';
 
 const gs = () => useGraphStore.getState();
 const BANDS: EqBand[] = ['high', 'mid', 'low'];
@@ -29,6 +30,18 @@ export function buildDjSlots(): Record<string, MidiSlot> {
     slots[deckSlot(i, 'cue')] = { kind: 'tap', tap: () => useDjStore.getState().toggleCue(id) };
     slots[deckSlot(i, 'mute')] = { kind: 'tap', tap: () => upd({ mute: !data().mute }) };
     slots[deckSlot(i, 'solo')] = { kind: 'tap', tap: () => upd({ solo: !data().solo }) };
+    // deck de TEMA (DJ-1): transporte, cues rápidos, loop, saltos y empujar
+    if (n.data.djTrack) {
+      slots[deckSlot(i, 'play')] = { kind: 'tap', tap: () => deckToggle(id) };
+      slots[deckSlot(i, 'cuebtn')] = { kind: 'pad', down: () => void deckCueDown(id), up: () => deckCueUp(id) };
+      slots[deckSlot(i, 'sync')] = { kind: 'tap', tap: () => void deckSync(id, data().djTrack?.sync === false) };
+      for (let k = 0; k < 4; k++) slots[deckSlot(i, `hot${k + 1}`)] = { kind: 'tap', tap: () => void deckHot(id, k) };
+      slots[deckSlot(i, 'loop')] = { kind: 'tap', tap: () => void deckLoop(id, 4) };
+      slots[deckSlot(i, 'jumpb')] = { kind: 'tap', tap: () => void deckJump(id, -4) };
+      slots[deckSlot(i, 'jumpf')] = { kind: 'tap', tap: () => void deckJump(id, 4) };
+      slots[deckSlot(i, 'nudgeb')] = { kind: 'pad', down: () => deckNudge(id, -1), up: () => deckNudge(id, 0) };
+      slots[deckSlot(i, 'nudgef')] = { kind: 'pad', down: () => deckNudge(id, 1), up: () => deckNudge(id, 0) };
+    }
   });
   return slots;
 }
@@ -41,6 +54,8 @@ export function djSlotName(slot: string): string | null {
   if (!m) return null;
   const what = m[2];
   const band = (BANDS as string[]).find((b) => what.endsWith(b)) as EqBand | undefined;
+  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', hot1: 'cue rápido 1', hot2: 'cue rápido 2', hot3: 'cue rápido 3', hot4: 'cue rápido 4' };
+  if (song[what]) return `deck ${m[1]} · ${song[what]}`;
   const label = what === 'gain' ? 'volumen' : what === 'filter' ? 'filtro' : what === 'cue' ? 'cue 🎧' : what === 'mute' ? 'mute' : what === 'solo' ? 'solo'
     : band && what.startsWith('eq') ? `EQ ${BAND_LABEL[band]}` : band && what.startsWith('kill') ? `kill ${BAND_LABEL[band]}` : what;
   return `deck ${m[1]} · ${label}`;

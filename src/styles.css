@@ -3214,3 +3214,45 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .sheet-row span { color: var(--dim); }
 /* rebanadas tocadas a mano (no son las de «golpes» ni iguales) */
 .slc-hand { display: inline-flex; align-items: center; font-family: var(--mono); font-size: 9.5px; padding: 3px 7px; border-radius: 2px; color: var(--accent); border: 1px solid var(--accent); background: color-mix(in srgb, #3df0d0 10%, #0a1016); white-space: nowrap; }
+/* --- DECK DE TEMA (modo DJ, DJ-1): onda entera + la que corre, transporte, cues y loops --- */
+.dj-vertical .ch.deck.song { width: 340px; }
+.dj-horizontal .ch.deck.song { flex-wrap: wrap; }
+.dj-horizontal .ch.deck.song .sd { flex: 1 1 420px; min-width: 300px; }
+.ch.deck.drop-here { outline: 1px dashed var(--accent); outline-offset: -3px; }
+.dj-adds { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.dj-horizontal .dj-adds { flex-direction: row; }
+.sd { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-family: var(--mono); }
+.sd-info { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--dim); white-space: nowrap; }
+.sd-key { padding: 1px 5px; border: 1px solid var(--line); border-radius: 2px; }
+.sd-key b { color: #b197fc; font-weight: 600; }
+.sd-bpm b { color: var(--accent); font-size: 12px; }
+.sd-bpm i, .sd-time i { font-style: normal; color: var(--faint, #6b7c88); font-size: 9px; }
+.sd-time { margin-left: auto; color: var(--text, #cfdbe2); }
+.sd-btn { background: rgba(10,16,22,0.8); border: 1px solid var(--line); color: var(--dim); cursor: pointer; font-family: var(--mono); font-size: 9.5px; padding: 3px 6px; border-radius: 2px; line-height: 1.1; }
+.sd-btn:hover { border-color: var(--accent-dim); color: var(--accent); }
+.sd-btn.on { background: var(--accent); color: #04201c; border-color: var(--accent); }
+.sd-sync { text-transform: uppercase; letter-spacing: 0.08em; }
+.sd-ov { display: block; width: 100%; height: 34px; background: #04070a; border: 1px solid var(--line); cursor: pointer; }
+.sd-dtwrap { position: relative; }
+.sd-dt { display: block; width: 100%; height: 64px; background: #04070a; border: 1px solid var(--line); cursor: pointer; }
+.sd-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--accent); background: rgba(4,7,10,0.6); pointer-events: none; }
+.sd-loading.warn { color: var(--warn); }
+.sd-phase { position: relative; height: 5px; background: linear-gradient(90deg, transparent 0, rgba(255,255,255,0.06) 50%, transparent 100%); border-radius: 3px; }
+.sd-phase::after { content: ''; position: absolute; left: 50%; top: -1px; bottom: -1px; width: 1px; background: rgba(255,255,255,0.25); }
+.sd-phase-dot { position: absolute; top: 0; width: 9px; height: 5px; margin-left: -4px; border-radius: 3px; background: #e7b84a; transition: left 60ms linear; }
+.sd-phase-dot.ok { background: var(--accent); }
+.sd-phase-dot.off { background: rgba(255,255,255,0.12); }
+.sd-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.sd-cue, .sd-play { min-width: 46px; height: 30px; border-radius: 15px; border: 1px solid var(--line); background: rgba(10,16,22,0.85); color: var(--text, #cfdbe2); cursor: pointer; font-family: var(--mono); font-size: 12px; position: relative; }
+.sd-cue { color: #ff9a3d; border-color: rgba(255,154,61,0.5); text-transform: uppercase; font-size: 10px; letter-spacing: 0.1em; }
+.sd-cue.on { background: #ff9a3d; color: #1a0d02; }
+.sd-play { color: var(--accent); border-color: var(--accent-dim); font-size: 14px; }
+.sd-play.on { background: var(--accent); color: #04201c; }
+.sd-jumps, .sd-hots, .sd-loops, .sd-nudge { display: inline-flex; gap: 3px; align-items: center; }
+.sd-jumps { margin-left: auto; }
+.sd-hot { width: 26px; height: 22px; border-radius: 2px; border: 1px solid var(--hc); background: rgba(10,16,22,0.8); color: var(--hc); cursor: pointer; font-family: var(--mono); font-size: 10px; opacity: 0.55; position: relative; }
+.sd-hot.set { opacity: 1; background: color-mix(in srgb, var(--hc) 22%, #0a1016); }
+.sd-hot:hover { opacity: 1; }
+.sd-loops-tag { font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--faint, #6b7c88); }
+.sd-nudge { margin-left: auto; }
+.sd-note { margin: 0; font-size: 9px; color: #e7b84a; }

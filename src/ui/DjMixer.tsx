@@ -15,7 +15,11 @@ import { connectMidi } from '../audio/midiIn';
 import { djSlotName, deckSlot } from '../audio/djMidi';
 import { deckEq, eqPatch, EQ_MAX, EQ_MIN, isDeck, isKilled, killPatch, useDjStore, type EqBand } from '../audio/djMix';
 import { canPickOutput, listOutputs, syncHeadphones, type OutputDevice } from '../audio/cueOut';
-import { importDroppedFiles } from '../lib/dropFiles';
+import { importDroppedFiles, isAudioFile } from '../lib/dropFiles';
+import { sampleDuration } from '../lib/audioMeta';
+import { SongDeckBody } from './SongDeck';
+import { initSongDecks, newSongDeck, deckLoadFile } from '../audio/songDeck';
+import { useTrackColorStore } from '../store/useTrackColorStore';
 import { toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
 
@@ -90,6 +94,9 @@ function Deck({ id, data, index, showCode }: { id: string; data: NodeData; index
   const slot = (what: string) => deckSlot(index, what);
 
   const eq = deckEq(data);
+  const song = !!data.djTrack; // DJ-1: un tema completo (onda, transporte, cues, loops)
+  const color = useTrackColorStore((s) => s.map[id]) ?? '#3df0d0';
+  const [dropHere, setDropHere] = useState(false);
   const xfa = data.xfa as 'a' | 'b' | undefined;
   const setXfa = (side: 'a' | 'b') => update(id, { xfa: xfa === side ? undefined : side });
 
@@ -115,7 +122,17 @@ function Deck({ id, data, index, showCode }: { id: string; data: NodeData; index
   );
 
   return (
-    <div className={`ch deck${muted ? ' muted' : ''}${soloed ? ' soloed' : ''}${dimmed ? ' dimmed' : ''}${cue ? ' cued' : ''}${pending ? ' pending' : ''}`}>
+    <div className={`ch deck${song ? ' song' : ''}${muted ? ' muted' : ''}${soloed ? ' soloed' : ''}${dimmed ? ' dimmed' : ''}${cue ? ' cued' : ''}${pending ? ' pending' : ''}${dropHere ? ' drop-here' : ''}`}
+      onDragOver={song ? (e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDropHere(true); } } : undefined}
+      onDragLeave={song ? () => setDropHere(false) : undefined}
+      onDrop={song ? (e) => {
+        setDropHere(false);
+        const f = Array.from(e.dataTransfer.files ?? []).find(isAudioFile);
+        if (!f) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void deckLoadFile(id, f, f.name);
+      } : undefined}>
       <div className="ch-head">
         <span className="deck-num" title={`deck ${index + 1}`}>{index + 1}</span>
         <input className="ch-name" value={data.name ?? ''} placeholder="deck…" onChange={(e) => update(id, { name: e.target.value })} />
@@ -126,7 +143,9 @@ function Deck({ id, data, index, showCode }: { id: string; data: NodeData; index
         <RemoveDeck id={id} />
       </div>
 
-      {showCode ? (
+      {song ? (
+        <SongDeckBody id={id} data={data} index={index} color={color} />
+      ) : showCode ? (
         <div className="ch-code"><MiniEditor nodeId={id} value={data.code ?? ''} wrap={false} onChange={(code) => update(id, { code })} /></div>
       ) : (
         <div className="ch-scope"><AnalyserScope nodeId={id} className="ch-scope-canvas" /></div>
@@ -156,13 +175,13 @@ function Deck({ id, data, index, showCode }: { id: string; data: NodeData; index
         </div>
       </div>
 
-      {/* FX momentáneos por deck */}
-      <div className="deck-fx">
+      {/* FX momentáneos por deck (los de patrón; un tema tiene su transporte arriba) */}
+      {!song && <div className="deck-fx">
         <HoldFx label="roll4" title="loop roll ×4 (mantén)" active={perf.roll === 4} onDown={() => setPerf({ roll: 4 })} onUp={() => setPerf({ roll: 0 })} />
         <HoldFx label="roll8" title="loop roll ×8 (mantén)" active={perf.roll === 8} onDown={() => setPerf({ roll: 8 })} onUp={() => setPerf({ roll: 0 })} />
         <HoldFx label="gate" title="gate rítmico (mantén)" active={!!perf.gate} onDown={() => setPerf({ gate: 8 })} onUp={() => setPerf({ gate: 0 })} />
         <HoldFx label="echo" title="echo throw (mantén)" active={!!perf.echo} onDown={() => setPerf({ echo: 0.6 })} onUp={() => setPerf({ echo: 0 })} />
-      </div>
+      </div>}
 
       <div className="ch-ms deck-ms">
         <button className={`ch-mute${muted ? ' on' : ''}`} data-midi={slot('mute')} onClick={() => update(id, { mute: !muted })}
@@ -279,6 +298,21 @@ export function DjMixer() {
   const setTab = (t: Tab) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* solo esta sesión */ } };
   // las transiciones del DAW no son un deck (no suenan como canal)
   const decks = nodes.filter((n) => isDeck(n as { id: string; data: NodeData }));
+  useEffect(() => { initSongDecks(); }, []);
+  // TEMAS (DJ-1): un audio largo (más de 45 s) entra como deck de tema; uno corto, como loop
+  const fileRef = useRef<HTMLInputElement>(null);
+  const dropAudio = async (files: File[]) => {
+    const rest: File[] = [];
+    for (const f of files) {
+      if (!isAudioFile(f)) { rest.push(f); continue; }
+      const url = URL.createObjectURL(f);
+      const dur = await sampleDuration(url).catch(() => 0);
+      URL.revokeObjectURL(url);
+      if (dur > 45) void newSongDeck(f, f.name);
+      else rest.push(f);
+    }
+    if (rest.length && !importDroppedFiles(rest)) toast.warn('Suelta audio (wav, mp3…) o un .mid.');
+  };
 
   // APRENDER (MIDI): con «asignar» activo, tocar un control de la mesa lo elige (no lo mueve)
   const onLearnCapture = (e: React.PointerEvent) => {
@@ -302,12 +336,16 @@ export function DjMixer() {
           setDropping(false);
           if (!e.dataTransfer.files?.length) return;
           e.preventDefault();
-          if (!importDroppedFiles(e.dataTransfer.files)) toast.warn('Suelta audio (wav, mp3…) o un .mid.');
+          void dropAudio(Array.from(e.dataTransfer.files));
         }}>
         {decks.map((n, i) => (
           <Deck key={n.id} id={n.id} index={i} data={n.data as NodeData} showCode={showCode} />
         ))}
-        <button className="dj-add" onClick={addSourceToOut} title="añadir deck (o suelta aquí un audio / .mid, o tráelo de «sonidos»)">+ deck</button>
+        <div className="dj-adds">
+          <button className="dj-add" onClick={() => fileRef.current?.click()} title="deck de TEMA: elige un tema completo (mp3, wav…) — o suéltalo aquí. Se analiza su tempo, su rejilla, su tonalidad y su volumen">+ tema</button>
+          <button className="dj-add" onClick={addSourceToOut} title="deck de patrón (o suelta aquí un loop / .mid, o tráelo de «sonidos»)">+ deck</button>
+          <input ref={fileRef} type="file" accept="audio/*" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; for (const f of fs) void newSongDeck(f, f.name); }} />
+        </div>
       </div>
 
       {/* consola: crossfader y audífonos siempre a la vista; debajo, en pestañas, el máster, EN VIVO
