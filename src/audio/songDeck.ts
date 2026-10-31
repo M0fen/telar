@@ -12,7 +12,7 @@ import { create } from 'zustand';
 import { getAudioCtx, sessionClock, setStripInput, nextBarAudioTime, stripInputLinked } from './engine';
 import { useGraphStore } from '../store/useGraphStore';
 import { useDjStore } from './djMix';
-import { addTrack, loadBuffer, rememberBuffer, getMeta, putMeta } from './trackStore';
+import { addTrack, loadBuffer, rememberBuffer, getMeta, putMeta, type TrackMeta } from './trackStore';
 import { toast } from '../store/useNotifyStore';
 import {
   autoGainDb, bandPeaks, barLen, barOffset, beatAt, beatLen, gridDownbeatAt, gridOf, gridScale, gridShift, gridTempo, jumpBeats, lockedPos,
@@ -23,8 +23,8 @@ import type { NodeData } from '../graph/types';
 
 const gs = () => useGraphStore.getState();
 
-export interface DeckUi { playing: boolean; loop: number | null; loading: boolean; missing: boolean; preview: boolean; nudging: number }
-const UI0: DeckUi = { playing: false, loop: null, loading: false, missing: false, preview: false, nudging: 0 };
+export interface DeckUi { playing: boolean; loop: number | null; loading: boolean; missing: boolean; preview: boolean; nudging: number; since: number }
+const UI0: DeckUi = { playing: false, loop: null, loading: false, missing: false, preview: false, nudging: 0, since: 0 };
 export const useSongDecks = create<{ d: Record<string, DeckUi> }>(() => ({ d: {} }));
 const setUi = (id: string, patch: Partial<DeckUi>) => useSongDecks.setState((s) => ({ d: { ...s.d, [id]: { ...(s.d[id] ?? UI0), ...patch } } }));
 export const deckUi = (id: string): DeckUi => useSongDecks.getState().d[id] ?? UI0;
@@ -57,8 +57,15 @@ export const isSongDeck = (n: { data: NodeData }) => !!n.data.djTrack;
 const trackOf = (id: string): DjTrack | undefined => gs().nodes.find((n) => n.id === id)?.data.djTrack;
 const setTrack = (id: string, patch: Partial<DjTrack>) => {
   const t = trackOf(id);
-  if (t) gs().updateNodeData(id, { djTrack: { ...t, ...patch } });
+  if (!t) return;
+  gs().updateNodeData(id, { djTrack: { ...t, ...patch } });
+  if (('cue' in patch || 'hot' in patch) && t.id) void saveCues(t.id, patch.cue ?? t.cue, patch.hot ?? t.hot);
 };
+// el cue y los cues rápidos se guardan con el tema (en la biblioteca)
+async function saveCues(trackId: string, cue: number, hot: (number | null)[]): Promise<void> {
+  const m = await getMeta(trackId);
+  if (m) await putMeta({ ...m, cue, hot: [...hot] });
+}
 const ctxNow = () => { try { return getAudioCtx().currentTime; } catch { return 0; } };
 
 // TEMPO Y COMPÁS DE LA SESIÓN en la hora t del contexto (null = parada)
@@ -254,7 +261,7 @@ export async function deckPlay(id: string): Promise<void> {
   r.preview = false;
   startNode(r, at, pos, baseRate(t), r.m.loop);
   r.playing = true;
-  setUi(id, { playing: true, preview: false });
+  setUi(id, { playing: true, preview: false, since: Date.now() });
   touchPlayed(t.id);
 }
 
@@ -534,40 +541,76 @@ function keeper(): void {
 }
 let keeperTimer = 0;
 
-// CARGAR un archivo en un deck (lo guarda y lo analiza la primera vez)
-export async function deckLoadFile(id: string, file: Blob, name: string): Promise<boolean> {
-  setUi(id, { loading: true });
-  const res = await addTrack(file, name);
-  if (!res) { setUi(id, { loading: false }); toast.warn(`No pude leer «${name}» como audio.`); return false; }
-  const { meta, buf } = res;
+// pone un tema (ya analizado y decodificado) en un deck: en pausa, en su cue
+function applyTrack(id: string, meta: TrackMeta, buf: AudioBuffer): void {
   rememberBuffer(meta.id, buf);
   const r = rtOf(id);
   if (r.playing) deckPause(id);
+  const cue = meta.cue ?? meta.first;
   r.buf = buf;
   r.bufId = meta.id;
   r.wave = null;
-  r.m = { t0: 0, pos0: meta.first, rate: 0, loop: null };
+  r.m = { t0: 0, pos0: cue, rate: 0, loop: null };
   window.setTimeout(() => computeWave(r), 0);
   const prev = trackOf(id);
+  const hot = [0, 1, 2, 3].map((k) => meta.hot?.[k] ?? null);
   const t: DjTrack = {
     id: meta.id, title: meta.title, bpm: meta.bpm, first: meta.first, beats: meta.beats, dur: meta.dur,
-    key: meta.key, lufs: meta.lufs, cue: meta.first, hot: [null, null, null, null], sync: prev?.sync ?? true,
+    key: meta.key, lufs: meta.lufs, cue, hot, sync: prev?.sync ?? true, pitch: prev?.pitch,
   };
   gs().updateNodeData(id, { name: meta.title, djTrack: t });
   ensureOut(r);
   setUi(id, { loading: false, missing: false, playing: false, loop: null, preview: false });
+}
+
+// CARGAR un archivo en un deck (lo guarda en la biblioteca y lo analiza la primera vez)
+export async function deckLoadFile(id: string, file: Blob, name: string): Promise<boolean> {
+  setUi(id, { loading: true });
+  const res = await addTrack(file, name);
+  if (!res) { setUi(id, { loading: false }); toast.warn(`No pude leer «${name}» como audio.`); return false; }
+  applyTrack(id, res.meta, res.buf);
   return true;
 }
+
+// CARGAR un tema de la biblioteca en un deck
+export async function deckLoadTrack(id: string, trackId: string): Promise<boolean> {
+  if (rts.get(id)?.playing && !rts.get(id)?.preview) { toast.info('Ese deck está sonando: páralo antes de cargar otro tema.'); return false; }
+  setUi(id, { loading: true });
+  const [meta, buf] = await Promise.all([getMeta(trackId), loadBuffer(trackId)]);
+  if (!meta || !buf) { setUi(id, { loading: false }); toast.warn('Falta el audio de ese tema en este navegador.'); return false; }
+  applyTrack(id, meta, buf);
+  return true;
+}
+
+const placeholderTrack = (title: string): DjTrack => ({ id: '', title, bpm: 120, first: 0, beats: 4, dur: 0, cue: 0, hot: [null, null, null, null], sync: true });
 
 // DECK NUEVO con un tema (en pausa, en su cue: suena al darle ▶)
 export async function newSongDeck(file: Blob, name: string): Promise<string | null> {
   const title = name.replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim() || 'tema';
-  const placeholder: DjTrack = { id: '', title, bpm: 120, first: 0, beats: 4, dur: 0, cue: 0, hot: [null, null, null, null], sync: true };
-  const id = gs().addPattern('silence', title, { mute: false, djTrack: placeholder } as Partial<NodeData>);
+  const id = gs().addPattern('silence', title, { mute: false, djTrack: placeholderTrack(title) } as Partial<NodeData>);
   if (!id) return null;
   const ok = await deckLoadFile(id, file, name);
   if (!ok) { gs().removeNode?.(id); return null; }
   return id;
+}
+// DECK NUEVO con un tema de la biblioteca
+export async function newSongDeckFromTrack(trackId: string): Promise<string | null> {
+  const meta = await getMeta(trackId);
+  if (!meta) return null;
+  const id = gs().addPattern('silence', meta.title, { mute: false, djTrack: placeholderTrack(meta.title) } as Partial<NodeData>);
+  if (!id) return null;
+  const ok = await deckLoadTrack(id, trackId);
+  if (!ok) { gs().removeNode?.(id); return null; }
+  return id;
+}
+
+// el deck de REFERENCIA (biblioteca: tonalidades compatibles): el último que arrancó y sigue sonando;
+// si no suena ninguno, null
+export function referenceDeck(): string | null {
+  const d = useSongDecks.getState().d;
+  let best: string | null = null, since = -1;
+  for (const [id, u] of Object.entries(d)) if (u.playing && !u.preview && u.since > since && trackOf(id)) { best = id; since = u.since; }
+  return best;
 }
 
 async function touchPlayed(trackId: string): Promise<void> {

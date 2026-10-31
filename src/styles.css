@@ -3274,3 +3274,31 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .sd-loops-tag { font-size: 8px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--faint, #6b7c88); }
 .sd-nudge { margin-left: auto; }
 .sd-note { margin: 0; font-size: 9px; color: #e7b84a; }
+
+/* BIBLIOTECA DEL SET (DJ-3) */
+.lib { display: flex; flex-direction: column; gap: 6px; min-height: 0; font-family: var(--mono); font-size: 10px; padding: 2px 0; }
+.lib.over { outline: 1px dashed var(--accent); outline-offset: -2px; }
+.lib-top { display: flex; gap: 5px; align-items: center; }
+.lib-q { flex: 1 1 auto; min-width: 0; background: #04070a; border: 1px solid var(--line); color: var(--text, #cfdbe2); font-family: var(--mono); font-size: 10px; padding: 4px 6px; border-radius: 2px; }
+.lib-ref, .lib-busy, .lib-empty { margin: 0; color: var(--dim); font-size: 9.5px; line-height: 1.35; }
+.lib-ref b { color: var(--text, #cfdbe2); font-weight: 600; }
+.lib-busy { color: var(--accent); }
+.lib-sort { display: flex; flex-wrap: wrap; gap: 3px; }
+.lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; max-height: 52vh; }
+.lib-row { display: grid; grid-template-columns: 8px 30px minmax(0, 1fr) 62px 32px auto; align-items: center; gap: 5px; padding: 4px 4px; border: 1px solid transparent; border-radius: 2px; background: rgba(10,16,22,0.55); cursor: grab; }
+.lib-row:hover { border-color: var(--line); }
+.lib-row.compat { background: color-mix(in srgb, var(--accent) 9%, rgba(10,16,22,0.7)); }
+.lib-row.ref { border-color: rgba(231,184,74,0.5); }
+.lib-dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.08); }
+.lib-dot.on { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.lib-cam { color: #b197fc; font-weight: 600; }
+.lib-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text, #cfdbe2); }
+.lib-in { font-style: normal; margin-left: 6px; font-size: 8.5px; color: #e7b84a; }
+.lib-bpm { text-align: right; color: var(--accent); white-space: nowrap; }
+.lib-bpm i { display: block; font-style: normal; font-size: 8.5px; color: var(--faint, #6b7c88); }
+.lib-bpm i.far { color: #e7b84a; }
+.lib-dur { color: var(--dim); text-align: right; }
+.lib-acts { display: inline-flex; gap: 2px; }
+.lib-acts .sd-btn { padding: 2px 5px; }
+.lib-acts .sd-btn:disabled { opacity: 0.35; cursor: default; }
+.lib-del.armed { color: var(--warn); border-color: var(--warn); }

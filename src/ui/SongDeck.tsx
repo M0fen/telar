@@ -6,7 +6,7 @@ import {
   deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckNudge, deckPhase,
   deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
 } from '../audio/songDeck';
-import { barLen, beatAt, camelot, fmtTime, gridOf, posOfBeat, type DjTrack } from '../lib/djDeck';
+import { autoGainDb, barLen, beatAt, camelot, fmtTime, gridOf, posOfBeat, type DjTrack } from '../lib/djDeck';
 import { keyShort } from '../lib/songKey';
 import type { NodeData } from '../graph/types';
 
@@ -180,6 +180,7 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
   const sync = t.sync !== false;
   const eff = sync ? sessionBpm : t.bpm * (1 + (t.pitch ?? 0));
   const pct = ((eff / t.bpm - 1) * 100);
+  const gainDb = t.trim ?? autoGainDb(t.lufs);
   const hot = [0, 1, 2, 3].map((k) => t.hot?.[k] ?? null);
   const ovClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -198,7 +199,7 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
         <span className="sd-key" title={t.key ? `tonalidad ${keyShort(t.key)} · Camelot ${camelot(t.key)} (mezcla armónica: misma clave, ±1 o la otra letra)` : 'sin tonalidad detectada'}>
           {t.key ? <><b>{camelot(t.key)}</b> {keyShort(t.key)}</> : '—'}
         </span>
-        <span className="sd-bpm" title={`tempo original ${t.bpm.toFixed(2)} BPM${sync ? ` · con SYNC suena a ${eff.toFixed(1)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %)` : ''}`}>
+        <span className="sd-bpm" title={`tempo original ${t.bpm.toFixed(2)} BPM${sync ? ` · con SYNC suena a ${eff.toFixed(1)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %)` : ''}${t.lufs != null ? ` · volumen igualado: ${t.lufs} LUFS → ${gainDb >= 0 ? '+' : ''}${gainDb} dB (a −14, como los demás temas)` : ''}`}>
           <b>{eff.toFixed(1)}</b> <i>{t.bpm.toFixed(1)}{Math.abs(pct) > 0.05 ? ` ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : ''}</i>
         </span>
         <span className="sd-time"><span ref={elRef}>0:00</span> <i ref={remRef}>−0:00</i></span>

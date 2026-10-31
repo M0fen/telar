@@ -18,7 +18,8 @@ import { canPickOutput, listOutputs, syncHeadphones, type OutputDevice } from '.
 import { importDroppedFiles, isAudioFile } from '../lib/dropFiles';
 import { sampleDuration } from '../lib/audioMeta';
 import { SongDeckBody } from './SongDeck';
-import { initSongDecks, newSongDeck, deckLoadFile } from '../audio/songDeck';
+import { initSongDecks, newSongDeck, deckLoadFile, deckLoadTrack, newSongDeckFromTrack } from '../audio/songDeck';
+import { SetLibrary } from './SetLibrary';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { toast } from '../store/useNotifyStore';
 import type { NodeData } from '../graph/types';
@@ -123,10 +124,13 @@ function Deck({ id, data, index, showCode }: { id: string; data: NodeData; index
 
   return (
     <div className={`ch deck${song ? ' song' : ''}${muted ? ' muted' : ''}${soloed ? ' soloed' : ''}${dimmed ? ' dimmed' : ''}${cue ? ' cued' : ''}${pending ? ' pending' : ''}${dropHere ? ' drop-here' : ''}`}
-      onDragOver={song ? (e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); e.stopPropagation(); setDropHere(true); } } : undefined}
+      onDragOver={song ? (e) => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(TRACK_MIME)) { e.preventDefault(); e.stopPropagation(); setDropHere(true); } } : undefined}
       onDragLeave={song ? () => setDropHere(false) : undefined}
       onDrop={song ? (e) => {
         setDropHere(false);
+        // un tema de la biblioteca (DJ-3) o un archivo
+        const tid = e.dataTransfer.getData(TRACK_MIME);
+        if (tid) { e.preventDefault(); e.stopPropagation(); void deckLoadTrack(id, tid); return; }
         const f = Array.from(e.dataTransfer.files ?? []).find(isAudioFile);
         if (!f) return;
         e.preventDefault();
@@ -278,10 +282,13 @@ function MidiBtn() {
   );
 }
 
+// un tema de la biblioteca arrastrado (DJ-3)
+const TRACK_MIME = 'application/telar-track';
+
 // pestaña de la consola, recordada en este navegador
-type Tab = 'master' | 'live' | 'sounds';
+type Tab = 'master' | 'live' | 'sounds' | 'tracks';
 const TAB_KEY = 'telar.dj.tab';
-const readTab = (): Tab => { try { const v = localStorage.getItem(TAB_KEY); return v === 'live' || v === 'sounds' ? v : 'master'; } catch { return 'master'; } };
+const readTab = (): Tab => { try { const v = localStorage.getItem(TAB_KEY); return v === 'live' || v === 'sounds' || v === 'tracks' ? v : 'master'; } catch { return 'master'; } };
 
 export function DjMixer() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -330,10 +337,12 @@ export function DjMixer() {
   return (
     <div className={`dj dj-${orientation}${learn ? ' learning' : ''}`} onPointerDownCapture={onLearnCapture} onClickCapture={onClickCapture}>
       <div className={`dj-decks${dropping ? ' dropping' : ''}`}
-        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDropping(true); } }}
+        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(TRACK_MIME)) { e.preventDefault(); setDropping(true); } }}
         onDragLeave={() => setDropping(false)}
         onDrop={(e) => {
           setDropping(false);
+          const tid = e.dataTransfer.getData(TRACK_MIME);
+          if (tid) { e.preventDefault(); void newSongDeckFromTrack(tid); return; } // fuera de un deck: deck nuevo
           if (!e.dataTransfer.files?.length) return;
           e.preventDefault();
           void dropAudio(Array.from(e.dataTransfer.files));
@@ -349,7 +358,7 @@ export function DjMixer() {
       </div>
 
       {/* consola: crossfader y audífonos siempre a la vista; debajo, en pestañas, el máster, EN VIVO
-          (MIDI) o los SONIDOS (biblioteca: entran como decks nuevos, en silencio) */}
+          (MIDI), los TEMAS (biblioteca del set) o los SONIDOS (entran como decks nuevos, en silencio) */}
       <aside className="dj-console" aria-label="consola: crossfader, audífonos, máster, en vivo y sonidos">
         <div className="dj-bar">
           <span className="dj-bar-brand">MASTER</span>
@@ -368,6 +377,7 @@ export function DjMixer() {
         <div className="dock-tabs dj-tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'master'} className={tab === 'master' ? 'on' : ''} onClick={() => setTab('master')} title="nivel, filtro, efectos, limitador, EQ, LUFS y retornos del máster">máster</button>
           <button role="tab" aria-selected={tab === 'live'} className={tab === 'live' ? 'on' : ''} onClick={() => setTab('live')} title="MIDI, perillas de efectos, pads y pistas para tocar con el controlador">en vivo</button>
+          <button role="tab" aria-selected={tab === 'tracks'} className={tab === 'tracks' ? 'on' : ''} onClick={() => setTab('tracks')} title="tus temas: tempo, tonalidad y duración; marca los que encajan con el que suena">temas</button>
           <button role="tab" aria-selected={tab === 'sounds'} className={tab === 'sounds' ? 'on' : ''} onClick={() => setTab('sounds')} title="sonidos, kits, loops y tus patrones: entran como deck nuevo (en silencio)">sonidos</button>
           <MidiBtn />
         </div>
@@ -376,7 +386,9 @@ export function DjMixer() {
             ? <ErrorBoundary variant="panel" label="máster"><Performance /></ErrorBoundary>
             : tab === 'live'
               ? <ErrorBoundary variant="panel" label="MIDI en vivo"><MidiLive docked /></ErrorBoundary>
-              : <ErrorBoundary variant="panel" label="sonidos"><Palette dj /></ErrorBoundary>}
+              : tab === 'tracks'
+                ? <ErrorBoundary variant="panel" label="temas"><SetLibrary /></ErrorBoundary>
+                : <ErrorBoundary variant="panel" label="sonidos"><Palette dj /></ErrorBoundary>}
         </div>
       </aside>
     </div>

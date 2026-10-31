@@ -3,6 +3,7 @@
 // del tema, su rejilla y sus cues). El id es la huella del archivo: el mismo tema no se guarda dos veces.
 // El análisis (tempo y rejilla, tonalidad, loudness, forma de onda resumida) se hace UNA vez.
 import { guess } from 'web-audio-beat-detector';
+import { create } from 'zustand';
 import { getAudioCtx } from './engine';
 import { detectKey, phraseBass } from '../lib/keyDetect';
 import { measureLoudness } from '../lib/loudness';
@@ -23,7 +24,13 @@ export interface TrackMeta {
   at: number; // cuándo se guardó
   played?: number; // última vez que sonó en un set
   overview?: { pk: number[]; lo: number[]; mid: number[]; hi: number[] }; // 600 columnas, 0..1
+  cue?: number; // cue y cues rápidos: viajan con el tema (cargado otro día, en otro deck, están ahí)
+  hot?: (number | null)[];
 }
+
+// la biblioteca cambió (tema nuevo, borrado, rejilla o cues): la vista vuelve a leer
+export const useTrackLib = create<{ v: number }>(() => ({ v: 0 }));
+const bump = () => useTrackLib.setState((s) => ({ v: s.v + 1 }));
 
 let dbp: Promise<IDBDatabase> | null = null;
 function db(): Promise<IDBDatabase> {
@@ -55,7 +62,7 @@ function req<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore)
 }
 
 export const getMeta = (id: string) => req<TrackMeta>('meta', 'readonly', (s) => s.get(id));
-export const putMeta = (m: TrackMeta) => req('meta', 'readwrite', (s) => s.put(m));
+export const putMeta = async (m: TrackMeta) => { const r = await req('meta', 'readwrite', (s) => s.put(m)); bump(); return r; };
 export async function listMeta(): Promise<TrackMeta[]> {
   return ((await req<TrackMeta[]>('meta', 'readonly', (s) => s.getAll())) ?? []).sort((a, b) => b.at - a.at);
 }
@@ -66,6 +73,8 @@ export async function getBlob(id: string): Promise<Blob | null> {
 export async function deleteTrack(id: string): Promise<void> {
   await req('files', 'readwrite', (s) => s.delete(id));
   await req('meta', 'readwrite', (s) => s.delete(id));
+  decoded.delete(id);
+  bump();
 }
 
 async function hashOf(ab: ArrayBuffer): Promise<string> {
