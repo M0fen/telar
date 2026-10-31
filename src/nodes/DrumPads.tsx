@@ -8,7 +8,7 @@ import { mapName, resolveSoundKey, soundAlternatives, type SoundAlt } from '../a
 import { drumPadMap, PADS } from '../lib/padRecord';
 import { editLaneEverywhere, laneOf } from '../lib/padEdit';
 import { buildPadFx, CUT_GROUPS, DECAY_MAX, hatPair, parsePadFx, type PadFx } from '../lib/padFx';
-import { laneOwnBank, parseSeq, withLaneBank } from './stepseqCode';
+import { bankExempt, buildSeq, laneOwnBank, parseSeq, withLaneBank } from './stepseqCode';
 import { heardPatternTime, type ArmPos } from './patternClock';
 import { Knob } from '../ui/Knob';
 import { toast } from '../store/useNotifyStore';
@@ -35,7 +35,7 @@ function PadWave({ name, color }: { name: string; color: string }) {
 
 const fmtSt = (v: number) => `${v > 0 ? '+' : ''}${v.toFixed(1)} st`;
 
-export function DrumPads({ id, code, headOff, armPos }: { id: string; code: string; headOff?: boolean; armPos?: ArmPos }) {
+export function DrumPads({ id, code, wrap, headOff, armPos }: { id: string; code: string; wrap?: (c: string) => string; headOff?: boolean; armPos?: ArmPos }) {
   const full = useGraphStore((s) => (s.nodes.find((n) => n.id === id)?.data.code ?? '') as string);
   const update = useGraphStore((s) => s.updateNodeData);
   const color = useTrackColorStore((s) => s.map[id]) ?? '#3df0d0';
@@ -49,6 +49,7 @@ export function DrumPads({ id, code, headOff, armPos }: { id: string; code: stri
   // sesión de CAMBIO DE SAMPLE: la lista queda fija mientras pruebas (el actual va cambiando)
   const [swap, setSwap] = useState<{ pad: number; orig: string; idx: number; alts: SoundAlt[] } | null>(null);
   const [tap, setTap] = useState(-1); // pad recién tocado (destello)
+  const [dropPad, setDropPad] = useState(-1); // pad sobre el que arrastras un sonido (10.4)
   const tapT = useRef<number | undefined>(undefined);
   const flashTap = (pad: number) => { setTap(pad); window.clearTimeout(tapT.current); tapT.current = window.setTimeout(() => setTap(-1), 140); };
 
@@ -134,6 +135,24 @@ export function DrumPads({ id, code, headOff, armPos }: { id: string; code: stri
   };
   const revert = () => { if (swap) { update(id, { code: swap.orig }); setSwap(null); } };
 
+  // SOLTAR UN SONIDO EN UN PAD (10.4): ese pad pasa a tocar el sample (en todas las secciones);
+  // un pad que aún no estaba en el patrón entra con un golpe en el 1 (para que se oiga)
+  const dropOnPad = (pad: number, name: string) => {
+    const old = map[pad];
+    if (!old) return;
+    if (gridBank && !bankExempt(name)) { toast.warn(`«${name}» no es de un pack: en una batería con caja «${gridBank}» no sonaría. Usa un sonido de tus packs o de la nube.`); return; }
+    if (laneOf(full, old)) {
+      update(id, { code: editLaneEverywhere(full, old, (l) => ({ ...withLaneBank(l, ''), sound: name })) });
+      toast.ok(`pad ${pad + 1}: «${old}» → «${name}».`);
+      return;
+    }
+    if (!parsed || parsed.complex) return;
+    const lane = { sound: name, steps: Array(parsed.steps).fill(0).map((_, k) => (k === 0 ? 1 : 0)), notes: Array(parsed.steps).fill(null), ratchet: Array(parsed.steps).fill(1), prob: Array(parsed.steps).fill(1) };
+    const next = buildSeq(parsed, [...parsed.lanes, lane], parsed.steps);
+    update(id, { code: wrap ? wrap(next) : next });
+    toast.ok(`«${name}» en un pad nuevo, con un golpe en el 1 para que suene (muévelo en la rejilla).`);
+  };
+
   const chokeHats = () => {
     if (!hats) return;
     let next = editLaneEverywhere(full, hats.closed, (l) => ({ ...l, sfx: buildPadFx({ ...parsePadFx(l.sfx), cut: 1 }) || undefined }));
@@ -177,7 +196,17 @@ export function DrumPads({ id, code, headOff, armPos }: { id: string; code: stri
             const flash = ((lit >> i) & 1) === 1 || tap === i;
             const cut = s && inPat ? parsePadFx(laneOf(full, s)?.sfx).cut : null;
             return (
-              <button key={i} className={`dpad${inPat ? ' in' : ''}${sel === i ? ' sel' : ''}${flash ? ' lit' : ''}`} disabled={!s}
+              <button key={i} className={`dpad${inPat ? ' in' : ''}${sel === i ? ' sel' : ''}${flash ? ' lit' : ''}${dropPad === i ? ' drop' : ''}`} disabled={!s}
+                onDragOver={(e) => { if (s && e.dataTransfer.types.includes('application/telar-sound')) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; if (dropPad !== i) setDropPad(i); } }}
+                onDragLeave={() => setDropPad(-1)}
+                onDrop={(e) => {
+                  const raw = e.dataTransfer.getData('application/telar-sound');
+                  setDropPad(-1);
+                  if (!raw) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  try { const { name } = JSON.parse(raw) as { name: string }; if (name) dropOnPad(i, name); } catch { /* arrastre ajeno */ }
+                }}
                 onPointerDown={(e) => s && hit(i, e)}
                 onKeyDown={(e) => { if (s && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setSel(i); padHit(i, 0.8, id); } }}
                 title={s ? `${s}${inPat ? '' : ' (aún no está en el patrón)'} · clic: tocar y elegir · arriba más fuerte` : 'pad libre'}>

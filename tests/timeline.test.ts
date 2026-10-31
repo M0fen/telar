@@ -103,3 +103,13 @@ test('silencios: uno por sección', () => {
   assert.equal(show(normalize([{ start: 0, bars: 4, expr: SILENCE }, { start: 4, bars: 4, expr: SILENCE }], [8])), '0+8:_');
   assert.equal(show(sliceClips([{ start: 0, bars: 8, expr: 'A' }], 2, 6)), '0+4:A');
 });
+
+test('10.5 los marcadores van con su tramo (uno duplicado queda en las dos copias)', async () => {
+  const { remapMarkers } = await import('../src/lib/timeline.ts');
+  const mk = [{ id: 'a', bar: 2, name: 'golpe' }, { id: 'b', bar: 10, name: 'drop' }];
+  assert.deepEqual(remapMarkers(mk, opReorder([[8, 8], [0, 8]], 16)).map((m) => `${m.name}@${m.bar}`), ['drop@2', 'golpe@10']);
+  const dup = remapMarkers(mk, opDuplicate(0, 8));
+  assert.deepEqual(dup.map((m) => `${m.name}@${m.bar}`), ['golpe@2', 'golpe@10', 'drop@18']);
+  assert.equal(new Set(dup.map((m) => m.id)).size, 3);
+  assert.deepEqual(remapMarkers(mk, opRemove(0, 8)).map((m) => `${m.name}@${m.bar}`), ['drop@2']);
+});

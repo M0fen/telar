@@ -228,6 +228,26 @@ export function remapTransitions(items: TransItem[], sg: Seg[]): TransItem[] {
   return out.filter((x) => (seen.has(key(x)) ? false : (seen.add(key(x)), true)));
 }
 
+// MARCADORES (10.5): van con su tramo (uno duplicado aparece en las dos copias)
+export function remapMarkers<M extends { id: string; bar: number }>(items: M[], sg: Seg[]): M[] {
+  const out: M[] = [];
+  let pos = 0;
+  const used = new Set<string>();
+  for (const s of sg) {
+    if (s.from != null) {
+      const end = s.from + s.len;
+      for (const m of items) {
+        if (m.bar < s.from - EPS || m.bar >= end - EPS) continue;
+        const id = used.has(m.id) ? `${m.id}_${out.length}` : m.id;
+        used.add(id);
+        out.push({ ...m, id, bar: rb(pos + m.bar - s.from) });
+      }
+    }
+    if (Number.isFinite(s.len)) pos += s.len;
+  }
+  return out.sort((a, b) => a.bar - b.bar);
+}
+
 // --- clips de UNA pista (10.1 · 10.2) ---------------------------------------------------------
 const indexAt = (clips: Clip[], bar: number) => clips.findIndex((c) => bar >= c.start - EPS && bar < c.start + c.bars - EPS);
 

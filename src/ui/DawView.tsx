@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import './DawView.css';
 import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
@@ -23,7 +23,9 @@ import { useDawUiStore } from '../store/useDawUiStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { TrackColorButton } from './TrackColor';
 import { DawTrackHead, DawFolderRow, useLaneResize } from './DawTrackHead';
-import { dawClip } from '../lib/dawActions';
+import { dawClip, dropSoundAt } from '../lib/dawActions';
+import { DawMarkers, DawMinimap, addMarkerAt } from './DawMarkers';
+import { importDroppedFiles } from '../lib/dropFiles';
 import { folderOf, groupRows, laneH, LANE_H } from '../lib/dawFolders';
 import { DawLaneContent } from './DawLaneContent';
 import { useDetailStore } from '../store/useDetailStore';
@@ -290,7 +292,7 @@ export function DawView() {
   const shownRegion = drag?.moved ? { start: Math.min(drag.a, drag.b), bars: Math.abs(drag.b - drag.a) + 1 } : brace ? { start: brace.start, bars: brace.bars } : region;
   // TECLAS DE LA VISTA (8.4): L bucle · Z zoom a la región/sección (o a toda la canción) · F seguir
   // el cabezal · − + zoom (anclado al centro)
-  const keyCtx = useRef({ fitSel: () => {}, zoom: (_d: 1 | -1) => {} });
+  const keyCtx = useRef({ fitSel: () => {}, zoom: (_d: 1 | -1) => {}, marker: () => {} });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
@@ -305,6 +307,9 @@ export function DawView() {
       } else if (k === 'z') {
         e.preventDefault();
         keyCtx.current.fitSel();
+      } else if (k === 'm') {
+        e.preventDefault();
+        keyCtx.current.marker(); // 10.5: marcador en el cabezal
       } else if (k === 'f') {
         e.preventDefault();
         const u = useDawUiStore.getState();
@@ -409,6 +414,10 @@ export function DawView() {
     const bar = Number.isFinite(pos) && pos > c.start && pos < c.start + c.bars ? Math.round(pos) : c.start + Math.floor(c.bars / 2);
     return Math.max(c.start + 1, Math.min(c.start + c.bars - 1, bar));
   };
+  const phBar = useCallback(() => {
+    const now = useGraphStore.getState().playing ? heardCycle() : NaN;
+    return Number.isFinite(now) ? playheadAt(timelinePos(now, useSongStore.getState()), total, sections).pos : NaN;
+  }, [total, sections]);
   const playBar = () => {
     const now = useGraphStore.getState().playing ? heardCycle() : NaN;
     return Number.isFinite(now) ? Math.floor(playheadAt(timelinePos(now, useSongStore.getState()), total, sections).pos) : 0;
@@ -442,6 +451,42 @@ export function DawView() {
     const t = tracks.find((x) => x.id === selClip.trackId);
     if (!t || !t.blocks.some((b) => Math.abs(b.start - selClip.start) < 1e-6 && b.state !== 'empty')) setSelClip(null);
   }, [tracks, selClip]);
+
+  // DE LA BIBLIOTECA AL COMPÁS (Fase 10.4): soltar un sonido o un archivo sobre una pista (en un
+  // compás) o debajo de las pistas (pista nueva). Un loop entra al tempo del tema.
+  const [dropHint, setDropHint] = useState<{ trackId: string | null; bar: number } | null>(null);
+  const dropTarget = (e: React.DragEvent) => {
+    const body = bodyRef.current;
+    if (!body) return null;
+    const r = body.getBoundingClientRect();
+    const bar = Math.max(0, Math.min(total - 1, Math.floor((e.clientX - r.left - nameWOf(body) + body.scrollLeft) / pxRef.current)));
+    const tid = trackAtY(e.clientY);
+    const t = tid ? tracks.find((x) => x.id === tid) : undefined;
+    return { trackId: t && !t.plain ? t.id : null, bar };
+  };
+  const isSoundDrag = (e: React.DragEvent) => e.dataTransfer.types.includes('application/telar-sound') || e.dataTransfer.types.includes('Files');
+  const onSoundDragOver = (e: React.DragEvent) => {
+    if (!isSoundDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    const d = dropTarget(e);
+    if (d && (d.trackId !== dropHint?.trackId || d.bar !== dropHint?.bar)) setDropHint(d);
+  };
+  const onSoundDrop = (e: React.DragEvent) => {
+    if (!isSoundDrag(e)) return;
+    e.preventDefault();
+    const d = dropTarget(e) ?? { trackId: null, bar: 0 };
+    setDropHint(null);
+    const raw = e.dataTransfer.getData('application/telar-sound');
+    if (raw) {
+      try { const { name } = JSON.parse(raw) as { name: string }; if (name) void dropSoundAt({ name }, d.trackId, d.bar, total); } catch { /* arrastre ajeno */ }
+      return;
+    }
+    const files = Array.from(e.dataTransfer.files ?? []);
+    const midi = files.filter((f) => /\.midi?$/i.test(f.name));
+    if (midi.length) importDroppedFiles(midi);
+    files.filter((f) => !/\.midi?$/i.test(f.name)).forEach((f, k) => void dropSoundAt({ file: f }, d.trackId, d.bar + k, total));
+  };
 
   const menuTrack = menu ? tracks.find((x) => x.id === menu.trackId) : undefined;
   const menuBlock = menu && menuTrack ? menuTrack.blocks.find((x) => x.arm === menu.arm && x.start === menu.start) ?? menuTrack.blocks.find((x) => x.arm === menu.arm) : undefined;
@@ -493,7 +538,7 @@ export function DawView() {
     else if (selIdx >= 0 && sections[selIdx]) fitBars(sections[selIdx].start, sections[selIdx].bars);
     else fitBars(0, total);
   };
-  keyCtx.current = { fitSel, zoom };
+  keyCtx.current = { fitSel, zoom, marker: () => addMarkerAt(useGraphStore.getState().playing ? playBar() : 0) };
   // RUEDA Y PELLIZCO (8.4): Ctrl/⌘ + rueda (y el pellizco del trackpad) = zoom donde está el ratón;
   // la rueda sola desplaza (nativo). En pantallas táctiles, dos dedos = zoom.
   const hasBody = tracks.length > 0;
@@ -662,6 +707,7 @@ export function DawView() {
         <button className={`daw-btn tog${foldersOn ? ' on' : ''}`} onClick={() => setFoldersOn(!foldersOn)} aria-pressed={foldersOn} title={foldersOn ? 'quitar las carpetas (todas las pistas en una lista)' : 'agrupar las pistas en carpetas: batería, bajos, sintes, loops, voces, efectos (se pliegan; su M y S actúan sobre todas)'}>
           ▤ carpetas
         </button>
+        <button className="daw-btn" onClick={() => addMarkerAt(useGraphStore.getState().playing ? playBar() : 0)} title="poner un marcador con nombre en el cabezal (M) · clic: tocar desde ahí · doble clic: renombrar · clic derecho: quitar">＋ marcador</button>
         <button className="daw-btn" onClick={cycleHeights} title="alto de todas las filas: compacta → con volumen y paneo → alta (cada fila también se estira desde su borde de abajo)">⇕ alto</button>
         <button className={`daw-btn tog${follow ? ' on' : ''}`} onClick={() => setFollow(!follow)} aria-pressed={follow} title={follow ? 'la vista sigue al cabezal mientras suena (F para soltarlo)' : 'seguir el cabezal mientras suena (F)'}>
           ⇥ seguir
@@ -677,10 +723,15 @@ export function DawView() {
         <DawSectionBar index={selIdx} steps={steps} scenes={scenes} start={sections[selIdx]?.start ?? 0} onSelect={setSel} />
       )}
 
+      {tracks.length > 0 && total > 0 && (
+        <DawMinimap sections={sections} tracks={tracks} total={total} px={px} view={view}
+          scrollTo={(x0) => { const b = bodyRef.current; if (b) { userScrollAt.current = performance.now(); b.scrollLeft = x0; } }}
+          phPos={phBar} />
+      )}
       {tracks.length === 0 ? (
         <div className="daw-empty">No hay pistas. Crea sources en la vista standard o carga un ejemplo desde «proyecto».</div>
       ) : (
-        <div className="daw-body" ref={bodyRef}>
+        <div className={`daw-body${dropHint ? ' dropping' : ''}`} ref={bodyRef} onDragOver={onSoundDragOver} onDragLeave={(e) => { if (e.currentTarget === e.target) setDropHint(null); }} onDrop={onSoundDrop}>
           <div className="daw-grid" style={{ width: `calc(var(--daw-name-w) + ${width}px)` }}>
             <div className="daw-ruler">
               <div className="daw-corner">{sections.length === 0 ? 'sin secciones' : 'secciones'}</div>
@@ -717,6 +768,7 @@ export function DawView() {
                   )}
                   {rulerLabels}
                 </div>
+                <DawMarkers px={px} total={total} />
                 <div className="daw-secs">
                   {sections.map((s, i) => (
                     <div
@@ -815,6 +867,9 @@ export function DawView() {
                     </div>
                   ))}
                   <DawLaneContent blocks={t.blocks} px={px} x0={view.x0} w={view.w} color={colors[t.id] ?? '#3df0d0'} beats={beats} cps={cps} plain={t.plain} h={heightOf(t.id)} />
+                  {dropHint && dropHint.trackId === t.id && !t.plain && (
+                    <div className="daw-clipghost" style={{ left: dropHint.bar * px, width: Math.max(2, px - 2) }}><span>{dropHint.bar + 1}</span></div>
+                  )}
                   {ghost && ghost.trackId === t.id && (
                     <div className={`daw-clipghost${ghost.ok ? '' : ' bad'}`} style={{ left: ghost.start * px, width: Math.max(2, ghost.bars * px - 2) }}>
                       <span>{ghost.start + 1}{ghost.bars > 1 ? `–${ghost.start + ghost.bars}` : ''}</span>
@@ -873,6 +928,14 @@ export function DawView() {
               })()}
             </Fragment>
             ))(row.t))}
+            {dropHint && dropHint.trackId == null && (
+              <div className="daw-row daw-droprow">
+                <div className="daw-tname"><span className="daw-tn">＋ pista nueva</span></div>
+                <div className="daw-lane" style={{ width, ...gridBg }}>
+                  <div className="daw-clipghost" style={{ left: dropHint.bar * px, width: Math.max(2, px * 2 - 2) }}><span>{dropHint.bar + 1}</span></div>
+                </div>
+              </div>
+            )}
             {fromSong && <DawTransitions total={total} px={px} width={width} gridBg={gridBg} snap={snap.bars} beats={beats} />}
             {fromSong && outNode && (() => {
               // MÁSTER (7.2): filtro DJ, drive, reverb/eco/crush del máster y nivel de los retornos

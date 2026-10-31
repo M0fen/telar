@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { savedProject, startupSong, readLegacy, LEGACY_SONG_KEY, type ProjectSong } from '../lib/projectStore';
+import { savedProject, startupSong, readLegacy, LEGACY_SONG_KEY, type ProjectSong, type SongMarker } from '../lib/projectStore';
 
 // Línea de tiempo / SONG MODE: arregla una canción como una secuencia de SECCIONES,
 // cada una = una escena (1–9, del banco de escenas) que dura N compases. Al reproducir
@@ -26,6 +26,8 @@ const newId = () => `st_${Date.now().toString(36)}_${n++}`;
 interface SongState {
   steps: SongStep[];
   loop: boolean;
+  markers: SongMarker[]; // marcadores con nombre (10.5): se guardan con la canción
+  setMarkers: (m: SongMarker[]) => void;
   playing: boolean;
   index: number; // sección activa (runtime)
   // compás de arranque (desde 0) tras «tocar desde aquí» en la vista DAW (Fase 1.4). Es de
@@ -67,6 +69,8 @@ interface SongState {
 export const useSongStore = create<SongState>((set, get) => ({
   steps: seed.steps,
   loop: seed.loop,
+  markers: seed.markers ?? [],
+  setMarkers: (markers) => set({ markers }),
   playing: false,
   index: 0,
   from: 0,
@@ -91,5 +95,5 @@ export const useSongStore = create<SongState>((set, get) => ({
   setPlaying: (playing) => set({ playing }),
   setIndex: (index) => set({ index }),
   setSteps: (steps) => set({ steps, index: Math.min(get().index, Math.max(0, steps.length - 1)) }),
-  replace: (song) => set({ steps: song.steps, loop: song.loop, playing: false, index: 0, from: 0, countIn: 0, region: null, regionOn: false }),
+  replace: (song) => set({ steps: song.steps, loop: song.loop, markers: song.markers ?? [], playing: false, index: 0, from: 0, countIn: 0, region: null, regionOn: false }),
 }));

@@ -371,3 +371,23 @@
 }
 .daw-clipghost span { font-size: 9px; color: var(--text, #d4dee6); background: rgba(4, 6, 9, 0.8); padding: 0 3px; border-radius: 2px; }
 .daw-clipghost.bad { border-color: #e46a6a; background: rgba(228, 106, 106, 0.12); }
+
+/* 10.4 · soltar sonidos en la línea de tiempo */
+.daw-body.dropping { outline: 1px dashed var(--accent-dim, #1d8f80); outline-offset: -2px; }
+.daw-droprow .daw-tn { color: var(--accent, #3df0d0); font-size: 10px; }
+
+/* 10.5 · MARCADORES (sobre la regla) y MINIMAPA (la canción entera con la energía de cada sección) */
+.daw-markers { position: absolute; left: 0; right: 0; top: 0; height: 0; z-index: 6; }
+.daw-mk { position: absolute; top: 0; display: flex; align-items: flex-start; gap: 3px; cursor: pointer; transform: translateX(-1px); user-select: none; }
+.daw-mk-flag { width: 2px; height: 28px; background: #e7b84a; box-shadow: 0 0 4px rgba(231, 184, 74, 0.5); }
+.daw-mk-name { font-size: 9px; line-height: 13px; padding: 0 4px; border-radius: 0 2px 2px 0; background: #e7b84a; color: #1a1205; font-weight: 600; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+.daw-mk.drag { opacity: 0.75; }
+.daw-mk-in { width: 110px; font-size: 10px; padding: 0 3px; height: 15px; background: #04070a; border: 1px solid #e7b84a; color: var(--text, #d4dee6); }
+.daw-mini { position: relative; height: 30px; margin: 0 0 4px var(--daw-name-w, 168px); border: 1px solid var(--line, #202c38); border-radius: 2px; background: #05080c; overflow: hidden; cursor: pointer; touch-action: none; }
+.daw-mini-sec { position: absolute; top: 0; bottom: 0; display: flex; align-items: flex-end; overflow: hidden; }
+.daw-mini-sec.alt { background: rgba(255, 255, 255, 0.015); }
+.daw-mini-e { position: absolute; left: 0; right: 0; bottom: 0; background: linear-gradient(0deg, rgba(61, 240, 208, 0.55), rgba(61, 240, 208, 0.18)); border-top: 1px solid rgba(61, 240, 208, 0.8); }
+.daw-mini-sec span { position: relative; font-size: 8px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text, #d4dee6); padding: 0 3px 2px; white-space: nowrap; text-shadow: 0 0 3px #000; }
+.daw-mini-mk { position: absolute; top: 0; bottom: 0; width: 2px; background: #e7b84a; }
+.daw-mini-view { position: absolute; top: 0; bottom: 0; border: 1px solid var(--text, #d4dee6); background: rgba(255, 255, 255, 0.06); border-radius: 2px; pointer-events: none; }
+.daw-mini-ph { position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: var(--accent, #3df0d0); pointer-events: none; }

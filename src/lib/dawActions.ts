@@ -33,7 +33,7 @@ export function arrangeState(): E.ArrangeState {
       if (Object.keys(pts).length) autos[n.id] = pts;
     }
   }
-  return { steps: useSongStore.getState().steps.map((s) => ({ ...s })), codes, autos, trans };
+  return { steps: useSongStore.getState().steps.map((s) => ({ ...s })), codes, autos, trans, markers: useSongStore.getState().markers };
 }
 
 // --- TRANSICIONES (Fase 7.4): riser, reverso, impacto y barrido en la línea de tiempo ----------
@@ -82,6 +82,8 @@ function trackName(id: string): string {
 export function commitArrangement(r: E.EditResult | null, failMsg = 'no se pudo hacer ese cambio en la estructura'): boolean {
   if (!r) { toast.warn(failMsg); return false; }
   useGraphStore.getState().applyArrangement(r.codes, r.steps, r.patches);
+  // marcadores: van en el mismo paso de deshacer (el historial guarda la canción entera)
+  if (r.markers && r.markers !== useSongStore.getState().markers) useSongStore.getState().setMarkers(r.markers);
   if (r.skipped.length) {
     const list = r.skipped.slice(0, 3).map(trackName).join(', ');
     toast.warn(`${list}${r.skipped.length > 3 ? '…' : ''} tiene${r.skipped.length > 1 ? 'n' : ''} más secciones que la canción: no se tocó. Quita secciones en su nodo o borra su arrange.`);
@@ -210,6 +212,53 @@ function commitClips(total: number, changes: Record<string, { tl: TL.TrackTimeli
   useGraphStore.getState().applyArrangement(codes);
   return true;
 }
+// --- DE LA BIBLIOTECA AL COMPÁS (Fase 10.4) ---------------------------------------------------
+// el código de una pista que solo suena en [at, at+len) (silencio en el resto de la canción)
+export function placedArrange(at: number, len: number, expr: string, total: number): string {
+  const a = Math.max(0, Math.min(total - 1, Math.round(at)));
+  const l = Math.max(1, Math.min(total - a, len));
+  const clips: TL.Clip[] = [{ start: 0, bars: total, expr: TL.SILENCE }];
+  return TL.writeTimeline({ clips: [], pre: 'arrange(', post: ')' }, TL.normalize(TL.placeClip(clips, a, l, expr), songBounds()));
+}
+// soltar un sonido (nombre de la biblioteca) o un archivo en el compás `bar`: un LOOP entra como
+// pista nueva al tempo (y la tonalidad) del tema, solo en ese tramo; un one-shot va a la pista
+// donde lo sueltas (un clip de 1 compás) o, sin pista, a una pista nueva.
+export async function dropSoundAt(src: { name: string } | { file: File }, trackId: string | null, bar: number, total: number): Promise<boolean> {
+  const { addLoopToCanvas } = await import('./warpActions');
+  const { resolveSampleUrl } = await import('./sampleResolve');
+  const T = Math.max(1, total);
+  const name = 'name' in src ? src.name : src.file.name;
+  let blob: Blob | null = 'file' in src ? src.file : null;
+  if (!blob) {
+    const url = resolveSampleUrl(name);
+    blob = url ? await fetch(url).then((r) => r.blob()).catch(() => null) : null;
+  }
+  if (blob) {
+    const id = await addLoopToCanvas(blob, name, { wrapCode: (code, cycles) => placedArrange(bar, cycles, code, T) }).catch(() => null);
+    if (id) return true;
+  }
+  // one-shot: su nombre en el mapa de sonidos (un archivo se registra primero)
+  let snd = 'name' in src ? src.name : '';
+  if ('file' in src) {
+    const { registerLocalSample } = await import('../audio/engine');
+    const base = src.file.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'sample';
+    snd = `local_${base}`.slice(0, 40);
+    await registerLocalSample(snd, src.file).catch(() => {});
+  }
+  if (!snd) return false;
+  const expr = `s("${snd}")`;
+  const g = useGraphStore.getState();
+  if (trackId && g.nodes.some((n) => n.id === trackId)) {
+    const t = clipsOf(trackId, T);
+    commitClips(T, { [trackId]: { tl: t.tl, clips: TL.placeClip(t.clips, Math.round(bar), 1, expr) } });
+    toast.ok(`«${snd}» en ${trackName(trackId)}, compás ${Math.round(bar) + 1} (estira el clip para repetirlo).`);
+    return true;
+  }
+  g.addPattern(placedArrange(bar, 1, expr, T), snd);
+  toast.ok(`«${snd}» en una pista nueva, compás ${Math.round(bar) + 1}.`);
+  return true;
+}
+
 export const dawClip = {
   // mover el clip que empieza en `start` a `to` (en la misma pista o en `toTrack`)
   move(id: string, start: number, to: number, total: number, toTrack?: string): boolean {

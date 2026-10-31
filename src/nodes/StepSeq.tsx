@@ -981,7 +981,7 @@ export function StepSeq({ id, code, arm: armReq = -1, armNonce = 0 }: { id: stri
           </div>
         )}
         {big && drumView === 'pads' && isDrumCode(c)
-          ? <DrumPads id={id} code={c} headOff={headOff} armPos={armPos} />
+          ? <DrumPads id={id} code={c} wrap={wrapFn} headOff={headOff} armPos={armPos} />
           : big && clipView === 'wave' && isClipCode(c)
           ? <SampleEditor id={id} code={c} wrap={wrapFn} previewCode={previewCode} headOff={headOff} armPos={armPos} />
           : melodic && view === 'roll'

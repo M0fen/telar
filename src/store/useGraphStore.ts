@@ -49,7 +49,7 @@ import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
-import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot } from '../lib/projectStore';
+import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
 import { backupProject } from '../lib/projectBackups';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
@@ -217,6 +217,7 @@ interface GraphState {
   // TOMA (grabar desde los pads, 7.1): lo que cambie entre begin y end es un solo paso de deshacer
   beginTake: () => void;
   endTake: () => void;
+  setMarkers: (m: SongMarker[]) => void;
 
   onNodesChange: (c: NodeChange[]) => void;
   onEdgesChange: (c: EdgeChange[]) => void;
@@ -893,6 +894,12 @@ export const useGraphStore = create<GraphState>((set, get) => {
       if (changed) recompile();
     },
 
+    // MARCADORES (10.5): un paso de deshacer (van con la canción en el historial)
+    setMarkers: (markers) => {
+      pushPast(true, true, true);
+      useSongStore.getState().setMarkers(markers);
+    },
+
     beginTake: () => { take = { pushed: false }; },
     endTake: () => { take = null; lastPush = 0; },
 
@@ -1143,13 +1150,14 @@ export const useGraphStore = create<GraphState>((set, get) => {
 // Canción + escenas tal como están ahora (para el historial y el autoguardado).
 function currentExtras(): ProjectExtras {
   const song = useSongStore.getState();
-  return { song: { steps: song.steps, loop: song.loop }, scenes: useScenesStore.getState().scenes };
+  return { song: { steps: song.steps, loop: song.loop, markers: song.markers }, scenes: useScenesStore.getState().scenes };
 }
 function applyExtras(x: ProjectExtras, live = false): void {
   if (live) {
     // deshacer una edición del DAW: mismas escenas, secciones de antes, la canción sigue sonando
     useSongStore.getState().setSteps(x.song.steps);
     useSongStore.getState().setLoop(x.song.loop);
+    useSongStore.getState().setMarkers(x.song.markers ?? []);
     return;
   }
   useSongStore.getState().replace(x.song);
@@ -1198,7 +1206,7 @@ function safetyBackup(reason: string): void {
 useGraphStore.subscribe(() => saveProjectSoon());
 // playing/index son de ejecución: solo steps/loop disparan el guardado.
 useSongStore.subscribe((s, p) => {
-  if (s.steps !== p.steps || s.loop !== p.loop) saveProjectSoon();
+  if (s.steps !== p.steps || s.loop !== p.loop || s.markers !== p.markers) saveProjectSoon();
   // las curvas de automatización se repiten con la canción: si cambia su largo, recompilar
   if (s.steps !== p.steps && songTotal(s.steps) !== songTotal(p.steps) && useGraphStore.getState().nodes.some((n) => n.data.auto)) {
     useGraphStore.getState().recompile();

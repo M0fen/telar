@@ -10,9 +10,23 @@ import type { Scene } from '../store/useScenesStore';
 // La canción (secciones escena × compases) y el banco de escenas 1–9 son PARTE del
 // proyecto: las escenas guardan estado por nodeId de ESTE grafo, así que fuera de él no
 // significan nada. Viajan en el autoguardado, exportar/importar, compartir y la galería.
+export interface SongMarker { id: string; bar: number; name: string } // marcador con nombre (10.5)
 export interface ProjectSong {
   steps: SongStep[];
   loop: boolean;
+  markers?: SongMarker[];
+}
+export function sanitizeMarkers(raw: unknown): SongMarker[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SongMarker[] = [];
+  for (const [i, x] of raw.entries()) {
+    const o = x as Partial<SongMarker> | null;
+    const bar = Math.round(Number(o?.bar) * 4) / 4;
+    if (!o || !Number.isFinite(bar) || bar < 0) continue;
+    out.push({ id: typeof o.id === 'string' && o.id ? o.id : `mk_imp_${i}`, bar, name: String(o.name ?? '').slice(0, 40) || `marcador ${i + 1}` });
+    if (out.length >= 64) break;
+  }
+  return out.sort((a, b) => a.bar - b.bar);
 }
 export interface ProjectExtras {
   song: ProjectSong;
@@ -79,7 +93,8 @@ export function sanitizeSong(raw: unknown): ProjectSong | null {
     const name = typeof o.name === 'string' && o.name.trim() ? o.name.trim().slice(0, 48) : undefined;
     steps.push({ id, scene: Math.min(9, Math.max(1, scene)), bars: Math.min(64, Math.max(1, bars)), ...(name ? { name } : {}) });
   });
-  return { steps, loop: r.loop !== false };
+  const markers = sanitizeMarkers((r as { markers?: unknown }).markers);
+  return { steps, loop: r.loop !== false, ...(markers.length ? { markers } : {}) };
 }
 
 // Escenas 1–9 con su estado de mezcla. El máster de cada escena pasa por el mismo saneo

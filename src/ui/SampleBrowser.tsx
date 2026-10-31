@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { soundMap } from '@strudel/web';
 import { ensureEngine, loadSamplePack } from '../audio/engine';
 import { useGraphStore } from '../store/useGraphStore';
+import { previewLoopAtTempo } from '../lib/warpActions';
 import { useSamplePacksStore } from '../store/useSamplePacksStore';
 import { useSoundFavStore } from '../store/useSoundFavStore';
 import { playPreview, preloadPreview, stopPreview } from '../audio/previewSample';
@@ -156,13 +157,29 @@ export function SampleBrowser() {
   };
 
   const [packsOpen, setPacksOpen] = useState(false);
+  // ARRASTRAR AL DAW (10.4): mientras arrastras, el panel se vuelve transparente al ratón para
+  // soltar en la línea de tiempo o en un pad que está detrás
+  const playing = useGraphStore((s) => s.playing);
+  const [dragging, setDragging] = useState(false);
+  const soundDragStart = (e: React.DragEvent, name: string) => {
+    e.dataTransfer.setData('application/telar-sound', JSON.stringify({ name }));
+    e.dataTransfer.setData('text/plain', name);
+    e.dataTransfer.effectAllowed = 'copy';
+    window.setTimeout(() => setDragging(true), 0);
+  };
+  const soundDragEnd = () => setDragging(false);
 
   const Card = (name: string) => {
     const c = catOf.get(name) ?? 'other';
     const fav = favs.includes(name);
     return (
-      <div className={`sb-card sb-c-${c}`} key={name} onMouseEnter={() => preloadPreview(name)}>
+      <div className={`sb-card sb-c-${c}`} key={name} onMouseEnter={() => preloadPreview(name)}
+        draggable onDragStart={(e) => soundDragStart(e, name)} onDragEnd={soundDragEnd}
+        title="arrástralo a una pista del DAW (a un compás) o a un pad de batería">
         <button className="sb-card-play" onClick={() => preview(name)} title="escuchar (instantáneo)">▸</button>
+        {playing && (c === 'loop' || /\d{2,3}\s*bpm|_\d{2,3}(_|$)/i.test(name)) && (
+          <button className="sb-card-play tempo" onClick={() => void previewLoopAtTempo(name).then((ok) => { if (!ok) preview(name); })} title="escuchar A TEMPO del tema, desde el próximo compás (y en su tonalidad si el nombre la trae)">♩</button>
+        )}
         <div className="sb-card-body">
           <div className="sb-card-top">
             <span className="sb-card-name" title={name}>{name}</span>
@@ -185,8 +202,8 @@ export function SampleBrowser() {
       </button>
       {open && createPortal(
         <>
-          <div className="vs-backdrop" onClick={close} />
-          <div className="sb-panel">
+          <div className={`vs-backdrop${dragging ? ' sb-ghosted' : ''}`} onClick={close} />
+          <div className={`sb-panel${dragging ? ' sb-ghosted' : ''}`}>
             <header className="sb-head">
               <span className="sb-title">biblioteca de sonidos</span>
               <input className="sb-search" autoFocus value={q} placeholder="buscar… piano · 808 · cello · amen · marimba" onChange={(e) => setQ(e.target.value)} />

@@ -11,10 +11,11 @@
 // operaciones de sección trabajan sobre TRAMOS de la línea de tiempo (`timeline.ts`): mueven los
 // clips de cada pista, las curvas de automatización y las transiciones de ese tramo, todo en un paso.
 import { splitArrange, spliceArm, alignArrangeToBars, type ArrangeArm } from '../nodes/stepseqCode';
-import { normalize, opDuplicate, opInsert, opRemove, opReorder, readTimeline, remapClips, remapCurve, remapTransitions, writeTimeline, type Seg } from './timeline';
+import { normalize, opDuplicate, opInsert, opRemove, opReorder, readTimeline, remapClips, remapCurve, remapMarkers, remapTransitions, writeTimeline, type Seg } from './timeline';
 import type { AutoPoint } from './automation';
 import type { TransItem } from './transitions';
 import type { NodeData } from '../graph/types';
+import type { SongMarker } from './projectStore';
 
 export interface EditStep {
   id: string;
@@ -27,6 +28,7 @@ export interface ArrangeState {
   codes: Record<string, string>; // código de cada pista (id → código)
   autos?: Record<string, Record<string, AutoPoint[]>>; // curvas de cada nodo (pistas, FX, máster)
   trans?: { id: string; items: TransItem[] }; // transiciones (7.4) y su nodo
+  markers?: SongMarker[]; // marcadores con nombre (10.5)
 }
 export interface EditResult extends ArrangeState {
   skipped: string[]; // pistas que no se pudieron alinear (tienen más secciones que la canción)
@@ -103,7 +105,8 @@ function applySegs(state: ArrangeState, sg: Seg[], steps: EditStep[]): EditResul
   if (state.trans && state.trans.items.length) {
     patches[state.trans.id] = { ...(patches[state.trans.id] ?? {}), transitions: remapTransitions(state.trans.items, sg) } as Partial<NodeData>;
   }
-  return { steps, codes, skipped: [], patches, autos: state.autos, trans: state.trans };
+  const markers = state.markers ? remapMarkers(state.markers, sg) : undefined;
+  return { steps, codes, skipped: [], patches, autos: state.autos, trans: state.trans, markers };
 }
 
 const validIdx = (steps: EditStep[], i: number) => Number.isInteger(i) && i >= 0 && i < steps.length;

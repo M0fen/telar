@@ -138,7 +138,9 @@ export function CloudBank() {
             <div className="cb-list">
               {items.length === 0 && <div className="cb-empty">aún no has añadido samples. Pega tu URL base y el nombre de un archivo de tu bucket.</div>}
               {items.map((it) => (
-                <div className="cb-item" key={it.name} onMouseEnter={() => preloadPreview(it.name)}>
+                <div className="cb-item" key={it.name} onMouseEnter={() => preloadPreview(it.name)} draggable
+                  onDragStart={(e) => { e.dataTransfer.setData('application/telar-sound', JSON.stringify({ name: it.name })); e.dataTransfer.setData('text/plain', it.name); e.dataTransfer.effectAllowed = 'copy'; }}
+                  title="arrástralo a una pista del DAW (a un compás) o a un pad de batería">
                   <button className="cb-play" onClick={() => preview(it.name)} title="escuchar">▸</button>
                   <span className="cb-name" title={it.file}>{it.name}</span>
                   <button className="cb-to" onClick={() => void toCanvas(it.name, it.file)} title="añadir al lienzo (loops largos entran a su BPM natural)">+ lienzo</button>

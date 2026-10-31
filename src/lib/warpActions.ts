@@ -30,13 +30,18 @@ const semisText = (n: number) => (n ? ` y lo pasé ${n > 0 ? '+' : ''}${n} semit
 export async function addLoopToCanvas(
   file: Blob,
   fileName: string,
-  o: { relPath?: string; hintBpm?: number; clean?: string; pos?: { x: number; y: number }; connectToOut?: boolean } = {},
+  o: {
+    relPath?: string; hintBpm?: number; clean?: string; pos?: { x: number; y: number }; connectToOut?: boolean;
+    // 10.4: dónde cae en la canción (el código del loop → el de la pista; `cycles` = lo que dura)
+    wrapCode?: (code: string, cycles: number) => string;
+    detect?: boolean;
+  } = {},
 ): Promise<string | null> {
   const meta = parseSpliceName(fileName, o.relPath ?? '');
   const clean = o.clean || meta.clean;
   const { bpm, bpc } = clock();
   const formant = isVoiceName(fileName);
-  let r = await importLoop({ blob: file, fileName, clean, hintBpm: o.hintBpm ?? meta.bpm, key: meta.key, formant, songBpm: bpm, beatsPerCycle: bpc });
+  let r = await importLoop({ blob: file, fileName, clean, hintBpm: o.hintBpm ?? meta.bpm, key: meta.key, formant, songBpm: bpm, beatsPerCycle: bpc, detect: o.detect });
   if (!r && meta.key && !meta.loop) r = await importShot({ blob: file, fileName, clean, key: meta.key, formant });
   if (!r) return null;
   const g = useGraphStore.getState();
@@ -49,7 +54,8 @@ export async function addLoopToCanvas(
   }
   const w = eff(r.warp);
   if (!(await startWarp(w, bpm))) return null;
-  const id = g.addPattern(r.code, clean, { warp: r.warp }, o.pos, { connectToOut: o.connectToOut ?? true });
+  const cycles = r.warp.shot ? 1 : warpCycles(r.warp.beats, bpc);
+  const id = g.addPattern(o.wrapCode ? o.wrapCode(r.code, cycles) : r.code, clean, { warp: r.warp }, o.pos, { connectToOut: o.connectToOut ?? true });
   const semis = w.semis ?? 0;
   let msg: string;
   if (r.warp.shot) msg = semis ? `«${clean}» a la tonalidad del tema: ${semis > 0 ? '+' : ''}${semis} semitonos${formant ? ' (voz: con sus formantes)' : ''}.` : `«${clean}» al lienzo (ya está en la tonalidad del tema).`;
@@ -145,4 +151,29 @@ export async function setWarpKeyOpts(id: string, patch: { follow?: boolean; oct?
   const code = replaceWarpInCode(n.data.code ?? '', w.name, next.name, warpCycles(w.beats, bpc));
   useGraphStore.getState().updateNodeData(id, { code, warp: next });
   return true;
+}
+
+// ESCUCHAR A TEMPO (10.4): un loop de la biblioteca suena desde el próximo compás al tempo del tema
+// (y en su tonalidad si el nombre la trae), sin entrar al proyecto. false = no es un loop (el
+// llamador lo escucha tal cual).
+const atTempo = new Map<string, { name: string; cycles: number }>();
+export async function previewLoopAtTempo(sound: string): Promise<boolean> {
+  const { bpm, bpc } = clock();
+  const g = useGraphStore.getState();
+  const k = `${sound}|${r2(bpm)}|${g.songKey ? `${g.songKey.root}${g.songKey.minor ? 'm' : ''}` : '-'}|${g.transpose}`;
+  let hit = atTempo.get(k);
+  if (!hit) {
+    const url = resolveSampleUrl(sound);
+    if (!url) return false;
+    const blob = await (await fetch(url)).blob().catch(() => null);
+    if (!blob) return false;
+    const meta = parseSpliceName(sound, '');
+    const r = await importLoop({ blob, fileName: sound, clean: meta.clean || sound, hintBpm: meta.bpm, key: meta.key, formant: isVoiceName(sound), songBpm: bpm, beatsPerCycle: bpc });
+    if (!r) return false;
+    if (!(await startWarp(eff(r.warp), bpm))) return false;
+    hit = { name: r.warp.name, cycles: warpCycles(r.warp.beats, bpc) };
+    atTempo.set(k, hit);
+  }
+  const { previewAtNextBar } = await import('../audio/barPreview');
+  return previewAtNextBar(hit.name, hit.cycles);
 }
