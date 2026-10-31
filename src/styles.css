@@ -1308,7 +1308,9 @@ body {
 
 /* --- Topbar / transporte --- */
 .topbar {
-  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  /* por encima de los paneles acoplados (4) y del panel de detalle (4): sus menús (tonalidad, ⋯,
+     proyecto, historial) se abrían DEBAJO del panel de la derecha y no se podían tocar */
+  position: absolute; top: 0; left: 0; right: 0; z-index: 6;
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 16px; pointer-events: none;
 }
