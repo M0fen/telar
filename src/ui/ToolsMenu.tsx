@@ -68,12 +68,19 @@ export function ToolsMenu() {
   const [tutOpen, setTutOpen] = useState(false);
   const [pgOpen, setPgOpen] = useState(false);
   const [mixOpen, setMixOpen] = useState(false);
+  // Ctrl+K › «tutorial»
+  useEffect(() => {
+    const onTut = () => setTutOpen(true);
+    window.addEventListener('telar:tutorial', onTut);
+    return () => window.removeEventListener('telar:tutorial', onTut);
+  }, []);
   // se abre solo la PRIMERA vez (invita a hacer música); luego, desde este menú.
   useEffect(() => {
     try {
       if (!localStorage.getItem('telar-tutorial-seen')) {
-        localStorage.setItem('telar-tutorial-seen', '1');
-        const t = setTimeout(() => setTutOpen(true), 700);
+        // se marca al ABRIRSE (antes se marcaba al montar: si el menú se montaba dos veces, el
+        // primer montaje lo daba por visto y el tutorial no salía nunca)
+        const t = setTimeout(() => { try { localStorage.setItem('telar-tutorial-seen', '1'); } catch { /* */ } setTutOpen(true); }, 700);
         return () => clearTimeout(t);
       }
     } catch { /* sin localStorage */ }

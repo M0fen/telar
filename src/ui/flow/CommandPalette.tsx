@@ -37,6 +37,11 @@ function commands(): Cmd[] {
     { id: 'folders', group: 'DAW', label: daw.folders ? 'quitar las carpetas' : 'agrupar pistas en carpetas', run: () => daw.setFolders(!daw.folders) },
     { id: 'undo', group: 'edición', label: 'deshacer', keys: 'Ctrl+Z', run: () => g.undo() },
     { id: 'redo', group: 'edición', label: 'rehacer', keys: 'Ctrl+⇧Z', run: () => g.redo() },
+    { id: 'launch', group: 'DAW', label: daw.launcher && g.mode === 'daw' ? 'volver a la línea de tiempo' : 'lanzador de clips (pistas × variaciones)', run: () => { g.setMode('daw'); daw.setLauncher(!(daw.launcher && g.mode === 'daw')); }, words: 'launcher clips sesion escenas tocar en vivo' },
+    { id: 'marker', group: 'DAW', label: 'marcador en el cabezal', keys: 'M', run: () => { g.setMode('daw'); window.dispatchEvent(new CustomEvent('telar:marker')); }, words: 'marca' },
+    { id: 'export', group: 'canción', label: 'exportar el tema (WAV, MP3, stems, MIDI)', run: () => { g.setMode('daw'); window.setTimeout(() => (document.querySelector('button[title^="exportar a WAV"]') as HTMLButtonElement | null)?.click(), 120); }, words: 'export guardar audio mp3 wav descargar bajar' },
+    { id: 'library', group: 'sonidos', label: 'explorar sonidos (biblioteca)', run: () => window.dispatchEvent(new CustomEvent('telar:library', { detail: { id: Date.now() } })), words: 'samples sonidos buscar kick bombo hats' },
+    { id: 'tutorial', group: 'ayuda', label: 'tutorial: hacer música con Telar', run: () => window.dispatchEvent(new CustomEvent('telar:tutorial')), words: 'ayuda guia empezar aprender' },
     { id: 'drum', group: 'pistas', label: '＋ pista de batería para grabar con pads', run: () => newPadTrack('drum'), words: 'nueva drums' },
     { id: 'mel', group: 'pistas', label: '＋ pista de melodía para grabar con pads', run: () => newPadTrack('melody'), words: 'nueva teclado' },
   ];
@@ -63,7 +68,7 @@ const SHEET: { area: string; rows: [string, string][] }[] = [
   { area: 'en todas partes', rows: [['Espacio', 'reproducir / parar'], ['Ctrl+Z · Ctrl+⇧Z', 'deshacer · rehacer (⏱ historial: volver a cualquier paso)'], ['Ctrl+K', 'buscar cualquier acción'], ['?', 'esta hoja'], ['X', 'mezclador'], ['1–9 · ⇧1–9', 'disparar · capturar escena'], ['T', 'tap tempo'], ['Esc', 'soltar los solos']] },
   { area: 'DAW', rows: [['F', 'seguir el cabezal'], ['Z', 'zoom a la región o la sección'], ['L', 'bucle de la región'], ['M', 'marcador en el cabezal'], ['− · +', 'zoom (Ctrl+rueda: donde está el ratón)'], ['clic en la regla', 'tocar desde ese compás · arrastrar: región']] },
   { area: 'secciones (con una elegida)', rows: [['Ctrl+D', 'duplicar'], ['Supr', 'borrar'], ['Alt+← →', 'mover'], ['← →', 'elegir otra'], ['Esc', 'soltar']] },
-  { area: 'clips', rows: [['arrastrar', 'mover (también a otra pista)'], ['borde derecho', 'estirar (el patrón se repite)'], ['Ctrl+E', 'partir'], ['Ctrl+J', 'unir con el siguiente'], ['Ctrl+D', 'duplicar detrás'], ['Ctrl+C · Ctrl+V', 'copiar · pegar (con su largo)'], ['Supr', 'vaciar'], ['doble clic · E', 'editar en grande'], ['clic', 'encender / apagar']] },
+  { area: 'clips', rows: [['arrastrar', 'mover (también a otra pista)'], ['borde derecho', 'estirar (el patrón se repite)'], ['Ctrl+E', 'partir'], ['Ctrl+J', 'unir con el siguiente'], ['Ctrl+D', 'duplicar detrás'], ['Ctrl+C · Ctrl+V', 'copiar · pegar (con su largo)'], ['Supr', 'vaciar'], ['doble clic · E', 'editar en grande'], ['clic', 'elegir · otro clic: encender / apagar']] },
   { area: 'grafo', rows: [['M · S', 'mute · solo de lo elegido'], ['Ctrl+D', 'duplicar lo elegido'], ['Ctrl+C · Ctrl+V', 'copiar · pegar nodos']] },
   { area: 'DJ', rows: [['mute · solo', 'caen en el 1 del compás («al compás»)'], ['🎧', 'cue en los audífonos'], ['🎛 asignar', 'toca un control y mueve el del controlador']] },
 ];
