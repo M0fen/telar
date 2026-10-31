@@ -29,6 +29,9 @@ import { DetailPanel } from './ui/DetailPanel';
 import { useDetailStore } from './store/useDetailStore';
 import { useMixerStore } from './store/useMixerStore';
 import { Mixer } from './ui/mixer/Mixer';
+import { CommandPalette } from './ui/flow/CommandPalette';
+import { HistoryMenu } from './ui/flow/HistoryMenu';
+import { LoadMeter } from './ui/flow/LoadMeter';
 import { useDockStore, dockWidth } from './store/useDockStore';
 import { useTrackColorStore } from './store/useTrackColorStore';
 import { useUiFocusStore } from './store/useUiFocusStore';
@@ -553,6 +556,8 @@ export default function App() {
       )}
       {/* motor de la canción: UNO, fuera de las vistas → sigue disparando escenas en cualquiera */}
       <SongEngine />
+      {/* 12.1–12.2: Ctrl+K, hoja de atajos (?) y la línea de ayuda */}
+      <CommandPalette />
       <header className="topbar">
         <div className="brand">
           <span className="logo">Telar</span>
@@ -576,6 +581,7 @@ export default function App() {
               <button className="et-btn" onClick={redo} disabled={!canRedo} title="rehacer (Ctrl+Shift+Z)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M15 7l5 5-5 5" /><path d="M20 12H9a5 5 0 0 0 0 10h1" /></svg>
               </button>
+              <HistoryMenu />
               {mode === 'standard' && <button className="et-btn" onClick={duplicateSelected} disabled={!hasSelection} title="duplicar selección (Ctrl+D)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" /></svg>
               </button>}
@@ -605,6 +611,7 @@ export default function App() {
               <line x1="12" y1="17" x2="12" y2="20" />
             </svg>
           </button>
+          <LoadMeter />
           <AudioInput />
           <AudioRecorder />
           <ErrorBoundary variant="panel" label="herramientas"><ToolsMenu /></ErrorBoundary>
