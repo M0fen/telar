@@ -82,3 +82,16 @@ test('instrToken: último segmento sin dígitos finales', () => {
   assert.equal(instrToken('house_bass2'), 'bass'); // último segmento, dígitos quitados
   assert.equal(instrToken('latin_conga_01'), ''); // segmento numérico final → vacío (cae al substring)
 });
+
+test('buscar en la biblioteca: varias palabras y la familia en español o inglés', async () => {
+  const { matchSound } = await import('../src/lib/sampleCategory.ts');
+  assert.equal(matchSound('rolandtr909_bd', 'kick', '909 bd'), true);
+  assert.equal(matchSound('rolandtr909_bd', 'kick', 'kick 909'), true);
+  assert.equal(matchSound('rolandtr909_bd', 'kick', 'bombo'), true);
+  assert.equal(matchSound('rolandtr909_bd', 'kick', 'bom'), true); // mientras escribes
+  assert.equal(matchSound('akailinn_sd', 'snare', 'caja'), true);
+  assert.equal(matchSound('rolandtr909_hh', 'hat', 'kick'), false);
+  assert.equal(matchSound('rolandtr909_hh', 'hat', '808 hats'), false); // todas las palabras
+  assert.equal(matchSound('perc_conga', 'perc', 'percusión'), true); // sin tildes
+  assert.equal(matchSound('cualquiera', 'other', ''), true);
+});

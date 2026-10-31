@@ -9,7 +9,7 @@ import { useSoundFavStore } from '../store/useSoundFavStore';
 import { playPreview, preloadPreview, stopPreview } from '../audio/previewSample';
 import { getWaveInfo, drawWave } from '../audio/waveformPeaks';
 import { CURATED_PACKS, gallerySafe, licenseNote } from '../lib/curatedPacks';
-import { categorize } from '../lib/sampleCategory';
+import { categorize, matchSound, type SampleCat } from '../lib/sampleCategory';
 
 // color de acento por categoría (coincide con las clases .sb-c-* del CSS) para la onda.
 const CAT_COLOR: Record<string, string> = {
@@ -69,6 +69,8 @@ const CAT_ORDER = ['kick', 'snare', 'hat', 'cymbal', 'perc', 'bass', 'synth', 'i
 // Navegador de SONIDOS: lista todos los samples cargados (prebake + packs del usuario),
 // BUSCAR, filtrar por INSTRUMENTO, ESCUCHAR y AÑADIR (plano o afinado). El "+mel" es la
 // vía para tocar instrumentos realistas (VCSL: cello/flute/marimba… repitchados por nota).
+let libraryClaim = 0; // Ctrl+K › «explorar sonidos»: el pedido que ya abrió una biblioteca
+
 export function SampleBrowser() {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -114,7 +116,7 @@ export function SampleBrowser() {
 
   // categoría por nombre (memo) + qué categorías existen realmente
   const catOf = useMemo(() => {
-    const m = new Map<string, string>();
+    const m = new Map<string, SampleCat>();
     for (const n of names) m.set(n, categorize(n));
     return m;
   }, [names]);
@@ -132,7 +134,7 @@ export function SampleBrowser() {
     if (cat === 'fav') base = favs.filter((n) => nameSet.has(n));
     else if (cat === 'recent') base = recents.filter((n) => nameSet.has(n));
     else base = names.filter((n) => cat === 'all' || catOf.get(n) === cat);
-    return base.filter((n) => !s || n.toLowerCase().includes(s)).slice(0, 600);
+    return base.filter((n) => !s || matchSound(n, catOf.get(n) ?? 'other', s)).slice(0, 600);
   }, [names, nameSet, q, cat, catOf, favs, recents]);
 
   // Al ver "todos", agrupa por categoría (secciones con cabecera) en vez de un muro plano.
@@ -168,6 +170,27 @@ export function SampleBrowser() {
     window.setTimeout(() => setDragging(true), 0);
   };
   const soundDragEnd = () => setDragging(false);
+  // Ctrl+K › «explorar sonidos» (solo la biblioteca de la vista que se ve: hay una por panel)
+  const openBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    // la de la vista que se ve la abre ya; si ninguna se ve (panel plegado), la primera, un instante
+    // después (la ventana va aparte del panel: se abre igual)
+    const onOpen = (e: Event) => {
+      const id = Number((e as CustomEvent<{ id?: number }>).detail?.id ?? 0);
+      const claim = () => { if (libraryClaim !== id) { libraryClaim = id; setOpen(true); } };
+      if (openBtn.current && openBtn.current.offsetParent !== null) claim();
+      else window.setTimeout(claim, 0);
+    };
+    window.addEventListener('telar:library', onOpen);
+    return () => window.removeEventListener('telar:library', onOpen);
+  }, []);
+  // Esc cierra (lo promete la ×); arrastrando, Esc es del navegador (cancela el arrastre)
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !dragging) { e.preventDefault(); stopPreview(); setOpen(false); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, dragging]);
 
   const Card = (name: string) => {
     const c = catOf.get(name) ?? 'other';
@@ -197,7 +220,7 @@ export function SampleBrowser() {
 
   return (
     <>
-      <button className="sb-open" onClick={() => setOpen(true)} title="biblioteca de sonidos: explora por categoría, escucha y añade">
+      <button className="sb-open" ref={openBtn} onClick={() => setOpen(true)} title="biblioteca de sonidos: explora por categoría, escucha y añade">
         ◉ explorar sonidos{names.length ? ` (${names.length})` : ''}
       </button>
       {open && createPortal(

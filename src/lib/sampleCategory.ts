@@ -59,3 +59,29 @@ export function categorize(name: string): SampleCat {
   if (has(FX_WORDS)) return 'fx';
   return 'other';
 }
+
+// BÚSQUEDA EN LA BIBLIOTECA: cada palabra tiene que estar en el nombre o nombrar su familia, en
+// español o en inglés («909 bd», «kick 909», «bombo», «caja», «hats»…), sin importar tildes.
+// Antes la búsqueda era el texto entero dentro del nombre: «kick» o «909 bd» no daban nada.
+const CAT_WORDS: Record<SampleCat, string[]> = {
+  kick: ['kick', 'bombo', 'bd', 'bassdrum'],
+  snare: ['snare', 'caja', 'clap', 'palma', 'palmas', 'rim', 'redoblante'],
+  hat: ['hat', 'hats', 'hihat', 'hh', 'charles', 'platillo cerrado'],
+  cymbal: ['cymbal', 'platillo', 'platillos', 'crash', 'ride'],
+  perc: ['perc', 'percusion', 'tom', 'toms', 'conga', 'shaker'],
+  bass: ['bass', 'bajo', 'bajos', 'sub', '808'],
+  inst: ['instrumento', 'instrumentos', 'inst'],
+  synth: ['synth', 'sinte', 'sintes', 'lead', 'pad'],
+  vocal: ['voz', 'voces', 'vocal', 'vox'],
+  loop: ['loop', 'loops', 'break', 'breaks', 'bucle'],
+  fx: ['fx', 'efecto', 'efectos', 'atmos', 'riser'],
+  other: [],
+};
+const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+export function matchSound(name: string, cat: SampleCat, query: string): boolean {
+  const terms = fold(query).split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const low = fold(name);
+  const words = CAT_WORDS[cat] ?? [];
+  return terms.every((t) => low.includes(t) || words.some((w) => w.startsWith(t)));
+}
