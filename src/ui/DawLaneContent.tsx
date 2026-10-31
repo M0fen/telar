@@ -57,7 +57,7 @@ function blockData(code: string, bars: number, cps: number): Promise<BlockData |
 }
 
 export function DawLaneContent({
-  blocks, px, x0, w, color, beats, cps, plain,
+  blocks, px, x0, w, color, beats, cps, plain, h = 34,
 }: {
   blocks: DawBlock[];
   px: number;
@@ -67,6 +67,7 @@ export function DawLaneContent({
   beats: number;
   cps: number;
   plain: boolean;
+  h?: number; // alto de la fila (9.6): redibuja al cambiarlo
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const [data, setData] = useState<Record<string, BlockData | null>>({});
@@ -160,7 +161,7 @@ export function DawLaneContent({
       g.restore();
     }
     g.globalAlpha = 1;
-  }, [blocks, data, px, x0, w, color, beats, plain]);
+  }, [blocks, data, px, x0, w, color, beats, plain, h]);
 
   return <canvas ref={ref} className="daw-lc" style={{ left: x0, width: Math.max(1, Math.round(w)) }} aria-hidden="true" />;
 }

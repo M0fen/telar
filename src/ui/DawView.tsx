@@ -18,11 +18,12 @@ import { AUTO_RANGE, isActive, cleanAuto, TRACK_PARAMS, MASTER_PARAMS, type Auto
 import { dawSection, dawBlock, blockVariation, createStructure, createFromTemplate, sceneSections, startJamRecording, stopJamRecording } from '../lib/dawActions';
 import { useJamStore } from '../lib/jamRecorder';
 import { STRUCTURE_TEMPLATES } from '../lib/arrangeEdit';
-import { TrackMeter } from './TrackMeter';
 import { GRID_OPTIONS, effectiveGrid, laneBackground, rulerBackground, rulerPlan, type GridId } from '../lib/dawGrid';
 import { useDawUiStore } from '../store/useDawUiStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { TrackColorButton } from './TrackColor';
+import { DawTrackHead, DawFolderRow, useLaneResize } from './DawTrackHead';
+import { folderOf, groupRows, laneH, LANE_H } from '../lib/dawFolders';
 import { DawLaneContent } from './DawLaneContent';
 import { useDetailStore } from '../store/useDetailStore';
 
@@ -89,6 +90,9 @@ export function DawView() {
   const follow = useDawUiStore((s) => s.follow);
   const colors = useTrackColorStore((s) => s.map); // color de cada pista (8.5)
   const setFollow = useDawUiStore((s) => s.setFollow);
+  const foldersOn = useDawUiStore((s) => s.folders); // 9.6: pistas en carpetas
+  const setFoldersOn = useDawUiStore((s) => s.setFolders);
+  const closedFolders = useDawUiStore((s) => s.closed);
   const [px, setPx] = useState<number>(readZoom);
   const pxRef = useRef(px);
   pxRef.current = px;
@@ -166,6 +170,23 @@ export function DawView() {
   );
 
   const { sections, total, tracks, fromSong } = model;
+
+  // 9.6 · CABECERAS: alto de cada fila (data.laneH) y carpetas por tipo de pista
+  const byId = useMemo(() => new Map(sources.map((n) => [n.id, n.data])), [sources]);
+  const heightOf = (id: string) => laneH(byId.get(id)?.laneH);
+  const folderSig = sources.map((n) => `${n.id}:${String(n.data.folder ?? '')}`).join('|');
+  const rows = useMemo(
+    () => groupRows(tracks, (id) => { const d = byId.get(id); return d ? folderOf(d) : 'other'; }, foldersOn, new Set(closedFolders)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tracks, foldersOn, closedFolders, folderSig],
+  );
+  const onResize = useLaneResize();
+  // ⇕ alto: todas las filas compacta → con volumen y paneo → alta (un paso de deshacer)
+  const cycleHeights = () => {
+    const hs = tracks.map((t) => heightOf(t.id));
+    const next = hs.every((h) => h >= LANE_H.tall) ? LANE_H.compact : hs.every((h) => h >= LANE_H.mid) ? LANE_H.tall : LANE_H.mid;
+    useGraphStore.getState().applyNodeStates(Object.fromEntries(tracks.map((t) => [t.id, { laneH: next }])));
+  };
 
   // la selección sigue siendo válida tras borrar/cargar
   const selIdx = fromSong && sel >= 0 && sel < steps.length ? sel : -1;
@@ -540,6 +561,10 @@ export function DawView() {
             ))}
           </select>
         </label>
+        <button className={`daw-btn tog${foldersOn ? ' on' : ''}`} onClick={() => setFoldersOn(!foldersOn)} aria-pressed={foldersOn} title={foldersOn ? 'quitar las carpetas (todas las pistas en una lista)' : 'agrupar las pistas en carpetas: batería, bajos, sintes, loops, voces, efectos (se pliegan; su M y S actúan sobre todas)'}>
+          ▤ carpetas
+        </button>
+        <button className="daw-btn" onClick={cycleHeights} title="alto de todas las filas: compacta → con volumen y paneo → alta (cada fila también se estira desde su borde de abajo)">⇕ alto</button>
         <button className={`daw-btn tog${follow ? ' on' : ''}`} onClick={() => setFollow(!follow)} aria-pressed={follow} title={follow ? 'la vista sigue al cabezal mientras suena (F para soltarlo)' : 'seguir el cabezal mientras suena (F)'}>
           ⇥ seguir
         </button>
@@ -620,16 +645,17 @@ export function DawView() {
             {regionOn && region && (
               <div className="daw-region-rows" style={{ left: `calc(var(--daw-name-w) + ${region.start * px}px)`, width: region.bars * px }} />
             )}
-            {tracks.map((t) => (
+            {rows.map((row) => row.kind === 'folder' ? (
+              <DawFolderRow key={`f_${row.id}`} folder={row} tracks={tracks} colors={colors} width={width} px={px} gridBg={gridBg} />
+            ) : ((t) => (
               <Fragment key={t.id}>
-              <div className={`daw-row${t.audible ? '' : ' muted'}`} style={{ ['--tc' as string]: colors[t.id] }}>
-                <div className="daw-tname">
+              <div className={`daw-row${t.audible ? '' : ' muted'}${row.folder ? ' infolder' : ''}`} style={{ ['--tc' as string]: colors[t.id], height: heightOf(t.id) }}>
+                <DawTrackHead t={t} h={heightOf(t.id)} onResize={onResize}>
                   <TrackColorButton id={t.id} className="tcolor-daw" />
                   <span className="daw-tn" title={t.name}>{t.name}</span>
                   {t.mismatch && <span className="daw-tw" title={`su arrange dura ${t.bars} compases (la línea de tiempo ${total})`}>⚠{t.bars}</span>}
                   <button className={`daw-ms${t.mute ? ' on mute' : ''}`} onClick={() => update(t.id, { mute: !t.mute })} title="mute de la pista">M</button>
                   <button className={`daw-ms${t.solo ? ' on solo' : ''}`} onClick={() => update(t.id, { solo: !t.solo })} title="solo de la pista">S</button>
-                  <TrackMeter id={t.id} className="tmeter-daw" />
                   {fromSong && (() => {
                     const au = cleanAuto(sources.find((n) => n.id === t.id)?.data.auto);
                     const has = TRACK_PARAMS.some((p) => isActive(au?.[p], p)) || fxParamsDownstream(t.id, nodes, edges).some((f) => { const fn = nodes.find((n) => n.id === f.nodeId); return !!fn && fxCurve(fn.data, f.key).length > 0; });
@@ -645,7 +671,7 @@ export function DawView() {
                       </button>
                     );
                   })()}
-                </div>
+                </DawTrackHead>
                 <div className="daw-lane" style={{ width, ...gridBg }}>
                   {t.blocks.map((b, i) => (
                     <div
@@ -685,7 +711,7 @@ export function DawView() {
                       })()}
                     </div>
                   ))}
-                  <DawLaneContent blocks={t.blocks} px={px} x0={view.x0} w={view.w} color={colors[t.id] ?? '#3df0d0'} beats={beats} cps={cps} plain={t.plain} />
+                  <DawLaneContent blocks={t.blocks} px={px} x0={view.x0} w={view.w} color={colors[t.id] ?? '#3df0d0'} beats={beats} cps={cps} plain={t.plain} h={heightOf(t.id)} />
                   {t.sceneMuted.map((m, i) => (
                     <div key={`m${i}`} className="daw-scmute" style={{ left: m.start * px, width: Math.max(2, m.bars * px - 2) }} />
                   ))}
@@ -738,7 +764,7 @@ export function DawView() {
                 );
               })()}
             </Fragment>
-            ))}
+            ))(row.t))}
             {fromSong && <DawTransitions total={total} px={px} width={width} gridBg={gridBg} snap={snap.bars} beats={beats} />}
             {fromSong && outNode && (() => {
               // MÁSTER (7.2): filtro DJ, drive, reverb/eco/crush del máster y nivel de los retornos

@@ -318,6 +318,8 @@ export interface NodeData {
   // compilador escribe su código desde aquí (lib/transitions.ts)
   transitions?: { kind: 'riser' | 'reverse' | 'impact' | 'sweep'; at: number; bars: number }[];
   chPan?: number; // paneo de canal 0..1 (0.5 = centro) — mezcla (colocación estéreo)
+  laneH?: number; // alto de su fila en el DAW (px, 26…180; vista — 9.6)
+  folder?: string; // carpeta del DAW elegida a mano (si no, por lo que suena — 9.6)
   chRoom?: number; // reverb send del canal 0..0.8 (halo de la superficie de mezcla, V3) — .room()
   eq?: ChannelEq; // EQ paramétrico 3 bandas del canal (aplicado por el motor sobre su orbit)
   comp?: ChannelComp; // compresor del canal (Fase 6.1), después del EQ en el mismo orbit

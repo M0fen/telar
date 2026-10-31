@@ -16,8 +16,12 @@ interface Track {
   own: AnalyserNode | null; // analyser propio sobre la salida de la tira
   ownTap: AudioNode | null;
   shown: string;
+  pk: number; // último pico retenido (dBFS), para las carpetas
 }
 const tracks = new Map<string, Track>();
+// medidores de CARPETA (9.6): el máximo de sus pistas
+interface Group { ids: string[]; el: HTMLElement }
+const groups = new Set<Group>();
 let sumUsers = 0;
 let raf = 0;
 let last = 0;
@@ -98,6 +102,7 @@ function tick(now: number): void {
     const { peak, rms } = measure(id, t);
     t.rms = fallDb(t.rms, rms, dt);
     const pk = t.peaks.push(peak, now);
+    t.pk = pk;
     const vr = dbToMeter(t.rms).toFixed(3);
     const vp = dbToMeter(pk).toFixed(3);
     const hot = pk >= -0.1;
@@ -110,6 +115,14 @@ function tick(now: number): void {
       if (v.txt && v.txt.textContent !== t.shown) v.txt.textContent = t.shown;
     }
   }
+  for (const g of groups) {
+    let r = -Infinity;
+    let p = -Infinity;
+    for (const id of g.ids) { const t = tracks.get(id); if (t) { r = Math.max(r, t.rms); p = Math.max(p, t.pk); } }
+    g.el.style.setProperty('--rms', dbToMeter(r).toFixed(3));
+    g.el.style.setProperty('--pk', dbToMeter(p).toFixed(3));
+    g.el.classList.toggle('hot', p >= -0.1);
+  }
   if (sumUsers > 0) readSum(now);
 }
 function start(): void { if (!raf) { last = performance.now(); raf = requestAnimationFrame(tick); } }
@@ -119,7 +132,7 @@ function stopIfIdle(): void { if (!tracks.size && sumUsers <= 0 && raf) { cancel
 export function registerTrackMeter(id: string, el: HTMLElement, txt: HTMLElement | null): () => void {
   let t = tracks.get(id);
   if (!t) {
-    t = { views: new Set(), peaks: new PeakWindow(1500), rms: -Infinity, buf: null, own: null, ownTap: null, shown: '−∞' };
+    t = { views: new Set(), peaks: new PeakWindow(1500), rms: -Infinity, buf: null, own: null, ownTap: null, shown: '−∞', pk: -Infinity };
     tracks.set(id, t);
   }
   const v: View = { el, txt };
@@ -132,6 +145,15 @@ export function registerTrackMeter(id: string, el: HTMLElement, txt: HTMLElement
     if (!cur.views.size) { dropOwn(cur); tracks.delete(id); }
     stopIfIdle();
   };
+}
+
+// medidor de una CARPETA: mide sus pistas aunque sus filas no se vean (carpeta plegada)
+export function registerGroupMeter(ids: string[], el: HTMLElement): () => void {
+  const offs = ids.map((id) => registerTrackMeter(id, document.createElement('div'), null));
+  const g: Group = { ids, el };
+  groups.add(g);
+  start();
+  return () => { groups.delete(g); offs.forEach((off) => off()); };
 }
 
 // la suma antes del máster: quien la muestra se apunta (y se borra al irse)

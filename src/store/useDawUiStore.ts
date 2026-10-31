@@ -8,6 +8,8 @@ const KEY = 'telar.daw.ui';
 interface Saved {
   grid?: GridId;
   follow?: boolean;
+  folders?: boolean;
+  closed?: string[];
 }
 
 function read(): Saved {
@@ -34,6 +36,10 @@ interface DawUiState {
   setGrid: (g: GridId) => void;
   follow: boolean; // la vista sigue al cabezal mientras suena (8.4)
   setFollow: (on: boolean) => void;
+  folders: boolean; // pistas agrupadas en carpetas (9.6)
+  setFolders: (on: boolean) => void;
+  closed: string[]; // carpetas plegadas
+  toggleFolder: (id: string) => void;
 }
 
 export const useDawUiStore = create<DawUiState>((set) => ({
@@ -41,4 +47,12 @@ export const useDawUiStore = create<DawUiState>((set) => ({
   setGrid: (grid) => { set({ grid }); write({ grid }); },
   follow: saved.follow !== false,
   setFollow: (follow) => { set({ follow }); write({ follow }); },
+  folders: saved.folders === true,
+  setFolders: (folders) => { set({ folders }); write({ folders }); },
+  closed: Array.isArray(saved.closed) ? saved.closed.filter((x) => typeof x === 'string') : [],
+  toggleFolder: (id) => set((s) => {
+    const closed = s.closed.includes(id) ? s.closed.filter((x) => x !== id) : [...s.closed, id];
+    write({ closed });
+    return { closed };
+  }),
 }));
