@@ -147,3 +147,13 @@ test('10.3 duplicar una sección con un clip libre lo duplica; estirarla sigue e
   const g = resizeSection({ steps, codes }, 0, 12)!;
   assert.deepEqual(splitArrange(g.codes.perc)!.map((a) => `${a.bars}:${a.code}`), ['6:silence', '6:s("cp*4")']);
 });
+
+test('alinear pistas no recorta clips libres que ya duran lo que la canción', async () => {
+  const { alignAll } = await import('../src/lib/arrangeEdit.ts');
+  const steps = [16, 8, 16, 8, 16, 16].map((bars, i) => ({ id: `s${i}`, scene: 1, bars }));
+  // hats: 16 de intro + un clip de 16 que cruza de la subida al drop; el resto, silencio
+  const hats = 'arrange([16, s("~ ~ hh ~")], [16, s("~ ~ hh ~")], [8, silence], [8, silence], [16, silence], [16, silence])';
+  const r = alignAll({ steps, codes: { hats, bass: 'note("a1 ~ a1 ~")' } } as never);
+  assert.equal(r.codes.hats, hats); // intacto
+  assert.notEqual(r.codes.bass, 'note("a1 ~ a1 ~")'); // la plana sí se alinea
+});

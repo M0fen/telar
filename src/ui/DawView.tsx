@@ -68,12 +68,12 @@ function blockTitle(t: DawTrack, b: DawBlock): string {
   if (t.plain) return `${t.name} · sin secciones: suena igual en todos los compases\n${b.code.slice(0, 160)}`;
   const rep = b.ghost ? ` · repetición (su arrange dura ${t.bars} compases y vuelve a empezar)` : '';
   const act =
-    b.state === 'on' ? 'clic: apagar esta sección (su patrón se conserva)'
-    : b.state === 'off' ? 'clic: encender (vuelve tal cual)'
+    b.state === 'on' ? 'clic: elegir el clip (Ctrl+D/E/J/C/V, Supr) · otro clic: apagarlo (su patrón se conserva)'
+    : b.state === 'off' ? 'clic: elegir el clip · otro clic: encenderlo (vuelve tal cual)'
     : t.seed >= 0 ? `clic: entra con el patrón de la sección ${t.seed + 1}`
     : 'vacía y sin patrón en esta pista para sembrarla';
   const also = b.ghost && clickable(t, b) ? ' (cambia también sus repeticiones)' : '';
-  return `${t.name} · sección ${b.arm + 1} · ${b.bars} compases · ${STATE_TXT[b.state]}${rep}\n${act}${also}\n${b.code.slice(0, 160)}`;
+  return `${t.name} · sección ${b.arm + 1} · ${b.bars} ${b.bars === 1 ? 'compás' : 'compases'} · ${STATE_TXT[b.state]}${rep}\n${act}${also}\n${b.code.slice(0, 160)}`;
 }
 
 const MASTER_ROW = '__master__'; // clave del carril de automatización del máster (7.2)
@@ -211,6 +211,8 @@ export function DawView() {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.closest('.cm-editor'))) return;
+      if (document.querySelector('[class*="backdrop"]')) return; // una ventana encima: sus teclas (Supr no borra la sección de atrás)
+      if (t?.closest?.('.detail, .mx')) return; // dentro del panel de detalle o del mezclador: sus teclas
       const n = useSongStore.getState().steps.length;
       let done = true;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { if (dawSection.duplicate(selIdx)) setSel(selIdx + 1); }
@@ -332,7 +334,9 @@ export function DawView() {
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onMarker = () => keyCtx.current.marker(); // Ctrl+K › «marcador en el cabezal»
+    window.addEventListener('telar:marker', onMarker);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('telar:marker', onMarker); };
   }, []);
 
   const [menu, setMenu] = useState<{ trackId: string; arm: number; start: number; x: number; y: number; bar?: number } | null>(null);
@@ -370,6 +374,7 @@ export function DawView() {
   const setGhost = (g: typeof ghost) => { ghostRef.current = g; setGhostState(g); };
   const dragged = useRef(false);
   const clipDrag = useRef<{ t: DawTrack; b: DawBlock; mode: 'move' | 'resize'; x0: number; y0: number; moved: boolean } | null>(null);
+  const clickArmed = useRef(false); // el clic en curso enciende/apaga (el clip ya estaba elegido)
   const trackAtY = (y: number): string | null => {
     const els = document.elementsFromPoint(window.innerWidth / 2, y);
     for (const el of els) { const row = (el as HTMLElement).closest?.('[data-track]') as HTMLElement | null; if (row) return row.dataset.track ?? null; }
@@ -436,6 +441,10 @@ export function DawView() {
     const onKey = (e: KeyboardEvent) => {
       const tg = e.target as HTMLElement | null;
       if (tg && (tg.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.closest('.cm-editor'))) return;
+      // con una ventana o un menú encima (biblioteca, tutorial, Ctrl+K…) las teclas son suyas: antes
+      // Esc soltaba el clip en vez de cerrar la biblioteca, y Supr podía vaciarlo sin verlo
+      if (document.querySelector('[class*="backdrop"]')) return;
+      if (tg?.closest?.('.detail, .mx')) return; // dentro del panel de detalle o del mezclador: sus teclas (Esc lo cierra)
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
       const c = selClip;
@@ -848,12 +857,21 @@ export function DawView() {
                         if (longPressed.current) { longPressed.current = false; return; }
                         if (dragged.current) return; // venía de arrastrar (mover o estirar)
                         if (e.detail > 1) return;
+                        // 10.2: el primer clic ELIGE el clip (para Ctrl+D/E/J…); el clic sobre el clip ya
+                        // elegido lo enciende o apaga. Antes cada clic lo apagaba: elegir un clip para
+                        // duplicarlo lo dejaba en silencio. Vacíos y pistas sin secciones: como siempre.
+                        if (!clickArmed.current) return;
                         window.clearTimeout(clickTimer.current);
                         clickTimer.current = window.setTimeout(() => toggleBlock(t, b), 230);
                       }}
                       onDoubleClick={() => { window.clearTimeout(clickTimer.current); useDetailStore.getState().open(t.id, b.arm); }}
                       onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); openMenu(t, b, e.clientX, e.clientY, b.start + Math.floor((e.clientX - r.left) / px)); }}
-                      onPointerDown={(e) => { startLongPress(e, t, b); startClipDrag(e, t, b, 'move'); }}
+                      onPointerDown={(e) => {
+                        const selectable = !t.plain && !b.ghost && b.state !== 'empty';
+                        clickArmed.current = !selectable || (!!selClip && selClip.trackId === t.id && Math.abs(selClip.start - b.start) < 1e-6);
+                        startLongPress(e, t, b);
+                        startClipDrag(e, t, b, 'move');
+                      }}
                       onPointerUp={cancelLongPress}
                       onPointerLeave={cancelLongPress}
                       onKeyDown={(e) => onBlockKey(e, t, b)}

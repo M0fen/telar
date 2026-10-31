@@ -60,9 +60,11 @@ export function alignAll(state: ArrangeState): EditResult {
     if (!bars.length || !(code ?? '').trim()) continue;
     const arms = splitArrange(code);
     if (isAligned(arms, bars)) continue;
-    // clips libres (10.1): más brazos que secciones pero el mismo largo → ya está bien
+    // clips libres (10.1): si sus clips ya duran lo que la canción, está en su sitio aunque sus cortes
+    // no coincidan con los de las secciones (antes, con tantos clips como secciones, se recortaban:
+    // un clip que cruzaba de la subida al drop perdía su parte del drop)
     const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
-    if (arms && arms.length > bars.length && Math.abs(sum(arms.map((x) => x.bars)) - sum(bars)) < 1e-9) continue;
+    if (arms && Math.abs(sum(arms.map((x) => x.bars)) - sum(bars)) < 1e-9) continue;
     const next = alignArrangeToBars(code, bars);
     if (next === null) skipped.push(id);
     else codes[id] = next;
