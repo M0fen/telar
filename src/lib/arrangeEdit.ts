@@ -6,7 +6,15 @@
 // el mismo brazo en todas las pistas: canción y pistas nunca quedan desfasadas.
 // Las pistas con MÁS brazos que secciones no se tocan (recortar sería destructivo): van en
 // `skipped` para avisar.
-import { splitArrange, spliceArm, setArmBars, duplicateArm, removeArm, alignArrangeToBars, type ArrangeArm } from '../nodes/stepseqCode';
+//
+// FASE 10: las pistas pueden tener CLIPS LIBRES (brazos que no coinciden con las secciones). Las
+// operaciones de sección trabajan sobre TRAMOS de la línea de tiempo (`timeline.ts`): mueven los
+// clips de cada pista, las curvas de automatización y las transiciones de ese tramo, todo en un paso.
+import { splitArrange, spliceArm, alignArrangeToBars, type ArrangeArm } from '../nodes/stepseqCode';
+import { normalize, opDuplicate, opInsert, opRemove, opReorder, readTimeline, remapClips, remapCurve, remapTransitions, writeTimeline, type Seg } from './timeline';
+import type { AutoPoint } from './automation';
+import type { TransItem } from './transitions';
+import type { NodeData } from '../graph/types';
 
 export interface EditStep {
   id: string;
@@ -17,9 +25,12 @@ export interface EditStep {
 export interface ArrangeState {
   steps: EditStep[];
   codes: Record<string, string>; // código de cada pista (id → código)
+  autos?: Record<string, Record<string, AutoPoint[]>>; // curvas de cada nodo (pistas, FX, máster)
+  trans?: { id: string; items: TransItem[] }; // transiciones (7.4) y su nodo
 }
 export interface EditResult extends ArrangeState {
   skipped: string[]; // pistas que no se pudieron alinear (tienen más secciones que la canción)
+  patches?: Record<string, Partial<NodeData>>; // curvas y transiciones movidas con su tramo (10.3)
 }
 
 export const MAX_SECTION_BARS = 64;
@@ -47,6 +58,9 @@ export function alignAll(state: ArrangeState): EditResult {
     if (!bars.length || !(code ?? '').trim()) continue;
     const arms = splitArrange(code);
     if (isAligned(arms, bars)) continue;
+    // clips libres (10.1): más brazos que secciones pero el mismo largo → ya está bien
+    const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0);
+    if (arms && arms.length > bars.length && Math.abs(sum(arms.map((x) => x.bars)) - sum(bars)) < 1e-9) continue;
     const next = alignArrangeToBars(code, bars);
     if (next === null) skipped.push(id);
     else codes[id] = next;
@@ -54,67 +68,86 @@ export function alignAll(state: ArrangeState): EditResult {
   return { steps: state.steps.map((s) => ({ ...s, bars: clampBars(s.bars) })), codes, skipped };
 }
 
-// Aplica `edit(code, arms)` a cada pista alineada (las saltadas quedan igual).
-function eachTrack(a: EditResult, edit: (code: string, arms: ArrangeArm[]) => string | null): EditResult | null {
-  const codes: Record<string, string> = { ...a.codes };
-  for (const [id, code] of Object.entries(a.codes)) {
-    if (a.skipped.includes(id) || !(code ?? '').trim()) continue;
-    const arms = splitArrange(code);
-    if (!arms) continue;
-    const next = edit(code, arms);
-    if (next === null) return null;
-    codes[id] = next;
+// inicio de cada sección (compás desde 0) y largo total
+function starts(steps: EditStep[]): number[] {
+  const out: number[] = [];
+  let acc = 0;
+  for (const st of steps) { out.push(acc); acc += clampBars(st.bars); }
+  return out;
+}
+const totalOf = (steps: EditStep[]) => steps.reduce((a, st) => a + clampBars(st.bars), 0);
+
+// APLICA UN TRAMO (10.3): la misma transformación de la línea de tiempo a los clips de cada pista,
+// a las curvas de automatización de cada nodo y a las transiciones
+function applySegs(state: ArrangeState, sg: Seg[], steps: EditStep[]): EditResult {
+  const T = totalOf(state.steps);
+  const oldBounds = starts(state.steps);
+  const bounds = starts(steps);
+  const codes: Record<string, string> = { ...state.codes };
+  for (const [id, code] of Object.entries(state.codes)) {
+    if (!(code ?? '').trim()) continue;
+    const tl = readTimeline(code, T, oldBounds);
+    codes[id] = writeTimeline(tl, normalize(remapClips(tl.clips, sg), bounds));
   }
-  return { ...a, codes };
+  const patches: Record<string, Partial<NodeData>> = {};
+  for (const [id, auto] of Object.entries(state.autos ?? {})) {
+    let changed = false;
+    const next: Record<string, AutoPoint[]> = {};
+    for (const [k, pts] of Object.entries(auto)) {
+      if (!Array.isArray(pts) || !pts.length) { next[k] = pts; continue; }
+      next[k] = remapCurve(pts, sg);
+      changed = true;
+    }
+    if (changed) patches[id] = { auto: next } as Partial<NodeData>;
+  }
+  if (state.trans && state.trans.items.length) {
+    patches[state.trans.id] = { ...(patches[state.trans.id] ?? {}), transitions: remapTransitions(state.trans.items, sg) } as Partial<NodeData>;
+  }
+  return { steps, codes, skipped: [], patches, autos: state.autos, trans: state.trans };
 }
 
 const validIdx = (steps: EditStep[], i: number) => Number.isInteger(i) && i >= 0 && i < steps.length;
 
-// ⧉ DUPLICAR la sección i justo después de sí misma (mismos patrones, misma escena).
+// ⧉ DUPLICAR la sección i justo después de sí misma (mismos clips, curvas y transiciones).
 export function duplicateSection(state: ArrangeState, i: number, makeId: () => string = newStepId): EditResult | null {
   if (!validIdx(state.steps, i)) return null;
-  const a = alignAll(state);
-  const r = eachTrack(a, (code, arms) => duplicateArm(code, arms[i]));
-  if (!r) return null;
-  const steps = [...r.steps];
+  const s0 = starts(state.steps)[i];
+  const e0 = s0 + clampBars(state.steps[i].bars);
+  const steps = state.steps.map((x) => ({ ...x, bars: clampBars(x.bars) }));
   steps.splice(i + 1, 0, { ...steps[i], id: makeId() });
-  return { ...r, steps };
+  return applySegs(state, opDuplicate(s0, e0), steps);
 }
 
 // ✚ SECCIÓN VACÍA después de la i (i = -1 → al principio): todas las pistas en silencio ahí.
 export function insertEmptySection(state: ArrangeState, i: number, bars = 8, makeId: () => string = newStepId): EditResult | null {
   if (!(i === -1 || validIdx(state.steps, i)) || !state.steps.length) return null;
   const b = clampBars(bars);
-  const a = alignAll(state);
-  const r = eachTrack(a, (code, arms) =>
-    i < 0
-      ? code.slice(0, arms[0].wholeStart) + `[${b}, silence], ` + code.slice(arms[0].wholeStart)
-      : code.slice(0, arms[i].wholeEnd) + `, [${b}, silence]` + code.slice(arms[i].wholeEnd),
-  );
-  if (!r) return null;
-  const steps = [...r.steps];
+  const at = i < 0 ? 0 : starts(state.steps)[i] + clampBars(state.steps[i].bars);
+  const steps = state.steps.map((x) => ({ ...x, bars: clampBars(x.bars) }));
   const ref = steps[Math.max(0, i)];
   steps.splice(i + 1, 0, { id: makeId(), scene: ref.scene, bars: b });
-  return { ...r, steps };
+  return applySegs(state, opInsert(at, b), steps);
 }
 
-// ✕ BORRAR la sección i (canción + ese brazo en cada pista). La última no se borra.
+// ✕ BORRAR la sección i (con sus clips, curvas y transiciones). La última no se borra.
 export function deleteSection(state: ArrangeState, i: number): EditResult | null {
   if (!validIdx(state.steps, i) || state.steps.length < 2) return null;
-  const a = alignAll(state);
-  const r = eachTrack(a, (code, arms) => removeArm(code, arms, i));
-  if (!r) return null;
-  return { ...r, steps: r.steps.filter((_, k) => k !== i) };
+  const s0 = starts(state.steps)[i];
+  const e0 = s0 + clampBars(state.steps[i].bars);
+  const steps = state.steps.filter((_, k) => k !== i).map((x) => ({ ...x, bars: clampBars(x.bars) }));
+  return applySegs(state, opRemove(s0, e0), steps);
 }
 
-// − / + COMPASES de la sección i (1–64), en la canción y en el brazo de cada pista.
+// − / + COMPASES de la sección i (1–64): al crecer, lo que sonaba al final sigue sonando; al
+// achicarse, se quitan sus últimos compases.
 export function resizeSection(state: ArrangeState, i: number, bars: number): EditResult | null {
   if (!validIdx(state.steps, i)) return null;
   const b = clampBars(bars);
-  const a = alignAll(state);
-  const r = eachTrack(a, (code, arms) => setArmBars(code, arms[i], b));
-  if (!r) return null;
-  return { ...r, steps: r.steps.map((s, k) => (k === i ? { ...s, bars: b } : s)) };
+  const cur = clampBars(state.steps[i].bars);
+  const e0 = starts(state.steps)[i] + cur;
+  const steps = state.steps.map((x, k) => ({ ...x, bars: k === i ? b : clampBars(x.bars) }));
+  if (b === cur) return applySegs(state, opReorder([], 0), steps);
+  return applySegs(state, b > cur ? opInsert(e0, b - cur, true) : opRemove(e0 - (cur - b), e0), steps);
 }
 
 // Reordena los brazos de UN arrange (from → to) reescribiendo solo el tramo entre el primer
@@ -126,16 +159,16 @@ export function reorderArms(code: string, arms: ArrangeArm[], from: number, to: 
   return code.slice(0, arms[0].wholeStart) + texts.join(', ') + code.slice(arms[arms.length - 1].wholeEnd);
 }
 
-// ◀ ▶ MOVER la sección i a la posición j.
+// ◀ ▶ MOVER la sección i a la posición j (con sus clips, curvas y transiciones).
 export function moveSection(state: ArrangeState, i: number, j: number): EditResult | null {
   if (!validIdx(state.steps, i) || !validIdx(state.steps, j) || i === j) return null;
-  const a = alignAll(state);
-  const r = eachTrack(a, (code, arms) => reorderArms(code, arms, i, j));
-  if (!r) return null;
-  const steps = [...r.steps];
-  const [moved] = steps.splice(i, 1);
-  steps.splice(j, 0, moved);
-  return { ...r, steps };
+  const st0 = starts(state.steps);
+  const order = state.steps.map((_, k) => k);
+  const [mv] = order.splice(i, 1);
+  order.splice(j, 0, mv);
+  const ranges = order.map((k) => [st0[k], clampBars(state.steps[k].bars)] as [number, number]);
+  const steps = order.map((k) => ({ ...state.steps[k], bars: clampBars(state.steps[k].bars) }));
+  return applySegs(state, opReorder(ranges, totalOf(state.steps)), steps);
 }
 
 // Nombre (marcador) y escena: solo la canción, el código no cambia.

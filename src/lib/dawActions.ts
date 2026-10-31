@@ -8,19 +8,32 @@ import { useScenesStore } from '../store/useScenesStore';
 import { toast } from '../store/useNotifyStore';
 import { useUiFocusStore } from '../store/useUiFocusStore';
 import * as E from './arrangeEdit';
+import * as TL from './timeline';
 import { blockPattern } from './dawModel';
 import { startJam, finishJam, isJamRecording, buildFromTake, type JamHooks, type JamTake } from './jamRecorder';
 import { getScheduler } from '../audio/engine';
-import { cleanAuto } from './automation';
+import { cleanAuto, type AutoPoint } from './automation';
 import { setVariation, splitVariation, type FillKind } from './variation';
 import { cleanTransitions, autoTransitions, type TransItem } from './transitions';
 import { splitArrange, spliceArm, isMutedArm, unmuteArm, muteArm, isSilenceArm } from '../nodes/stepseqCode';
 
 export function arrangeState(): E.ArrangeState {
   const codes: Record<string, string> = {};
-  // la pista de transiciones (7.4) no sigue la estructura: su código lo escribe el compilador
-  for (const n of useGraphStore.getState().nodes) if (n.data.kind === 'source' && !Array.isArray(n.data.transitions)) codes[n.id] = n.data.code ?? '';
-  return { steps: useSongStore.getState().steps.map((s) => ({ ...s })), codes };
+  const autos: Record<string, Record<string, AutoPoint[]>> = {};
+  let trans: E.ArrangeState['trans'];
+  for (const n of useGraphStore.getState().nodes) {
+    // la pista de transiciones (7.4) no sigue la estructura: su código lo escribe el compilador
+    if (n.data.kind === 'source' && !Array.isArray(n.data.transitions)) codes[n.id] = n.data.code ?? '';
+    if (Array.isArray(n.data.transitions)) trans = { id: n.id, items: cleanTransitions(n.data.transitions) };
+    // curvas de automatización de cualquier nodo (pista, FX, máster): se mueven con su tramo (10.3)
+    const au = n.data.auto as Record<string, unknown> | undefined;
+    if (au && typeof au === 'object') {
+      const pts: Record<string, AutoPoint[]> = {};
+      for (const [k, v] of Object.entries(au)) if (Array.isArray(v) && v.length) pts[k] = v as AutoPoint[];
+      if (Object.keys(pts).length) autos[n.id] = pts;
+    }
+  }
+  return { steps: useSongStore.getState().steps.map((s) => ({ ...s })), codes, autos, trans };
 }
 
 // --- TRANSICIONES (Fase 7.4): riser, reverso, impacto y barrido en la línea de tiempo ----------
@@ -68,7 +81,7 @@ function trackName(id: string): string {
 // Aplica el resultado (o avisa si no se pudo). Devuelve true si cambió algo.
 export function commitArrangement(r: E.EditResult | null, failMsg = 'no se pudo hacer ese cambio en la estructura'): boolean {
   if (!r) { toast.warn(failMsg); return false; }
-  useGraphStore.getState().applyArrangement(r.codes, r.steps);
+  useGraphStore.getState().applyArrangement(r.codes, r.steps, r.patches);
   if (r.skipped.length) {
     const list = r.skipped.slice(0, 3).map(trackName).join(', ');
     toast.warn(`${list}${r.skipped.length > 3 ? '…' : ''} tiene${r.skipped.length > 1 ? 'n' : ''} más secciones que la canción: no se tocó. Quita secciones en su nodo o borra su arrange.`);
@@ -121,7 +134,7 @@ export function createFromTemplate(sections: { bars: number; name: string }[]): 
 // --- BLOQUES (Fase 2.3): copiar · pegar · vaciar · duplicar en la siguiente · editar -------
 // Editan UNA pista (updateNodeData → Ctrl+Z). El portapapeles vive aquí (sobrevive a cambiar
 // de vista) y guarda el patrón del bloque sin su `.mask(0)`: pegado, suena.
-let clip: { expr: string; from: string } | null = null;
+let clip: { expr: string; from: string; bars?: number } | null = null;
 export const dawClipboard = { get: () => clip };
 
 const codeOf = (id: string) => useGraphStore.getState().nodes.find((n) => n.id === id)?.data.code ?? '';
@@ -135,7 +148,8 @@ export const dawBlock = {
   copy(id: string, arm: number): boolean {
     const expr = blockPattern(codeOf(id), arm);
     if (!expr) return false;
-    clip = { expr, from: `${trackName(id)}${arm >= 0 ? ` · sección ${arm + 1}` : ''}` };
+    const bars = arm >= 0 ? splitArrange(codeOf(id))?.[arm]?.bars : undefined;
+    clip = { expr, from: `${trackName(id)}${arm >= 0 ? ` · sección ${arm + 1}` : ''}`, bars };
     toast.info(`copiado: ${clip.from}`);
     return true;
   },
@@ -174,6 +188,100 @@ export const dawBlock = {
   },
 };
 export const blockVariation = (blockCode: string) => splitVariation(isMutedArm(blockCode) ? unmuteArm(blockCode) : blockCode);
+
+// --- CLIPS LIBRES (Fase 10.1 · 10.2): mover, estirar, partir, unir, duplicar y pegar en cualquier
+// compás y entre pistas. Cada acción es UN paso de deshacer (applyArrangement). `total`: compases de
+// la línea de tiempo (la canción, o lo que muestra el DAW sin canción).
+function songBounds(): number[] {
+  const out: number[] = [];
+  let acc = 0;
+  for (const st of useSongStore.getState().steps) { out.push(acc); acc += Math.max(1, st.bars); }
+  return out;
+}
+function clipsOf(id: string, total: number): { tl: TL.TrackTimeline; clips: TL.Clip[] } {
+  const tl = TL.readTimeline(codeOf(id), total, songBounds());
+  return { tl, clips: tl.clips };
+}
+const clipIndexAt = (clips: TL.Clip[], start: number) => clips.findIndex((c) => Math.abs(c.start - start) < 1e-6);
+function commitClips(total: number, changes: Record<string, { tl: TL.TrackTimeline; clips: TL.Clip[] }>): boolean {
+  const codes: Record<string, string> = {};
+  const b = songBounds();
+  for (const [id, { tl, clips }] of Object.entries(changes)) codes[id] = TL.writeTimeline(tl, TL.normalize(TL.clampClips(clips, total), b));
+  useGraphStore.getState().applyArrangement(codes);
+  return true;
+}
+export const dawClip = {
+  // mover el clip que empieza en `start` a `to` (en la misma pista o en `toTrack`)
+  move(id: string, start: number, to: number, total: number, toTrack?: string): boolean {
+    const src = clipsOf(id, total);
+    const i = clipIndexAt(src.clips, start);
+    const c = src.clips[i];
+    if (!c || TL.isGap(c)) return false;
+    const at = Math.max(0, Math.min(total - c.bars, Math.round(to)));
+    if (!toTrack || toTrack === id) {
+      if (at === c.start) return false;
+      return commitClips(total, { [id]: { tl: src.tl, clips: TL.moveClip(src.clips, i, at) } });
+    }
+    const dst = clipsOf(toTrack, total);
+    return commitClips(total, {
+      [id]: { tl: src.tl, clips: TL.clearClip(src.clips, i) },
+      [toTrack]: { tl: dst.tl, clips: TL.placeClip(dst.clips, at, c.bars, unmuteArm(c.expr)) },
+    });
+  },
+  // estirar el borde derecho (más largo = el patrón se repite)
+  resize(id: string, start: number, bars: number, total: number): boolean {
+    const t = clipsOf(id, total);
+    const i = clipIndexAt(t.clips, start);
+    const c = t.clips[i];
+    const b = Math.max(1, Math.min(total - (c?.start ?? 0), Math.round(bars)));
+    if (!c || TL.isGap(c) || b === c.bars) return false;
+    return commitClips(total, { [id]: { tl: t.tl, clips: TL.resizeClip(t.clips, i, b) } });
+  },
+  // partir en el compás `bar` (Ctrl+E)
+  split(id: string, bar: number, total: number): boolean {
+    const t = clipsOf(id, total);
+    const next = TL.splitClip(t.clips, Math.round(bar));
+    if (next === t.clips) { toast.info('parte un clip por dentro (no en su borde)'); return false; }
+    return commitClips(total, { [id]: { tl: t.tl, clips: next } });
+  },
+  // unir con el clip siguiente
+  join(id: string, start: number, total: number): boolean {
+    const t = clipsOf(id, total);
+    const i = clipIndexAt(t.clips, start);
+    if (i < 0 || i >= t.clips.length - 1) { toast.info('no hay un clip después para unir'); return false; }
+    return commitClips(total, { [id]: { tl: t.tl, clips: TL.joinClips(t.clips, i) } });
+  },
+  // duplicar justo detrás (Ctrl+D)
+  duplicate(id: string, start: number, total: number): boolean {
+    const t = clipsOf(id, total);
+    const i = clipIndexAt(t.clips, start);
+    const c = t.clips[i];
+    if (!c || TL.isGap(c)) return false;
+    if (c.start + c.bars >= total) { toast.info('no cabe: el clip llega al final de la canción'); return false; }
+    return commitClips(total, { [id]: { tl: t.tl, clips: TL.duplicateClip(t.clips, i) } });
+  },
+  // copiar el clip (con su largo) y pegarlo en otro compás o pista
+  copy(id: string, start: number, total: number): boolean {
+    const t = clipsOf(id, total);
+    const c = t.clips[clipIndexAt(t.clips, start)];
+    if (!c || TL.isGap(c)) return false;
+    clip = { expr: unmuteArm(c.expr).trim(), from: `${trackName(id)} · compás ${c.start + 1}`, bars: c.bars };
+    toast.info(`copiado: ${clip.from} (${c.bars} c.)`);
+    return true;
+  },
+  paste(id: string, at: number, total: number): boolean {
+    if (!clip) { toast.info('primero copia un clip (Ctrl+C)'); return false; }
+    const t = clipsOf(id, total);
+    const bars = Math.max(1, Math.min(clip.bars ?? 1, total - at));
+    return commitClips(total, { [id]: { tl: t.tl, clips: TL.placeClip(t.clips, Math.max(0, Math.round(at)), bars, clip.expr) } });
+  },
+  clear(id: string, start: number, total: number): boolean {
+    const t = clipsOf(id, total);
+    const i = clipIndexAt(t.clips, start);
+    if (i < 0 || TL.isGap(t.clips[i])) return false;
+    return commitClips(total, { [id]: { tl: t.tl, clips: TL.clearClip(t.clips, i) } });
+  },
+};
 
 // --- GRABAR EL JAM EN LA CANCIÓN (Fase 2.5) ----------------------------------------------
 function jamHooks(): JamHooks {

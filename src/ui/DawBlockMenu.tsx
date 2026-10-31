@@ -1,14 +1,14 @@
 import { useDetailStore } from '../store/useDetailStore';
 import { useEffect, useRef, useState } from 'react';
 import type { DawBlock, DawTrack } from '../lib/dawModel';
-import { dawBlock, dawClipboard, blockVariation } from '../lib/dawActions';
+import { dawBlock, dawClip, dawClipboard, blockVariation } from '../lib/dawActions';
 import { VARIATION_EVERY, type FillKind } from '../lib/variation';
 
 // MENÚ DEL BLOQUE (Modo DAW, Fase 2.3): clic derecho o mantener pulsado sobre un bloque.
 // Encender/apagar · copiar · pegar · vaciar · duplicar en la sección siguiente · editar en la
 // vista estándar (abre el nodo en esa sección). Se cierra con Esc o clic fuera.
 export function DawBlockMenu({
-  x, y, track, block, canToggle, onToggle, onClose,
+  x, y, track, block, canToggle, onToggle, onClose, total, bar,
 }: {
   x: number;
   y: number;
@@ -17,6 +17,8 @@ export function DawBlockMenu({
   canToggle: boolean;
   onToggle: () => void;
   onClose: () => void;
+  total: number; // compases de la línea de tiempo (clips libres, 10.1)
+  bar?: number; // compás donde se abrió el menú (partir aquí)
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [kind, setKind] = useState<FillKind>('copy');
@@ -49,6 +51,15 @@ export function DawBlockMenu({
       </button>
       <button role="menuitem" disabled={plain || block.state === 'empty'} onClick={run(() => dawBlock.clear(track.id, block.arm))}>vaciar (silencio) <kbd>Supr</kbd></button>
       <button role="menuitem" disabled={plain || block.arm >= lastArm} onClick={run(() => dawBlock.toNext(track.id, block.arm))}>copiar en la sección siguiente</button>
+      {/* CLIPS LIBRES (10.2) */}
+      {!plain && block.state !== 'empty' && !block.ghost && (
+        <>
+          <button role="menuitem" disabled={bar == null || bar <= block.start || bar >= block.start + block.bars} onClick={run(() => dawClip.split(track.id, bar!, total))}
+            title="dos clips que suenan igual que antes (luego mueves o editas cada uno)">partir en el compás {bar != null ? bar + 1 : ''} <kbd>Ctrl+E</kbd></button>
+          <button role="menuitem" onClick={run(() => dawClip.join(track.id, block.start, total))} title="este clip ocupa también el siguiente (con su patrón)">unir con el siguiente <kbd>Ctrl+J</kbd></button>
+          <button role="menuitem" disabled={block.start + block.bars >= total} onClick={run(() => dawClip.duplicate(track.id, block.start, total))} title="una copia justo detrás">duplicar detrás <kbd>Ctrl+D</kbd></button>
+        </>
+      )}
       <button role="menuitem" onClick={run(() => useDetailStore.getState().open(track.id, block.arm))}>editar abajo, en grande <kbd>doble clic · E</kbd></button>
       <button role="menuitem" onClick={run(() => dawBlock.edit(track.id, block.arm))}>abrir en la vista estándar</button>
       {/* VARIACIÓN cada N compases (7.3): el último de cada N toca un fill */}

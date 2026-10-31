@@ -23,6 +23,7 @@ import { useDawUiStore } from '../store/useDawUiStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { TrackColorButton } from './TrackColor';
 import { DawTrackHead, DawFolderRow, useLaneResize } from './DawTrackHead';
+import { dawClip } from '../lib/dawActions';
 import { folderOf, groupRows, laneH, LANE_H } from '../lib/dawFolders';
 import { DawLaneContent } from './DawLaneContent';
 import { useDetailStore } from '../store/useDetailStore';
@@ -320,8 +321,8 @@ export function DawView() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const [menu, setMenu] = useState<{ trackId: string; arm: number; start: number; x: number; y: number } | null>(null);
-  const openMenu = (t: DawTrack, b: DawBlock, x: number, y: number) => setMenu({ trackId: t.id, arm: b.arm, start: b.start, x, y });
+  const [menu, setMenu] = useState<{ trackId: string; arm: number; start: number; x: number; y: number; bar?: number } | null>(null);
+  const openMenu = (t: DawTrack, b: DawBlock, x: number, y: number, bar?: number) => setMenu({ trackId: t.id, arm: b.arm, start: b.start, x, y, bar });
   const longPressed = useRef(false);
   const clickTimer = useRef<number | undefined>(undefined);
   const lpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -345,6 +346,103 @@ export function DawView() {
     else done = false;
     if (done) { e.preventDefault(); e.stopPropagation(); }
   };
+  // CLIPS LIBRES (Fase 10.1 · 10.2): arrastrar un bloque lo MUEVE (a otro compás o a otra pista),
+  // su borde derecho lo ESTIRA (el patrón se repite). El clic sigue encendiendo/apagando.
+  // Con un clip elegido: Ctrl+E partir (en el cabezal, o a la mitad) · Ctrl+D duplicar detrás ·
+  // Ctrl+J unir con el siguiente · Ctrl+C / Ctrl+V copiar y pegar (en el cabezal) · Supr vaciar.
+  const [selClip, setSelClip] = useState<{ trackId: string; start: number; bars: number } | null>(null);
+  const [ghost, setGhostState] = useState<{ trackId: string; start: number; bars: number; ok: boolean } | null>(null);
+  const ghostRef = useRef<typeof ghost>(null);
+  const setGhost = (g: typeof ghost) => { ghostRef.current = g; setGhostState(g); };
+  const dragged = useRef(false);
+  const clipDrag = useRef<{ t: DawTrack; b: DawBlock; mode: 'move' | 'resize'; x0: number; y0: number; moved: boolean } | null>(null);
+  const trackAtY = (y: number): string | null => {
+    const els = document.elementsFromPoint(window.innerWidth / 2, y);
+    for (const el of els) { const row = (el as HTMLElement).closest?.('[data-track]') as HTMLElement | null; if (row) return row.dataset.track ?? null; }
+    return null;
+  };
+  const startClipDrag = (e: React.PointerEvent, t: DawTrack, b: DawBlock, mode: 'move' | 'resize') => {
+    if (e.button !== 0 || t.plain || b.ghost || (mode === 'move' && b.state === 'empty')) return;
+    clipDrag.current = { t, b, mode, x0: e.clientX, y0: e.clientY, moved: false };
+    setSelClip({ trackId: t.id, start: b.start, bars: b.bars });
+    const move = (ev: PointerEvent) => {
+      const d = clipDrag.current;
+      if (!d) return;
+      const dx = ev.clientX - d.x0;
+      const dy = ev.clientY - d.y0;
+      if (!d.moved && Math.abs(dx) < 5 && Math.abs(dy) < 6) return;
+      if (!d.moved) { d.moved = true; cancelLongPress(); }
+      const dBars = Math.round(dx / pxRef.current);
+      if (d.mode === 'resize') {
+        const bars = Math.max(1, Math.min(total - d.b.start, d.b.bars + dBars));
+        setGhost({ trackId: d.t.id, start: d.b.start, bars, ok: true });
+      } else {
+        const to = Math.max(0, Math.min(total - d.b.bars, d.b.start + dBars));
+        const tid = trackAtY(ev.clientY) ?? d.t.id;
+        const target = tracks.find((x) => x.id === tid);
+        setGhost({ trackId: tid, start: to, bars: d.b.bars, ok: !!target && !target.plain });
+      }
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      const d = clipDrag.current;
+      clipDrag.current = null;
+      const g = ghostRef.current;
+      setGhost(null);
+      if (d?.moved && g) {
+        dragged.current = true; // el clic que sigue no enciende/apaga
+        window.setTimeout(() => { dragged.current = false; }, 0);
+        if (d.mode === 'resize') { if (dawClip.resize(d.t.id, d.b.start, g.bars, total)) setSelClip({ trackId: d.t.id, start: d.b.start, bars: g.bars }); }
+        else if (g.ok && dawClip.move(d.t.id, d.b.start, g.start, total, g.trackId)) setSelClip({ trackId: g.trackId, start: g.start, bars: d.b.bars });
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+  // compás donde partir: el cabezal si cae dentro del clip; si no, la mitad
+  const splitBarFor = (c: { start: number; bars: number }) => {
+    const now = useGraphStore.getState().playing ? heardCycle() : NaN;
+    const pos = Number.isFinite(now) ? playheadAt(timelinePos(now, useSongStore.getState()), total, sections).pos : NaN;
+    const bar = Number.isFinite(pos) && pos > c.start && pos < c.start + c.bars ? Math.round(pos) : c.start + Math.floor(c.bars / 2);
+    return Math.max(c.start + 1, Math.min(c.start + c.bars - 1, bar));
+  };
+  const playBar = () => {
+    const now = useGraphStore.getState().playing ? heardCycle() : NaN;
+    return Number.isFinite(now) ? Math.floor(playheadAt(timelinePos(now, useSongStore.getState()), total, sections).pos) : 0;
+  };
+  useEffect(() => {
+    if (!selClip || selIdx >= 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tg = e.target as HTMLElement | null;
+      if (tg && (tg.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName) || tg.closest('.cm-editor'))) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      const c = selClip;
+      let done = true;
+      if (mod && k === 'e') dawClip.split(c.trackId, splitBarFor(c), total);
+      else if (mod && k === 'd') { if (dawClip.duplicate(c.trackId, c.start, total)) setSelClip({ ...c, start: c.start + c.bars }); }
+      else if (mod && k === 'j') dawClip.join(c.trackId, c.start, total);
+      else if (mod && k === 'c') dawClip.copy(c.trackId, c.start, total);
+      else if (mod && k === 'v') dawClip.paste(c.trackId, useGraphStore.getState().playing ? playBar() : c.start + c.bars, total);
+      else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) { if (dawClip.clear(c.trackId, c.start, total)) setSelClip(null); }
+      else if (e.key === 'Escape') setSelClip(null);
+      else done = false;
+      if (done) { e.preventDefault(); e.stopImmediatePropagation(); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selClip, selIdx, total]);
+  // un clip elegido que ya no existe (deshacer, otra edición) se suelta
+  useEffect(() => {
+    if (!selClip) return;
+    const t = tracks.find((x) => x.id === selClip.trackId);
+    if (!t || !t.blocks.some((b) => Math.abs(b.start - selClip.start) < 1e-6 && b.state !== 'empty')) setSelClip(null);
+  }, [tracks, selClip]);
+
   const menuTrack = menu ? tracks.find((x) => x.id === menu.trackId) : undefined;
   const menuBlock = menu && menuTrack ? menuTrack.blocks.find((x) => x.arm === menu.arm && x.start === menu.start) ?? menuTrack.blocks.find((x) => x.arm === menu.arm) : undefined;
 
@@ -649,7 +747,7 @@ export function DawView() {
               <DawFolderRow key={`f_${row.id}`} folder={row} tracks={tracks} colors={colors} width={width} px={px} gridBg={gridBg} />
             ) : ((t) => (
               <Fragment key={t.id}>
-              <div className={`daw-row${t.audible ? '' : ' muted'}${row.folder ? ' infolder' : ''}`} style={{ ['--tc' as string]: colors[t.id], height: heightOf(t.id) }}>
+              <div className={`daw-row${t.audible ? '' : ' muted'}${row.folder ? ' infolder' : ''}`} data-track={t.id} style={{ ['--tc' as string]: colors[t.id], height: heightOf(t.id) }}>
                 <DawTrackHead t={t} h={heightOf(t.id)} onResize={onResize}>
                   <TrackColorButton id={t.id} className="tcolor-daw" />
                   <span className="daw-tn" title={t.name}>{t.name}</span>
@@ -676,7 +774,7 @@ export function DawView() {
                   {t.blocks.map((b, i) => (
                     <div
                       key={i}
-                      className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}${clickable(t, b) ? ' click' : ''}`}
+                      className={`daw-blk ${b.state}${b.ghost ? ' ghost' : ''}${t.plain ? ' plain' : ''}${clickable(t, b) ? ' click' : ''}${selClip && selClip.trackId === t.id && Math.abs(selClip.start - b.start) < 1e-6 ? ' selc' : ''}`}
                       style={{ left: b.start * px, width: Math.max(2, b.bars * px - 2) }}
                       title={blockTitle(t, b) + sceneMuteNote(t, b) + '\ndoble clic (o E): editar abajo, en grande · clic derecho (o mantener pulsado): copiar · pegar · vaciar · editar'}
                       role="button"
@@ -685,17 +783,22 @@ export function DawView() {
                       onClick={(e) => {
                         // 9.2: el clic enciende/apaga un instante después — un doble clic abre el editor sin tocarlo
                         if (longPressed.current) { longPressed.current = false; return; }
+                        if (dragged.current) return; // venía de arrastrar (mover o estirar)
                         if (e.detail > 1) return;
                         window.clearTimeout(clickTimer.current);
                         clickTimer.current = window.setTimeout(() => toggleBlock(t, b), 230);
                       }}
                       onDoubleClick={() => { window.clearTimeout(clickTimer.current); useDetailStore.getState().open(t.id, b.arm); }}
-                      onContextMenu={(e) => { e.preventDefault(); openMenu(t, b, e.clientX, e.clientY); }}
-                      onPointerDown={(e) => startLongPress(e, t, b)}
+                      onContextMenu={(e) => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); openMenu(t, b, e.clientX, e.clientY, b.start + Math.floor((e.clientX - r.left) / px)); }}
+                      onPointerDown={(e) => { startLongPress(e, t, b); startClipDrag(e, t, b, 'move'); }}
                       onPointerUp={cancelLongPress}
                       onPointerLeave={cancelLongPress}
                       onKeyDown={(e) => onBlockKey(e, t, b)}
                     >
+                      {!t.plain && !b.ghost && b.state !== 'empty' && (
+                        <span className="daw-blk-rz" title="arrastra para estirar el clip (el patrón se repite) o acortarlo"
+                          onPointerDown={(e) => { e.stopPropagation(); startClipDrag(e, t, b, 'resize'); }} onClick={(e) => e.stopPropagation()} />
+                      )}
                       {b.bars * px >= 30 && (
                         <span className="daw-blk-l">{t.plain ? 'suena siempre' : b.state === 'empty' ? 'vacía' : b.state === 'off' ? 'apagada' : `${b.arm + 1}`}</span>
                       )}
@@ -712,6 +815,11 @@ export function DawView() {
                     </div>
                   ))}
                   <DawLaneContent blocks={t.blocks} px={px} x0={view.x0} w={view.w} color={colors[t.id] ?? '#3df0d0'} beats={beats} cps={cps} plain={t.plain} h={heightOf(t.id)} />
+                  {ghost && ghost.trackId === t.id && (
+                    <div className={`daw-clipghost${ghost.ok ? '' : ' bad'}`} style={{ left: ghost.start * px, width: Math.max(2, ghost.bars * px - 2) }}>
+                      <span>{ghost.start + 1}{ghost.bars > 1 ? `–${ghost.start + ghost.bars}` : ''}</span>
+                    </div>
+                  )}
                   {t.sceneMuted.map((m, i) => (
                     <div key={`m${i}`} className="daw-scmute" style={{ left: m.start * px, width: Math.max(2, m.bars * px - 2) }} />
                   ))}
@@ -817,6 +925,8 @@ export function DawView() {
               canToggle={clickable(menuTrack, menuBlock)}
               onToggle={() => toggleBlock(menuTrack, menuBlock)}
               onClose={() => setMenu(null)}
+              total={total}
+              bar={menu.bar}
             />
           )}
           {sections.length === 0 && (

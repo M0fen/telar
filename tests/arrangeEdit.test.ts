@@ -119,3 +119,31 @@ test('2.1 utilidades: pegar en un brazo, ¿puede seguir la estructura?, reordena
   const arms = splitArrange(KICK)!;
   assert.equal(reorderArms(KICK, arms, 2, 0).startsWith('arrange([16, s("bd*4").sometimesBy'), true);
 });
+
+test('10.3 mover una sección mueve sus clips libres, sus curvas y sus transiciones', () => {
+  const steps = [{ id: 'a', scene: 1, bars: 8 }, { id: 'b', scene: 2, bars: 8 }];
+  // clip de 2 compases dentro de la sección 1 (compases 3–4) + la sección 2 con hats
+  const codes = { perc: 'arrange([2, silence], [2, s("cp*4")], [4, silence], [8, s("hh*8")])' };
+  const autos = { perc: { vol: [[0, 0.2], [8, 1], [16, 1]] as [number, number][] } };
+  const trans = { id: 'tr', items: [{ kind: 'riser' as const, at: 8, bars: 4 }, { kind: 'impact' as const, at: 8, bars: 1 }] };
+  const r = moveSection({ steps, codes, autos, trans }, 0, 1)!;
+  assert.deepEqual(r.steps.map((s) => s.id), ['b', 'a']);
+  const arms = splitArrange(r.codes.perc)!;
+  assert.deepEqual(arms.map((a) => `${a.bars}:${a.code}`), ['8:s("hh*8")', '2:silence', '2:s("cp*4")', '4:silence']);
+  const vol = (r.patches!.perc.auto as Record<string, [number, number][]>).vol;
+  // la subida (0→8) ahora va en los compases 8–16
+  const at = (x: number) => { for (let i = 1; i < vol.length; i++) if (x <= vol[i][0]) { const [b0, v0] = vol[i - 1]; const [b1, v1] = vol[i]; return v0 + ((v1 - v0) * (x - b0)) / (b1 - b0); } return vol[vol.length - 1][1]; };
+  assert.ok(Math.abs(at(4) - 1) < 1e-3);
+  assert.ok(Math.abs(at(12) - 0.6) < 1e-2);
+  const tr = r.patches!.tr.transitions as { kind: string; at: number }[];
+  assert.deepEqual(tr.map((x) => `${x.kind}@${x.at}`).sort(), ['impact@0', 'riser@0']);
+});
+
+test('10.3 duplicar una sección con un clip libre lo duplica; estirarla sigue el último clip', () => {
+  const steps = [{ id: 'a', scene: 1, bars: 8 }];
+  const codes = { perc: 'arrange([6, silence], [2, s("cp*4")])' };
+  const d = duplicateSection({ steps, codes }, 0, id)!;
+  assert.deepEqual(splitArrange(d.codes.perc)!.map((a) => `${a.bars}:${a.code}`), ['6:silence', '2:s("cp*4")', '6:silence', '2:s("cp*4")']);
+  const g = resizeSection({ steps, codes }, 0, 12)!;
+  assert.deepEqual(splitArrange(g.codes.perc)!.map((a) => `${a.bars}:${a.code}`), ['6:silence', '6:s("cp*4")']);
+});

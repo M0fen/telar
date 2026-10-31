@@ -358,3 +358,16 @@
 /* menú de carpeta (clic derecho en la cabecera) */
 .daw-fmenu { position: fixed; z-index: 60; display: flex; flex-direction: column; min-width: 170px; }
 .daw-fmenu-h { font-size: 9px; letter-spacing: 0.08em; color: var(--faint, #44515c); padding: 4px 8px 2px; text-transform: uppercase; }
+
+/* 10.1 · CLIPS LIBRES: elegido, asa para estirar y la sombra de donde cae al arrastrar */
+.daw-blk.selc { box-shadow: inset 0 0 0 2px var(--text, #d4dee6), 0 0 10px -3px var(--tc); z-index: 2; }
+.daw-blk.on, .daw-blk.off { touch-action: none; }
+.daw-blk-rz { position: absolute; top: 0; bottom: 0; right: 0; width: 7px; cursor: ew-resize; z-index: 3; }
+.daw-blk-rz:hover, .daw-blk.selc .daw-blk-rz { background: linear-gradient(90deg, transparent 2px, color-mix(in srgb, var(--tc) 70%, #fff) 2px, color-mix(in srgb, var(--tc) 70%, #fff) 4px, transparent 4px); }
+.daw-clipghost {
+  position: absolute; top: 3px; bottom: 3px; z-index: 4; pointer-events: none; border-radius: 2px;
+  border: 1px dashed var(--text, #d4dee6); background: color-mix(in srgb, var(--tc, #3df0d0) 22%, transparent);
+  display: flex; align-items: flex-start; padding: 1px 4px;
+}
+.daw-clipghost span { font-size: 9px; color: var(--text, #d4dee6); background: rgba(4, 6, 9, 0.8); padding: 0 3px; border-radius: 2px; }
+.daw-clipghost.bad { border-color: #e46a6a; background: rgba(228, 106, 106, 0.12); }
