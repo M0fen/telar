@@ -12,62 +12,106 @@
 
 export const config = { runtime: 'edge' };
 
-// Solo se permite proxear buckets de R2 (público r2.dev o API S3 de cuenta).
+// Solo se permite proxear buckets de R2 (público r2.dev o API S3 de cuenta). Con
+// SAMPLE_HOSTS (hosts separados por coma) se limita además a esos buckets.
 const ALLOWED = /^https:\/\/(?:[a-z0-9-]+\.r2\.dev|[a-z0-9]+\.r2\.cloudflarestorage\.com)\/.+/i;
-
-function cors() {
-  return {
-    'access-control-allow-origin': '*',
-    'access-control-allow-methods': 'GET, HEAD, OPTIONS',
-    'access-control-allow-headers': 'range, content-type',
-    'access-control-expose-headers': 'content-length, content-range, accept-ranges',
-  };
+function hostAllowed(url) {
+  if (!ALLOWED.test(url)) return false;
+  const only = (process.env.SAMPLE_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+  if (!only.length) return true;
+  try { return only.includes(new URL(url).host.toLowerCase()); } catch { return false; }
 }
 
-// Candado por contraseña: si CLOUD_BANK_PW está configurada en el entorno, cada petición
-// debe traer la cookie cb_pw con ese valor. Sin la env → abierto (retrocompatible). La
-// cookie viaja sola en peticiones same-origin (no va en la URL → no se filtra en logs).
-function passwordOk(req) {
+// Lo que se reenvía se sirve desde el dominio de Telar: NUNCA como página o script. Solo
+// audio conserva su tipo; lo demás sale como binario, sin olfateo y en un sandbox.
+const SAFE_HEADERS = {
+  'x-content-type-options': 'nosniff',
+  'content-security-policy': "default-src 'none'; sandbox",
+  'cross-origin-resource-policy': 'same-origin',
+};
+function safeType(t) {
+  const v = String(t || '').toLowerCase().split(';')[0].trim();
+  return /^audio\/[a-z0-9.+-]+$/.test(v) || v === 'application/ogg' ? v : 'application/octet-stream';
+}
+function json(status, obj, extra = {}) {
+  return new Response(JSON.stringify(obj), { status, headers: { ...SAFE_HEADERS, 'content-type': 'application/json', 'cache-control': 'no-store', ...extra } });
+}
+
+// Candado por contraseña: si CLOUD_BANK_PW está configurada, cada petición debe traer la
+// cookie cb_tok (HttpOnly, la pone el servidor al entrar: ?login=1 por POST). Guarda un
+// HMAC de la contraseña, no la contraseña. Sin la env → abierto (retrocompatible).
+// La cookie vieja cb_pw (la ponía el navegador con la contraseña tal cual) aún se acepta
+// para no cortar a quien ya entró; el cliente la cambia por cb_tok y la borra.
+const enc = new TextEncoder();
+async function tokenFor(pw) {
+  const key = await crypto.subtle.importKey('raw', enc.encode(pw), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode('telar-banco-nube-v1')));
+  return Array.from(sig, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+function sameText(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+function cookieOf(req, name) {
+  const m = new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(req.headers.get('cookie') || '');
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return ''; }
+}
+async function passwordOk(req) {
   const expected = process.env.CLOUD_BANK_PW;
   if (!expected) return true;
-  const cookie = req.headers.get('cookie') || '';
-  const m = /(?:^|;\s*)cb_pw=([^;]+)/.exec(cookie);
-  const got = m ? decodeURIComponent(m[1]) : '';
-  return got === expected;
+  const tok = cookieOf(req, 'cb_tok');
+  if (tok && sameText(tok, await tokenFor(expected))) return true;
+  return sameText(cookieOf(req, 'cb_pw'), expected);
+}
+
+// Solo para la propia Telar: un navegador moderno avisa si la petición viene de otro sitio.
+function crossSite(req) {
+  const s = req.headers.get('sec-fetch-site');
+  return !!s && s !== 'same-origin' && s !== 'none';
 }
 
 export default async function handler(req) {
-  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    return new Response(JSON.stringify({ error: 'usa GET' }), { status: 405, headers: { ...cors(), 'content-type': 'application/json' } });
-  }
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: SAFE_HEADERS });
   const params = new URL(req.url).searchParams;
+  if (crossSite(req)) return json(403, { error: 'origen no permitido' });
+
+  // entrar: valida la contraseña y deja la cookie HttpOnly (el navegador no la puede leer)
+  if (params.get('login')) {
+    if (req.method !== 'POST') return json(405, { error: 'usa POST' });
+    const expected = process.env.CLOUD_BANK_PW;
+    let pw = '';
+    try { const b = await req.json(); pw = typeof b?.pw === 'string' ? b.pw.slice(0, 200) : ''; } catch { /* */ }
+    if (!expected) return json(200, { ok: true });
+    if (!sameText(pw, expected)) return json(401, { ok: false });
+    const cookie = `cb_tok=${await tokenFor(expected)}; Path=/api/sample; Max-Age=31536000; HttpOnly; Secure; SameSite=Strict`;
+    return json(200, { ok: true }, { 'set-cookie': cookie });
+  }
+
+  if (req.method !== 'GET' && req.method !== 'HEAD') return json(405, { error: 'usa GET' });
   // sonda para validar la contraseña sin pedir un archivo (la usa el candado de la UI).
   if (params.get('probe')) {
-    return new Response(JSON.stringify({ ok: passwordOk(req) }), {
-      status: passwordOk(req) ? 200 : 401,
-      headers: { ...cors(), 'content-type': 'application/json' },
-    });
+    const ok = await passwordOk(req);
+    return json(ok ? 200 : 401, { ok });
   }
-  if (!passwordOk(req)) {
-    return new Response(JSON.stringify({ error: 'contraseña requerida' }), { status: 401, headers: { ...cors(), 'content-type': 'application/json' } });
-  }
+  if (!(await passwordOk(req))) return json(401, { error: 'contraseña requerida' });
   const url = params.get('url');
-  if (!url || !ALLOWED.test(url)) {
-    return new Response(JSON.stringify({ error: 'url no permitida (solo buckets Cloudflare R2)' }), { status: 400, headers: { ...cors(), 'content-type': 'application/json' } });
-  }
+  if (!url || !hostAllowed(url)) return json(400, { error: 'url no permitida (solo buckets Cloudflare R2)' });
   try {
     const range = req.headers.get('range');
-    const upstream = await fetch(url, { method: req.method, headers: range ? { range } : {} });
-    const headers = new Headers(cors());
-    headers.set('content-type', upstream.headers.get('content-type') || 'application/octet-stream');
-    headers.set('cache-control', 'public, max-age=31536000, immutable'); // los samples no cambian
+    const upstream = await fetch(url, { method: req.method, headers: range ? { range } : {}, redirect: 'error' });
+    const headers = new Headers(SAFE_HEADERS);
+    headers.set('content-type', safeType(upstream.headers.get('content-type')));
+    // los samples no cambian; con candado, solo en la caché de este navegador
+    headers.set('cache-control', !upstream.ok ? 'no-store' : process.env.CLOUD_BANK_PW ? 'private, max-age=31536000, immutable' : 'public, max-age=31536000, immutable');
     for (const h of ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
       const v = upstream.headers.get(h);
       if (v) headers.set(h, v);
     }
     return new Response(req.method === 'HEAD' ? null : upstream.body, { status: upstream.status, headers });
   } catch {
-    return new Response(JSON.stringify({ error: 'no se pudo traer el sample de R2' }), { status: 502, headers: { ...cors(), 'content-type': 'application/json' } });
+    return json(502, { error: 'no se pudo traer el sample de R2' });
   }
 }

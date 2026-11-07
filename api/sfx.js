@@ -1,3 +1,4 @@
+import { guard, readBody } from './_lib/guard.js';
 // Proxy serverless de SFX GENERATIVO (ElevenLabs sound-generation). Genera efectos
 // por TEXTO — risers, impactos, sub-drops, foley, one-shots — sin tener que buscar
 // samples. La clave vive SOLO aquí (ELEVENLABS_API_KEY), nunca en el navegador.
@@ -6,10 +7,10 @@
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'usa POST' }); return; }
   const key = process.env.ELEVENLABS_API_KEY;
-  if (!key) { res.status(500).json({ error: 'Falta configurar ELEVENLABS_API_KEY en el servidor (Vercel).' }); return; }
+  if (!key) { console.error('[sfx] falta ELEVENLABS_API_KEY'); res.status(503).json({ error: 'La voz IA no está disponible ahora.' }); return; }
+  if (!(await guard(req, res, 'voz', { maxBody: 16 * 1024 }))) return;
 
-  let body = req.body;
-  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+  const body = readBody(req);
   const text = body && body.text;
   if (!text || typeof text !== 'string' || !text.trim()) { res.status(400).json({ error: 'falta la descripción del sonido' }); return; }
   if (text.length > 450) { res.status(413).json({ error: 'descripción demasiado larga (máx. 450 caracteres)' }); return; }
@@ -36,8 +37,12 @@ export default async function handler(req, res) {
     });
     if (!r.ok) {
       const j = await r.json().catch(() => null);
-      const msg = (j && (j.detail?.message || j.detail || j.error)) || 'error de ElevenLabs';
-      res.status(r.status).json({ error: typeof msg === 'string' ? msg : 'error de ElevenLabs' });
+      console.error('[sfx] ElevenLabs', r.status, j && JSON.stringify(j.detail || j.error || j).slice(0, 300));
+      const msg = r.status === 429 ? 'La voz IA está saturada: prueba en un momento.'
+        : r.status === 400 || r.status === 422 ? 'ElevenLabs no aceptó ese texto: prueba a escribirlo de otra forma.'
+          : 'La voz IA no está disponible ahora.';
+      res.setHeader('Cache-Control', 'no-store');
+      res.status(r.status === 429 ? 429 : 502).json({ error: msg });
       return;
     }
     const buf = Buffer.from(await r.arrayBuffer());

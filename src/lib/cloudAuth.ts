@@ -1,35 +1,57 @@
-// Candado del banco de nube: la contraseña se guarda como COOKIE (cb_pw), que viaja
-// sola en las peticiones same-origin al proxy /api/sample → el servidor la valida
-// (no va en la URL, no se filtra en logs). El proxy exige que coincida con la env
-// CLOUD_BANK_PW. Aquí solo la fijamos y comprobamos contra el servidor con ?probe=1.
+// Candado del banco de nube. Al entrar, el servidor valida la contraseña (POST
+// /api/sample?login=1) y deja una cookie HttpOnly (cb_tok: un HMAC, no la contraseña) que
+// viaja sola en las peticiones same-origin al proxy; el navegador no la puede leer. La
+// cookie vieja cb_pw (la contraseña tal cual, puesta desde aquí) se cambia por la nueva.
 
 const FLAG = 'telar.cloudbank.unlocked';
+const LEGACY = /(?:^|;\s*)cb_pw=([^;]*)/;
 
-export function setCloudCookie(pw: string): void {
-  document.cookie = `cb_pw=${encodeURIComponent(pw)}; path=/; max-age=31536000; SameSite=Strict`;
-}
-
-// ¿ya está desbloqueado en este navegador? (cookie presente o marca guardada)
-export function hasCloudUnlock(): boolean {
+async function login(pw: string): Promise<boolean> {
   try {
-    return /(?:^|;\s*)cb_pw=/.test(document.cookie) || localStorage.getItem(FLAG) === '1';
+    const r = await fetch('/api/sample?login=1', {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pw }),
+    });
+    return r.ok;
   } catch {
     return false;
   }
 }
 
-// Fija la cookie y valida contra el servidor. Devuelve true si la contraseña es correcta
-// (o si el servidor no tiene candado configurado → probe responde 200).
-export async function unlockCloud(pw: string): Promise<boolean> {
-  setCloudCookie(pw);
+function dropLegacy(): void {
+  document.cookie = 'cb_pw=; path=/; max-age=0; SameSite=Strict';
+}
+
+// La cookie vieja (contraseña legible desde JS) se cambia una vez por la HttpOnly.
+let migrated = false;
+function migrateLegacy(): void {
+  if (migrated) return;
+  migrated = true;
+  const m = LEGACY.exec(document.cookie);
+  if (!m) return;
+  let pw = '';
+  try { pw = decodeURIComponent(m[1]); } catch { /* */ }
+  void login(pw).then((ok) => { if (ok) dropLegacy(); });
+}
+
+// ¿ya está desbloqueado en este navegador? (marca guardada o cookie vieja)
+export function hasCloudUnlock(): boolean {
   try {
-    const r = await fetch('/api/sample?probe=1', { credentials: 'same-origin', cache: 'no-store' });
-    if (r.ok) {
-      try { localStorage.setItem(FLAG, '1'); } catch { /* */ }
-      return true;
-    }
+    migrateLegacy();
+    return localStorage.getItem(FLAG) === '1' || LEGACY.test(document.cookie);
   } catch {
-    /* red caída */
+    return false;
   }
-  return false;
+}
+
+// Valida contra el servidor. true si la contraseña es correcta (o si el servidor no tiene
+// candado configurado).
+export async function unlockCloud(pw: string): Promise<boolean> {
+  if (!(await login(pw))) return false;
+  dropLegacy();
+  try { localStorage.setItem(FLAG, '1'); } catch { /* */ }
+  return true;
 }

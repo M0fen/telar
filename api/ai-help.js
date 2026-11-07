@@ -7,6 +7,7 @@
 // código + controles de Telar + contexto), las mismas que el copiloto (ai-graph.js), y
 // cada modo usa solo las que necesita. Motor: Claude Sonnet 5 + thinking adaptativo.
 import Anthropic from '@anthropic-ai/sdk';
+import { guard, readBody, upstreamError } from './_lib/guard.js';
 
 export const maxDuration = 60;
 const MODEL = 'claude-sonnet-5';
@@ -133,11 +134,11 @@ const MIX_SPEC = [IDENTITY, MIX_TASK, SOUND_PRO, GENRES, TELAR, CONTEXT].join('\
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') { res.status(405).json({ error: 'usa POST' }); return; }
-  if (!process.env.ANTHROPIC_API_KEY) { res.status(500).json({ error: 'Falta configurar ANTHROPIC_API_KEY en el servidor (Vercel).' }); return; }
+  if (!process.env.ANTHROPIC_API_KEY) { console.error('[ai-help] falta ANTHROPIC_API_KEY'); res.status(503).json({ error: 'Nod-IA no está disponible ahora.' }); return; }
+  if (!(await guard(req, res, 'ai', { maxBody: 64 * 1024 }))) return;
 
-  let body = req.body;
-  if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
-  const mode = (body && body.mode) || 'ask';
+  const body = readBody(req);
+  const mode = ['ask', 'act', 'mix', 'fix'].includes(body.mode) ? body.mode : 'ask';
   const context = (body && body.context) || null;
 
   try {
@@ -198,6 +199,6 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).json({ answer });
   } catch (e) {
-    res.status(502).json({ error: (e && e.message) || 'no se pudo contactar con Claude' });
+    upstreamError(res, 'ai-help', e, 'Nod-IA no pudo responder. Inténtalo de nuevo en un momento.');
   }
 };

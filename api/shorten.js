@@ -1,3 +1,4 @@
+import { guard, allowedOrigins } from './_lib/guard.js';
 // Proxy serverless SIN ESTADO para acortar el enlace de "Compartir por URL".
 //
 // El enlace largo de Telar lleva el patch entero comprimido en el hash (#p=…):
@@ -42,7 +43,21 @@ const PROVIDERS = [
   },
 ];
 
+// Solo enlaces de proyecto de ESTA Telar (https://<host permitido>/…#p=…): el acortador no
+// es un servicio abierto (acortar enlaces ajenos quemaría la reputación del dominio).
+export function isTelarProjectUrl(url, hosts) {
+  try {
+    const u = new URL(url);
+    return (u.protocol === 'https:' || (u.protocol === 'http:' && /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.host)))
+      && hosts.has(u.host) && /^#p=[A-Za-z0-9_-]+$/.test(u.hash);
+  } catch {
+    return false;
+  }
+}
+
 export default async function handler(req, res) {
+  if (req.method !== 'GET') { res.status(405).json({ error: 'usa GET' }); return; }
+  if (!(await guard(req, res, 'link'))) return;
   // Vercel rellena req.query; si no, lo sacamos a mano del req.url por robustez.
   let url = req.query && req.query.url;
   if (!url && req.url) {
@@ -61,6 +76,10 @@ export default async function handler(req, res) {
   }
   if (url.length > 8000) {
     res.status(413).json({ error: 'url demasiado larga' });
+    return;
+  }
+  if (!isTelarProjectUrl(url, allowedOrigins(req))) {
+    res.status(400).json({ error: 'solo se acortan enlaces de proyectos de Telar' });
     return;
   }
 
