@@ -14,7 +14,9 @@
 import { create } from 'zustand';
 import { samples, getAudioContext, loadBuffer } from '@strudel/web';
 import { ensureEngine } from './engine';
-import { warpChannels } from './voiceDsp';
+// Rubber Band (voiceDsp) llega recién al estirar el primer loop: no pesa al abrir Telar
+type WarpChannels = typeof import('./voiceDsp').warpChannels;
+const warpChannels: WarpChannels = async (...args) => (await import('./voiceDsp')).warpChannels(...args);
 import { encodeWav } from '../lib/audioFormats';
 import { detectBpmBuffer } from '../lib/bpm';
 import {

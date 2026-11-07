@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { MidiButton } from './MidiButton';
 import { Guide } from './Guide';
-import { AiCopilot } from './AiCopilot';
-import { VoiceAI } from './VoiceAI';
-import { AiSong } from './AiSong';
-import { AiSfx } from './AiSfx';
-import { Tutorial } from './Tutorial';
-import { PackGenerator } from './PackGenerator';
-import { SpatialMix } from './SpatialMix';
+// paneles del menú ⋯: su código llega al abrirlos
+const AiCopilot = lazy(() => import('./AiCopilot').then((m) => ({ default: m.AiCopilot })));
+const VoiceAI = lazy(() => import('./VoiceAI').then((m) => ({ default: m.VoiceAI })));
+const AiSong = lazy(() => import('./AiSong').then((m) => ({ default: m.AiSong })));
+const AiSfx = lazy(() => import('./AiSfx').then((m) => ({ default: m.AiSfx })));
+const Tutorial = lazy(() => import('./Tutorial').then((m) => ({ default: m.Tutorial })));
+const PackGenerator = lazy(() => import('./PackGenerator').then((m) => ({ default: m.PackGenerator })));
+const SpatialMix = lazy(() => import('./SpatialMix').then((m) => ({ default: m.SpatialMix })));
 import { useSamplePacksStore } from '../store/useSamplePacksStore';
 import { loadSamplePack } from '../audio/engine';
 
@@ -172,13 +173,15 @@ export function ToolsMenu() {
           </div>
         </>
       )}
-      <AiCopilot open={aiOpen} onClose={() => setAiOpen(false)} />
-      <VoiceAI open={voxOpen} onClose={() => setVoxOpen(false)} />
-      <AiSong open={songOpen} onClose={() => setSongOpen(false)} />
-      <AiSfx open={sfxOpen} onClose={() => setSfxOpen(false)} />
-      <Tutorial open={tutOpen} onClose={() => setTutOpen(false)} />
-      <PackGenerator open={pgOpen} onClose={() => setPgOpen(false)} />
-      <SpatialMix open={mixOpen} onClose={() => setMixOpen(false)} />
+      <Suspense fallback={null}>
+        {aiOpen && <AiCopilot open onClose={() => setAiOpen(false)} />}
+        {voxOpen && <VoiceAI open onClose={() => setVoxOpen(false)} />}
+        {songOpen && <AiSong open onClose={() => setSongOpen(false)} />}
+        {sfxOpen && <AiSfx open onClose={() => setSfxOpen(false)} />}
+        {tutOpen && <Tutorial open onClose={() => setTutOpen(false)} />}
+        {pgOpen && <PackGenerator open onClose={() => setPgOpen(false)} />}
+        {mixOpen && <SpatialMix open onClose={() => setMixOpen(false)} />}
+      </Suspense>
     </div>
   );
 }

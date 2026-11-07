@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -27,24 +27,16 @@ import { Visualizer } from './viz/Visualizer';
 import { Transport } from './ui/Transport';
 import { type PaletteDrag } from './ui/Palette';
 import { LeftDock, RightDock } from './ui/Docks';
-import { DetailPanel } from './ui/DetailPanel';
 import { useDetailStore } from './store/useDetailStore';
 import { useMixerStore } from './store/useMixerStore';
-import { Mixer } from './ui/mixer/Mixer';
 import { CommandPalette } from './ui/flow/CommandPalette';
 import { HistoryMenu } from './ui/flow/HistoryMenu';
 import { LoadMeter } from './ui/flow/LoadMeter';
 import { useDockStore, dockWidth } from './store/useDockStore';
 import { useTrackColorStore } from './store/useTrackColorStore';
 import { useUiFocusStore } from './store/useUiFocusStore';
-import { DjMixer } from './ui/DjMixer';
-import { DawView } from './ui/DawView';
 import { SongEngine } from './ui/SongEngine';
 import { ProjectMenu } from './ui/ProjectMenu';
-import { VoiceStudio } from './ui/VoiceStudio';
-import { SynthStudio } from './ui/SynthStudio';
-import { ClipStudio } from './ui/ClipStudio';
-import { StepSequencer } from './ui/StepSequencer';
 import { AudioRecorder } from './ui/AudioRecorder';
 import { AudioInput } from './ui/AudioInput';
 import { ToolsMenu } from './ui/ToolsMenu';
@@ -63,6 +55,16 @@ import { initWarpSync } from './audio/warpLoops';
 import { setVoiceUrl } from './lib/voiceUrls';
 import { tokens } from './theme/tokens';
 import { PhoneGate } from './ui/PhoneGate';
+
+// Paneles que no se ven al abrir: llegan cuando se abren (Fase C1, menos JavaScript al arrancar)
+const Mixer = lazy(() => import('./ui/mixer/Mixer').then((m) => ({ default: m.Mixer })));
+const DjMixer = lazy(() => import('./ui/DjMixer').then((m) => ({ default: m.DjMixer })));
+const DawView = lazy(() => import('./ui/DawView').then((m) => ({ default: m.DawView })));
+const VoiceStudio = lazy(() => import('./ui/VoiceStudio').then((m) => ({ default: m.VoiceStudio })));
+const SynthStudio = lazy(() => import('./ui/SynthStudio').then((m) => ({ default: m.SynthStudio })));
+const ClipStudio = lazy(() => import('./ui/ClipStudio').then((m) => ({ default: m.ClipStudio })));
+const DetailPanel = lazy(() => import('./ui/DetailPanel').then((m) => ({ default: m.DetailPanel })));
+const StepSequencer = lazy(() => import('./ui/StepSequencer').then((m) => ({ default: m.StepSequencer })));
 
 const MAGNET_RADIUS = 85; // radio del "imán" al cable (px en coords de flujo)
 const VIZ_STRIP = 30; // visualizador plegado: una franja con su barra (8.6)
@@ -87,6 +89,12 @@ function distToSeg(p: XYPosition, a: XYPosition, b: XYPosition): number {
 const edgeTypes = { signal: SignalEdge };
 
 export default function App() {
+  // paneles a demanda: se montan (y su código llega) solo al abrirse
+  const voiceEditId = useGraphStore((s) => s.voiceEditId);
+  const synthEditId = useGraphStore((s) => s.synthEditId);
+  const clipEditId = useGraphStore((s) => s.clipEditId);
+  const seqOpen = useSequencerStore((s) => s.open);
+  const detailOpen = useDetailStore((s) => !!s.nodeId);
   const nodes = useGraphStore((s) => s.nodes);
   const edges = useGraphStore((s) => s.edges);
   const onNodesChange = useGraphStore((s) => s.onNodesChange);
@@ -541,19 +549,19 @@ export default function App() {
         </>
       ) : mode === 'dj' ? (
         <>
-          <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><DjMixer /></ErrorBoundary>
+          <ErrorBoundary variant="panel" label="modo DJ" onClose={() => setMode('standard')}><Suspense fallback={null}><DjMixer /></Suspense></ErrorBoundary>
         </>
       ) : (
         <>
-          <ErrorBoundary variant="panel" label="vista DAW" onClose={() => setMode('standard')}><DawView /></ErrorBoundary>
+          <ErrorBoundary variant="panel" label="vista DAW" onClose={() => setMode('standard')}><Suspense fallback={null}><DawView /></Suspense></ErrorBoundary>
         </>
       )}
       {docked && (
         <>
           <LeftDock />
           <RightDock />
-          <DetailPanel />
-          <ErrorBoundary variant="panel" label="mezclador" onClose={() => useMixerStore.getState().setOpen(false)}><Mixer /></ErrorBoundary>
+          {detailOpen && <Suspense fallback={null}><DetailPanel /></Suspense>}
+          {mixerOpen && <ErrorBoundary variant="panel" label="mezclador" onClose={() => useMixerStore.getState().setOpen(false)}><Suspense fallback={null}><Mixer /></Suspense></ErrorBoundary>}
         </>
       )}
       {/* motor de la canción: UNO, fuera de las vistas → sigue disparando escenas en cualquiera */}
@@ -626,10 +634,10 @@ export default function App() {
       </header>
       <ErrorBoundary variant="panel" label="visualizador"><Visualizer /></ErrorBoundary>
       <ErrorBoundary variant="panel" label="Nod-IA"><NodIa /></ErrorBoundary>
-      <ErrorBoundary variant="panel" label="estudio de voz" onClose={() => useGraphStore.getState().setVoiceEdit(null)}><VoiceStudio /></ErrorBoundary>
-      <ErrorBoundary variant="panel" label="estudio de sonido" onClose={() => useGraphStore.getState().setSynthEdit(null)}><SynthStudio /></ErrorBoundary>
-      <ErrorBoundary variant="panel" label="clip studio" onClose={() => useGraphStore.getState().setClipEdit(null)}><ClipStudio /></ErrorBoundary>
-      <ErrorBoundary variant="panel" label="secuenciador" onClose={() => useSequencerStore.getState().setOpen(false)}><StepSequencer /></ErrorBoundary>
+      {voiceEditId && <ErrorBoundary variant="panel" label="estudio de voz" onClose={() => useGraphStore.getState().setVoiceEdit(null)}><Suspense fallback={null}><VoiceStudio /></Suspense></ErrorBoundary>}
+      {synthEditId && <ErrorBoundary variant="panel" label="estudio de sonido" onClose={() => useGraphStore.getState().setSynthEdit(null)}><Suspense fallback={null}><SynthStudio /></Suspense></ErrorBoundary>}
+      {clipEditId && <ErrorBoundary variant="panel" label="clip studio" onClose={() => useGraphStore.getState().setClipEdit(null)}><Suspense fallback={null}><ClipStudio /></Suspense></ErrorBoundary>}
+      {seqOpen && <ErrorBoundary variant="panel" label="secuenciador" onClose={() => useSequencerStore.getState().setOpen(false)}><Suspense fallback={null}><StepSequencer /></Suspense></ErrorBoundary>}
       <Toaster />
       <DialogHost />
       {/* Panel de flags visuales + HUD de FPS. Disponible también en PRODUCCIÓN (botón
