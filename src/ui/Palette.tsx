@@ -8,6 +8,7 @@ import { Downloader } from './Downloader';
 import { Recorder } from './Recorder';
 import { SampleBrowser } from './SampleBrowser';
 import { CloudBank } from './CloudBank';
+import { personalTools } from '../lib/personal';
 
 export interface PaletteDrag {
   kind: NodeKind;
@@ -195,9 +196,13 @@ export function Palette({ dj = false }: { dj?: boolean } = {}) {
           </>
         )}
         <SampleBrowser />
-        <CloudBank />
-        <Downloader />
-        <Recorder />
+        {personalTools() && (
+          <>
+            <CloudBank />
+            <Downloader />
+            <Recorder />
+          </>
+        )}
       </div>
     </aside>
   );

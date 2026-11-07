@@ -203,7 +203,7 @@ function MidiMonitor() {
       {last ? (
         <>Controlador: <b>{last}</b></>
       ) : (
-        <>Mueve una perilla o pad del M-Wave para probar que llega… (si no aparece nada, conéctalo por <b>USB</b> y revisa que sea <b>Chrome/Edge</b>)</>
+        <>Mueve una perilla o pad de tu controlador para probar que llega… (si no aparece nada, conéctalo por <b>USB</b> y revisa que sea <b>Chrome/Edge</b>)</>
       )}
     </div>
   );
@@ -341,7 +341,7 @@ export function MidiLive({ docked = false }: { docked?: boolean } = {}) {
             ? err
             : on
               ? `MIDI: ${inputs.join(' · ') || 'conéctalo por USB (Chrome/Edge)'}${Object.keys(map).length ? ` · ${Object.keys(map).length} asignados` : ''}`
-              : 'Gira las perillas para los efectos. Conecta el M-Wave para tocar con el controlador.'}
+              : 'Gira las perillas para los efectos. Conecta un controlador MIDI (p. ej. un M-Wave) para tocar con él.'}
         </span>
       </div>
 
@@ -351,7 +351,7 @@ export function MidiLive({ docked = false }: { docked?: boolean } = {}) {
         <div className="ml-learnbar">
           {pick ? (
             <>
-              Asignando <b>{pickName(pick)}</b>: ahora <b>mueve la perilla o pulsa el pad</b> en tu M-Wave.
+              Asignando <b>{pickName(pick)}</b>: ahora <b>mueve la perilla o pulsa el pad</b> en tu controlador.
               {midiKeyFor(pick) && (
                 <button
                   className="ml-unmap"
