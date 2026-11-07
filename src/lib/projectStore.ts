@@ -163,6 +163,33 @@ export function sanitizeScenes(raw: unknown): Record<number, Scene> | null {
   return out;
 }
 
+// Lo que sale de Telar (.json, enlace, galería) = lo MISMO que el autoguardado, compacto:
+// posiciones redondeadas, sin estado de React Flow (selección, medidas) y sin canción ni
+// escenas vacías. Antes se armaba aparte y perdía título, tonalidad y marcadores.
+// La marca de ajeno solo se queda en la galería (es de este navegador).
+export function compactSnapshot(full: ProjectSnapshot, opts: { keepForeign?: boolean } = {}): Partial<ProjectSnapshot> {
+  const { foreign, song, scenes, nodes, edges, ...rest } = full;
+  return {
+    ...rest,
+    nodes: nodes.map((n) => ({
+      id: n.id,
+      type: n.type,
+      position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
+      data: n.data,
+    })),
+    edges: edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
+      ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
+    })),
+    ...(song && (song.steps.length || song.markers?.length) ? { song } : {}),
+    ...(scenes && Object.keys(scenes).length ? { scenes } : {}),
+    ...(opts.keepForeign && foreign ? { foreign } : {}),
+  };
+}
+
 // Canción y escenas de un snapshot. Si no las trae, VACÍAS: eran de otro grafo.
 export function projectExtras(snap: Partial<ProjectSnapshot> | null | undefined): ProjectExtras {
   return {

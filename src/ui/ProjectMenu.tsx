@@ -1,9 +1,7 @@
 import { useRef, useState } from 'react';
-import { useGraphStore } from '../store/useGraphStore';
-import { useSongStore } from '../store/useSongStore';
-import { useScenesStore } from '../store/useScenesStore';
+import { useGraphStore, projectSnapshotNow } from '../store/useGraphStore';
 import { useGalleryStore } from '../store/useGalleryStore';
-import type { ProjectSnapshot } from '../lib/projectStore';
+import { compactSnapshot, type ProjectSnapshot } from '../lib/projectStore';
 import { DEMOS } from '../lib/demos';
 import { TEMPLATES } from '../lib/templates';
 import { setExportPrefs } from '../lib/songExport';
@@ -29,46 +27,9 @@ const whenLabel = (at: number) => {
 // Guardamos el patch LIMPIO: React Flow añade en caliente measured/width/height/
 // selected/dragging que no aportan y que inflan el JSON (y, sobre todo, el enlace
 // de "Compartir por URL", donde cada byte cuenta). Sólo lo esencial del grafo.
-function currentSnapshot(): Partial<ProjectSnapshot> {
-  const s = useGraphStore.getState();
-  return {
-    nodes: s.nodes.map((n) => ({
-      id: n.id,
-      type: n.type,
-      position: { x: Math.round(n.position.x), y: Math.round(n.position.y) },
-      data: n.data,
-    })),
-    edges: s.edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      ...(e.sourceHandle ? { sourceHandle: e.sourceHandle } : {}),
-      ...(e.targetHandle ? { targetHandle: e.targetHandle } : {}),
-    })),
-    cps: s.cps,
-    beatsPerCycle: s.beatsPerCycle,
-    transpose: s.transpose,
-    master: s.master,
-    mode: s.mode,
-    djOrientation: s.djOrientation,
-    vizMode: s.vizMode,
-    vizHeight: s.vizHeight,
-    vizVisible: s.vizVisible,
-    vizHeadless: s.vizHeadless,
-    vizMilkStyle: s.vizMilkStyle,
-    // canción y escenas viajan con el proyecto; vacías se omiten (al cargar, faltar = vacías)
-    // para no inflar el enlace de compartir.
-    ...songAndScenes(),
-  };
-}
-
-function songAndScenes(): Pick<ProjectSnapshot, 'song' | 'scenes'> {
-  const { steps, loop } = useSongStore.getState();
-  const scenes = useScenesStore.getState().scenes;
-  return {
-    ...(steps.length ? { song: { steps, loop } } : {}),
-    ...(Object.keys(scenes).length ? { scenes } : {}),
-  };
+// Lo mismo que el autoguardado (título, tonalidad, marcadores incluidos), compacto.
+function currentSnapshot(opts: { keepForeign?: boolean } = {}): Partial<ProjectSnapshot> {
+  return compactSnapshot(projectSnapshotNow(), opts);
 }
 
 export function ProjectMenu() {
@@ -125,7 +86,7 @@ export function ProjectMenu() {
   const saveToGallery = async () => {
     const name = await askPrompt('Guardar en la galería', { message: 'Ponle un nombre al proyecto:', defaultValue: `proyecto ${gallery.length + 1}`, confirmLabel: 'guardar' });
     if (name == null) return; // cancelado
-    galSave(name.trim() || `proyecto ${gallery.length + 1}`, currentSnapshot());
+    galSave(name.trim() || `proyecto ${gallery.length + 1}`, currentSnapshot({ keepForeign: true }));
     flash('guardado en galería');
   };
 
