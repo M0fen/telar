@@ -11,7 +11,8 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, type MasterFx } from '../graph/compile';
+import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, INLINE_VIZ_RE, type MasterFx } from '../graph/compile';
+import { probeCode } from '../audio/patternPreview';
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
 import { applyDjLive, djEntryNeedsCode, DJ_LIVE_KEYS, swapDelayForBar } from '../audio/djMix';
@@ -299,13 +300,42 @@ export const useGraphStore = create<GraphState>((set, get) => {
   // el re-churn cuando las rutas no cambian es seguro.
   let lastEqKey = '';
   let lastDroppedKey = '';
+  // PISTA ROTA AISLADA: si Strudel no puede evaluar el tema (p.ej. un método que no existe en
+  // una pista), antes no sonaba NADA. Se prueba cada pista por separado (probeCode, sin tocar
+  // el motor), las que fallan suenan `silence` y se avisa; al cambiar su código se reintentan.
+  const broken = new Map<string, string>(); // id → código con el que falló
+  let isolating = false;
+  const isolateBroken = async () => {
+    if (isolating) return;
+    isolating = true;
+    try {
+      const found: { id: string; name: string; code: string; msg: string }[] = [];
+      for (const n of get().nodes) {
+        const d = n.data;
+        if (d.kind !== 'source' || d.mute || broken.has(n.id) || typeof d.code !== 'string') continue;
+        const code = d.code.replace(INLINE_VIZ_RE, '').trim();
+        if (!code) continue;
+        const msg = await probeCode(code);
+        if (msg) found.push({ id: n.id, name: String(d.name ?? n.id), code: d.code, msg });
+      }
+      if (!found.length) return; // el error no está en el código de una pista: queda el aviso de siempre
+      for (const f of found) broken.set(f.id, f.code);
+      const names = found.map((f) => `«${f.name}»`).join(', ');
+      toast.warn(`Silencié ${names} porque ${found.length > 1 ? 'tienen' : 'tiene'} un error (${found[0].msg.slice(0, 120)}). El resto sigue sonando; al corregirlo vuelve a sonar.`);
+      get().recompile();
+    } finally {
+      isolating = false;
+    }
+  };
+
   const recompile = () => {
     const { nodes, edges, cps, playing, master, transpose, xfader, songKey } = get();
+    for (const [id, c] of broken) { const n = nodes.find((x) => x.id === id); if (!n || n.data.code !== c) broken.delete(id); }
     const songBars = songTotal(useSongStore.getState().steps);
     // modo DJ: volumen, crossfader, filtro, mute y solo de cada deck van a su tira del bus (en vivo)
     const busMix = get().mode === 'dj';
     const launch = useLaunchStore.getState().launch; // 12.5: pistas lanzadas desde el lanzador
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly, busMix, launch: Object.keys(launch).length ? launch : undefined });
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly, busMix, launch: Object.keys(launch).length ? launch : undefined, broken: broken.size ? new Set(broken.keys()) : undefined });
     setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
@@ -322,7 +352,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
     // El clic (8.3) va al lado del máster (sin swing ni efectos); al exportar no suena.
     const song = useSongStore.getState();
     const exporting = song.stopAt != null || song.exportOnly != null;
-    if (playing && code) void swapPattern(withMetronome(applyGlobalMaster(applyTimeline(code, song), master), { on: useMetroStore.getState().on && !exporting, beats: get().beatsPerCycle, countIn: exporting ? 0 : song.countIn }), cps);
+    if (playing && code) {
+      void swapPattern(withMetronome(applyGlobalMaster(applyTimeline(code, song), master), { on: useMetroStore.getState().on && !exporting, beats: get().beatsPerCycle, countIn: exporting ? 0 : song.countIn }), cps)
+        .then((ok) => { if (!ok) void isolateBroken(); }, () => {});
+    }
   };
 
   // Recompilado THROTTLED (borde inicial + final, ~70 ms): un arrastre de perilla
@@ -1069,11 +1102,23 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // exportando offline: superdough apunta por ratos al render → no puede sonar nada en vivo
       if (isOfflineRendering()) { toast.info('Exportando… ▶ vuelve a funcionar al terminar.'); return; }
       set({ initializing: true });
-      await ensureEngine();
-      // Reanuda el contexto Y espera la carga de los AudioWorklets de efectos
-      // ANTES de sonar (si no, el audio sale sin procesamiento). Gesto de Play.
-      await ensureAudioReady();
-      await get().prepareSounds();
+      // si el motor tarda (los mapas de sonidos se bajan de internet), se avisa en vez de
+      // quedar en «init audio…» sin explicación; si falla, se explica y ▶ vuelve a estar listo
+      const slow = setTimeout(() => toast.info('Cargando los sonidos… tarda más de lo normal (¿conexión lenta?).'), 12000);
+      try {
+        await ensureEngine();
+        // Reanuda el contexto Y espera la carga de los AudioWorklets de efectos
+        // ANTES de sonar (si no, el audio sale sin procesamiento). Gesto de Play.
+        await ensureAudioReady();
+        await get().prepareSounds();
+      } catch (e) {
+        set({ initializing: false, playing: false });
+        const why = e instanceof Error && e.message ? ` (${e.message.slice(0, 120)})` : '';
+        toast.err(`No se pudo arrancar el audio${why}. Recarga la página; si sigue, revisa que el navegador deje sonar este sitio.`);
+        return;
+      } finally {
+        clearTimeout(slow);
+      }
       startHighlightLoop(); // resaltado de eventos activos en el código
       const m = get().master; // aplica el bus de máster (EQ+limiter+glue+sat+width+punch) guardado
       setMasterBus({ limit: m.limit ?? 0, glue: m.glue ?? 0, sat: m.sat ?? 0, width: m.width ?? 1, punch: m.punch ?? 0, low: m.eqLow ?? 0, mid: m.eqMid ?? 0, high: m.eqHigh ?? 0, filter: m.filter ?? 0, drive: m.drive ?? 0 });

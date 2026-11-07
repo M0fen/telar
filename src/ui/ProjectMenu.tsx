@@ -8,7 +8,7 @@ import { setExportPrefs } from '../lib/songExport';
 import { buildShareUrl, shortenUrl } from '../lib/share';
 import { openExternalProject } from '../lib/externalProject';
 import { askPrompt, askConfirm } from '../store/useNotifyStore';
-import { listBackups, type ProjectBackup } from '../lib/projectBackups';
+import { listBackups, backupProject, type ProjectBackup } from '../lib/projectBackups';
 
 // «25 oct, 13:42» — cuándo se guardó una copia automática.
 const whenLabel = (at: number) => {
@@ -88,6 +88,16 @@ export function ProjectMenu() {
     if (name == null) return; // cancelado
     galSave(name.trim() || `proyecto ${gallery.length + 1}`, currentSnapshot({ keepForeign: true }));
     flash('guardado en galería');
+  };
+
+  // borrar de la galería pide confirmación y deja una copia automática (antes era un clic sin vuelta)
+  const removeFromGallery = async (id: string) => {
+    const entry = gallery.find((e) => e.id === id);
+    if (!entry) return;
+    const ok = await askConfirm(`¿Borrar «${entry.name}» de la galería?`, { message: 'Queda una copia en «copias automáticas» por si te arrepientes.', confirmLabel: 'borrar', danger: true });
+    if (!ok) return;
+    backupProject(entry.snap, `borrado de la galería · ${entry.name}`);
+    galRemove(id);
   };
 
   const loadFromGallery = (id: string) => {
@@ -247,7 +257,7 @@ export function ProjectMenu() {
                     <button className="pm-gal-load" title={`cargar · ${new Date(e.savedAt).toLocaleString()}`} onClick={() => loadFromGallery(e.id)}>
                       {e.name}
                     </button>
-                    <button className="pm-gal-x" title="eliminar de la galería" onClick={() => galRemove(e.id)}>×</button>
+                    <button className="pm-gal-x" title="eliminar de la galería" aria-label={`eliminar «${e.name}» de la galería`} onClick={() => void removeFromGallery(e.id)}>×</button>
                   </div>
                 ))}
               </div>

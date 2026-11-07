@@ -43,6 +43,25 @@ function ensureScope(): Promise<boolean> {
   return scope;
 }
 
+// ¿Este código revienta al evaluarlo (o al pedirle el primer ciclo)? Devuelve el mensaje del
+// error, o null si evalúa bien o no se puede saber. No toca el motor: sirve para encontrar
+// QUÉ pista tumbó la evaluación del tema entero y silenciar solo esa.
+export async function probeCode(code: string): Promise<string | null> {
+  const key = code.trim();
+  if (!key || !(await ensureScope()) || !mayRun(key)) return null;
+  try {
+    const tr = (strudel as unknown as { transpiler: (c: string, o: object) => { output: string } }).transpiler(key, {
+      wrapAsync: false, addReturn: true, emitMiniLocations: false, emitWidgets: false,
+    });
+    // eslint-disable-next-line @typescript-eslint/no-implied-eval
+    const pat = (await Function(`"use strict";return (async ()=>{${tr.output}})()`)()) as Pat | undefined;
+    if (pat && typeof pat.queryArc === 'function') pat.queryArc(0, 1);
+    return null;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
 const cache = new Map<string, Promise<Pat | null>>();
 export function previewPattern(code: string): Promise<Pat | null> {
   const key = code.trim();

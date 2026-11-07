@@ -29,7 +29,7 @@ export const SRC_ANALYSER_PREFIX = 'telar-src-';
 // Marcadores de visualizadores inline (`._scope()` / `._pianoroll()`): se quitan
 // del código emitido (los dibuja el editor entre líneas). Con flag `g` para
 // reemplazar todas las apariciones.
-const INLINE_VIZ_RE = /\._(?:scope|pianoroll)\(\)/g;
+export const INLINE_VIZ_RE = /\._(?:scope|pianoroll)\(\)/g;
 
 // Rango del código de un Source dentro del string compilado.
 export interface SourceSpan {
@@ -709,6 +709,9 @@ export interface CompileOpts {
   // hagan, igual que en la mezcla); las demás callan — los bombos que disparan un sidechain
   // siguen disparándolo en silencio para que el stem bombee como en la mezcla.
   only?: string | null;
+  // fuentes que FALLARON al evaluarse (un método que no existe…): suenan `silence` y se avisa,
+  // para que el resto del tema suene (useGraphStore las detecta con probeCode)
+  broken?: ReadonlySet<string>;
   // CANCIÓN HORNEADA (Fase 4.1): orbits FIJOS para todas las secciones — cada sección se compila
   // con la mezcla de su escena y todas deben mandar cada pista al MISMO bus (si no, el EQ por
   // canal y las colas de reverb cambiarían de pista al pasar de sección). Sin plan: como siempre.
@@ -944,10 +947,11 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           // canal en mute, o hay solos activos y éste no es uno: no aporta al máster.
           // (modo DJ: el patrón sigue y el fader de su bus lo calla — así puede ENTRAR justo en el 1)
           expr = { text: 'silence', spans: [] };
-        } else if (!sourceCompiles(code)) {
+        } else if (!sourceCompiles(code) || opts.broken?.has(id)) {
           // AÍSLA una fuente con código roto: suena `silence` en vez de tumbar el stack
-          // ENTERO al evaluar. Se reporta (dropped) para avisar al usuario cuál falló.
-          droppedSources.push(String(node.data.name ?? id));
+          // ENTERO al evaluar. Se reporta (dropped) para avisar al usuario cuál falló; las
+          // que fallaron AL EVALUAR (`broken`) las avisa el store, que las encontró.
+          if (!opts.broken?.has(id)) droppedSources.push(String(node.data.name ?? id));
           expr = { text: 'silence', spans: [] };
         } else {
           // (código) — el código real arranca tras el "(" → offset 1.

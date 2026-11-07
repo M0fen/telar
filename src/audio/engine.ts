@@ -300,10 +300,12 @@ const SETS_OWN_TEMPO = /\b(cpm|cps|setcps|setcpm)\s*\(/;
 // la canción y para en el mismo instante) y la siguiente exportación salía corrida.
 let stopEpoch = 0;
 
-export async function swapPattern(code: string, cps: number): Promise<void> {
+// Devuelve false SOLO si Strudel no pudo evaluar el código (un error en alguna pista): el store
+// busca entonces qué pista falla y la silencia. Parar, o un proyecto ajeno frenado, no es fallo.
+export async function swapPattern(code: string, cps: number): Promise<boolean> {
   const epoch = stopEpoch;
   const r = await ensureEngine();
-  if (epoch !== stopEpoch) return; // ■ mientras arrancaba el motor
+  if (epoch !== stopEpoch) return true; // ■ mientras arrancaba el motor
   // Si el código ya fija su tempo (p.ej. .cpm(150/4)), respetamos el cps base de
   // strudel.cc para que suene igual; si no, mandamos el cps del transporte.
   r.scheduler.setCps(SETS_OWN_TEMPO.test(code) ? STRUDEL_DEFAULT_CPS : cps);
@@ -312,9 +314,10 @@ export async function swapPattern(code: string, cps: number): Promise<void> {
   // cada Source → los osciloscopios por instrumento se quedaban mudos. En su
   // lugar el master se toma del nodo de salida real (getMasterAnalyser).
   clearError();
-  if (!mayRun(code)) return; // proyecto ajeno sin verificar: no se evalúa (ver useTrustStore)
+  if (!mayRun(code)) return true; // proyecto ajeno sin verificar: no se evalúa (ver useTrustStore)
   const pat = await r.evaluate(code, false); // los errores llegan vía onEvalError, no por throw
-  if (epoch !== stopEpoch) return; // ■ durante la evaluación: el reloj queda parado
+  if (epoch !== stopEpoch) return true; // ■ durante la evaluación: el reloj queda parado
+  if (!pat) return false;
   if (pat && !r.scheduler.started) {
     try {
       await r.start?.();
@@ -325,6 +328,7 @@ export async function swapPattern(code: string, cps: number): Promise<void> {
   started = true;
   applyMasterBus(); // reaserta el bus de máster (EQ+limiter) por si hubo reset del motor
   applyChannelEqs(); // reaserta el EQ por canal (orbits pueden haberse recreado)
+  return true;
 }
 
 export async function stopAudio(): Promise<void> {
