@@ -62,6 +62,7 @@ import { useMidiSlotRegistry } from './ui/useMidiSlots';
 import { initWarpSync } from './audio/warpLoops';
 import { setVoiceUrl } from './lib/voiceUrls';
 import { tokens } from './theme/tokens';
+import { PhoneGate } from './ui/PhoneGate';
 
 const MAGNET_RADIUS = 85; // radio del "imán" al cable (px en coords de flujo)
 const VIZ_STRIP = 30; // visualizador plegado: una franja con su barra (8.6)
@@ -560,6 +561,7 @@ export default function App() {
       {/* 12.1–12.2: Ctrl+K, hoja de atajos (?) y la línea de ayuda */}
       <CommandPalette />
       <TrustDialog />
+      <PhoneGate />
       <header className="topbar">
         <div className="brand">
           <span className="logo">Telar</span>
