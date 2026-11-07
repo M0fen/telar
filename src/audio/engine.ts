@@ -1425,14 +1425,14 @@ let wavetablesDone = false;
 export async function registerWavetables(): Promise<void> {
   if (wavetablesDone) return;
   await ensureEngine();
-  const { wavetableSamples, morphWavetables } = await import('./wavetables');
+  const { wavetableSamples, morphWavetablesAsync } = await import('./wavetables');
   await samples(wavetableSamples());
   // Tablas de MORPH multi-cuadro por el motor wavetable integrado de superdough:
   // registerWaveTable(nombre, [url], {frameLen}) parte el WAV en cuadros de 2048; en el
   // patrón, note("..").s("telar_sweep").wt("0 .33 .66 1") barre los cuadros (patroneable).
   // Defensivo (regla 4): si el registro de una tabla falla, no tumbar el resto del init.
   try {
-    for (const t of morphWavetables()) registerWaveTable(t.name, [t.url], { frameLen: 2048 });
+    for (const t of await morphWavetablesAsync()) registerWaveTable(t.name, [t.url], { frameLen: 2048 });
   } catch (err) {
     console.warn('[wavetable] registro de tablas de morph falló', err);
   }

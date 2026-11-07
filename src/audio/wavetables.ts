@@ -9,15 +9,26 @@ const LEN = 2048; // muestras por ciclo (potencia de 2)
 const SR = 44100;
 
 // Suma de armónicos (amps[h-1] = amplitud del armónico h). Normaliza a [-1,1].
+// sin(kθ) por la recurrencia de Chebyshev (sin((k+1)θ) = 2cosθ·sin(kθ) − sin((k−1)θ)): un
+// Math.cos por muestra en vez de un Math.sin por armónico. Las tablas de morph se arman al
+// primer ▶ y con Math.sin trababan el hilo ~350 ms justo al arrancar el tema.
 function additive(amps: number[]): Float32Array {
   const out = new Float32Array(LEN);
+  let H = amps.length;
+  while (H > 0 && !amps[H - 1]) H--; // los ceros del final no cuestan
   let max = 0;
   for (let i = 0; i < LEN; i++) {
     const ph = (i / LEN) * Math.PI * 2;
+    const c2 = 2 * Math.cos(ph);
+    let sPrev = 0; // sin(0·θ)
+    let s = Math.sin(ph); // sin(1·θ)
     let v = 0;
-    for (let h = 0; h < amps.length; h++) {
+    for (let h = 0; h < H; h++) {
       const a = amps[h];
-      if (a) v += a * Math.sin((h + 1) * ph);
+      if (a) v += a * s;
+      const sNext = c2 * s - sPrev;
+      sPrev = s;
+      s = sNext;
     }
     out[i] = v;
     const av = Math.abs(v);
@@ -207,6 +218,20 @@ export function morphWavetables(): MorphTable[] {
     const url = URL.createObjectURL(new Blob([wavBuffer(morphSeries(gen))], { type: 'audio/wav' }));
     return { name: `telar_${key}`, label: key, url, frames: FRAMES };
   });
+  return cachedMorph;
+}
+
+// Igual, pero de a una tabla por tarea: al primer ▶ no traba el hilo de una sola vez (el
+// audio se programa en este mismo hilo y una tarea larga puede cortar el primer compás).
+export async function morphWavetablesAsync(): Promise<MorphTable[]> {
+  if (cachedMorph) return cachedMorph;
+  const out: MorphTable[] = [];
+  for (const [key, gen] of Object.entries(MORPH_GENERATORS)) {
+    const url = URL.createObjectURL(new Blob([wavBuffer(morphSeries(gen))], { type: 'audio/wav' }));
+    out.push({ name: `telar_${key}`, label: key, url, frames: FRAMES });
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  cachedMorph ??= out;
   return cachedMorph;
 }
 
