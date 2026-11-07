@@ -17,3 +17,6 @@ bin/
 
 # audio descargado en dev (rips de YouTube) — no va al repo
 public/samples/yt/
+
+# lista de terceros: la genera el build (scripts/licencias.mjs)
+public/terceros.json

@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && node scripts/licencias.mjs && vite build",
     "preview": "vite preview",
     "test": "node --import tsx --test tests/*.test.ts"
   },
@@ -19,9 +19,12 @@
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.34.1",
     "@echogarden/rubberband-wasm": "^0.2.0",
+    "@fontsource/chakra-petch": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@strudel/web": "^1.0.3",
     "@uiw/codemirror-theme-vscode": "^4.23.6",
     "@xyflow/react": "^12.3.5",
+    "acorn": "^8.17.0",
     "butterchurn": "^2.6.7",
     "butterchurn-presets": "^2.4.7",
     "react": "^18.3.1",

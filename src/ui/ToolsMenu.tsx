@@ -157,6 +157,11 @@ export function ToolsMenu() {
             <div className="tools-row" onClick={() => setOpen(false)}><Guide /><span>guía / documentación</span></div>
             <div className="tools-sep" />
             <PacksLoader />
+            <div className="tools-sep" />
+            <div className="tools-legal">
+              <a href="/licencias.html" target="_blank" rel="noopener">código · licencias · créditos</a>
+              <a href="/privacidad.html" target="_blank" rel="noopener">privacidad · términos</a>
+            </div>
           </div>
         </>
       )}

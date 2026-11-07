@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Telar · privacidad y términos</title>
+<meta name="description" content="Qué datos usa Telar, a dónde van y las condiciones de uso." />
+<link rel="stylesheet" href="/legal.css" />
+</head>
+<body>
+<main>
+  <a class="back" href="/">← volver a Telar</a>
+  <h1>privacidad · términos de uso</h1>
+  <p class="meta">Última actualización: 7 de noviembre de 2026</p>
+
+  <h2>En corto</h2>
+  <ul>
+    <li>Telar no tiene cuentas, ni analítica, ni cookies de seguimiento.</li>
+    <li>Tus proyectos y sonidos se guardan en tu navegador, no en un servidor.</li>
+    <li>Solo salen de tu equipo cuando tú usas algo que lo necesita: compartir, Nod-IA, la voz IA o un banco en la nube.</li>
+  </ul>
+
+  <h2>Lo que se queda en tu navegador</h2>
+  <p>El proyecto abierto (autoguardado), tu galería, las copias automáticas, los sonidos que subes, los temas del modo DJ y tus preferencias se guardan en el almacenamiento del navegador de este equipo. Nadie más los ve. Si borras los datos del sitio en tu navegador, se borran.</p>
+
+  <h2>Lo que sale de tu equipo y a dónde va</h2>
+  <ul>
+    <li><b>Al abrir Telar</b>: el alojamiento (Vercel) recibe tu dirección IP y lo que pides, como en cualquier web.</li>
+    <li><b>Al tocar</b>: los samples se bajan de GitHub, que ve tu IP.</li>
+    <li><b>Compartir por URL</b>: el proyecto viaja dentro del enlace, después del <code>#</code>, una parte que el navegador no manda a ningún servidor. Si pides el enlace corto, el enlace completo (con tu proyecto) pasa por un acortador externo (da.gd, CleanURI o TinyURL), que lo guarda para poder redirigir.</li>
+    <li><b>Nod-IA</b>: lo que escribes y un resumen del proyecto abierto van a Anthropic (Claude) a través del servidor de Telar, para generar la respuesta.</li>
+    <li><b>Voz IA y efectos IA</b>: el texto que escribes va a ElevenLabs a través del servidor de Telar. La lista de voces y sus muestras vienen de ElevenLabs.</li>
+    <li><b>Banco en la nube</b> (si lo configuras): los audios se traen de tu bucket de Cloudflare R2 a través del servidor de Telar. Si tiene contraseña, el servidor deja una cookie para recordar que entraste; es la única cookie de Telar.</li>
+    <li><b>Límites de uso</b>: para que las funciones de IA no se gasten sin control, el servidor cuenta las peticiones de cada IP durante un día como máximo. No guarda lo que escribes.</li>
+  </ul>
+
+  <h2>Proyectos de otras personas</h2>
+  <p>Un proyecto que abres desde un enlace, un archivo o Nod-IA trae código. Telar lo revisa antes de ejecutarlo y, si no lo puede verificar, te pregunta antes. Ábrelo solo si confías en quien te lo envió.</p>
+
+  <h2>Términos de uso</h2>
+  <ul>
+    <li>Telar es software libre (<a href="/licencias.html">AGPL-3.0</a>) y se ofrece tal cual, sin garantías.</li>
+    <li>Lo que creas con Telar es tuyo.</li>
+    <li>Eres responsable de lo que subes y publicas: usa samples, letras y voces que tengas derecho a usar, y no uses la voz IA para hacerte pasar por otra persona.</li>
+    <li>Lo que generes con Nod-IA, la voz IA o los efectos IA también queda sujeto a los términos de Anthropic y ElevenLabs.</li>
+    <li>Las funciones de IA tienen límites diarios y pueden pausarse o cambiar.</li>
+  </ul>
+
+  <h2>Contacto</h2>
+  <p>Preguntas, errores o pedidos: abre un tema en <a href="https://github.com/M0fen/telar/issues">github.com/M0fen/telar/issues</a>.</p>
+</main>
+</body>
+</html>
