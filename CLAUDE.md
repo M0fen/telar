@@ -110,7 +110,7 @@ Herramienta de música → **no se batchea "¿suena bien de verdad?"**. Por cada
 1. **Plan primero:** propón un todo corto y espera OK antes de editar.
 2. **Una tarea a la vez.** No mezcles tareas ni fases en un mismo cambio.
 3. **Construir → ESCUCHAR → corregir.** Verifica el criterio de aceptación de la tarea (que suene) antes de cerrar.
-4. **Un commit por tarea**, mensaje claro. Deja el árbol compilando (`npm run build`) y los tests pasando (`npm test`).
+4. **Un commit por tarea**, mensaje claro. Deja el árbol compilando (`npm run build`) y los tests pasando (`npm test`). Si tocaste arranque, guardado, motor o exportar, corre también `npm run e2e` (abre la app compilada en Chromium, carga una plantilla, suena y exporta; necesita Playwright).
 5. Respeta el throttle, los orbits y el audio defensivo. Ante duda de la API de Strudel, verifica en su fuente antes de asumir.
 
 Mapa: compilador `src/graph/compile.ts` · motor `src/audio/engine.ts` · estado `src/store/useGraphStore.ts` · secuenciadores `src/nodes/StepSeq.tsx` + `src/nodes/MelodicSeq.tsx` (+ global `src/ui/StepSequencer.tsx`/`useSequencerStore`) · voz `src/ui/VoiceStudio.tsx` · synth `src/ui/SynthStudio.tsx` · arreglo `src/ui/SongTimeline.tsx`/`Scenes.tsx` · export `src/audio/freeze.ts`/`src/lib/audioRecorder.ts` · tipos `src/graph/types.ts`.

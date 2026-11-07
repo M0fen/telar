@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "tsc -b && node scripts/licencias.mjs && vite build",
     "preview": "vite preview",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "e2e": "node scripts/e2e.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
