@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
+import { useTrustStore } from '../store/useTrustStore';
+import { openExternalProject } from '../lib/externalProject';
 import { requestAiGraph, sanitizeAiGraph } from '../lib/aiGraph';
 
 // COPILOTO IA (prompt → grafo): describes un beat en español y DeepSeek arma un
@@ -15,7 +17,6 @@ const EXAMPLES = [
 ];
 
 export function AiCopilot({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const loadSnapshot = useGraphStore((s) => s.loadSnapshot);
   const play = useGraphStore((s) => s.play);
   const [prompt, setPrompt] = useState('');
   const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'done'>('idle');
@@ -33,10 +34,10 @@ export function AiCopilot({ open, onClose }: { open: boolean; onClose: () => voi
     try {
       const raw = await requestAiGraph(p);
       const { snap, warnings } = sanitizeAiGraph(raw);
-      loadSnapshot(snap, 'Nod-IA');
+      await openExternalProject(snap, 'Nod-IA');
       setWarnings(warnings);
       setStatus('done');
-      void play(); // el clic es el gesto de usuario que habilita el audio
+      if (!useTrustStore.getState().problems) void play(); // el clic es el gesto de usuario que habilita el audio
     } catch (e) {
       setError(e instanceof Error ? e.message : 'no se pudo generar');
       setStatus('error');

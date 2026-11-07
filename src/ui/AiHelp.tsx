@@ -3,6 +3,7 @@ import { useGraphStore } from '../store/useGraphStore';
 import { localDiagnostics, analyzeLoops, requestAiFix, detectBrokenSource, quickFixCode, helpContext, type Diagnostic, type AiFix, type BrokenSource } from '../lib/aiHelp';
 import { requestAgent, applyActions, requestMixReview } from '../lib/aiAgent';
 import { validStrudel } from '../lib/aiGraph';
+import { waitForScope } from '../lib/externalProject';
 
 // Nod-IA: el asistente propio de Telar. (1) CHAT que ACTÚA — crea/cambia/arregla el
 // proyecto hablando ("hazme un dembow", "quita el hi-hat", variaciones de 1 clic,
@@ -54,6 +55,7 @@ export function AiHelp({ open, onClose }: { open: boolean; onClose: () => void }
     setAgentBusy(true); setAgentErr(null); setAgentReply(null);
     try {
       const { reply, actions } = await requestAgent(t, helpContext());
+      await waitForScope(); // alcance de Strudel listo → validStrudel verifica de verdad
       const res = applyActions(actions);
       const done = res.applied.length ? `\n\n✓ ${res.applied.join(' · ')}` : '';
       const warn = res.skipped.length ? `\n⚠ omití: ${res.skipped.join(' · ')}` : '';
@@ -73,6 +75,7 @@ export function AiHelp({ open, onClose }: { open: boolean; onClose: () => void }
     setAgentBusy(true); setAgentErr(null); setAgentReply(null);
     try {
       const { reply, actions } = await requestMixReview();
+      await waitForScope();
       const res = applyActions(actions);
       const done = res.applied.length ? `\n\n✓ ${res.applied.join(' · ')}` : '';
       const warn = res.skipped.length ? `\n⚠ omití: ${res.skipped.join(' · ')}` : '';

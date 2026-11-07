@@ -11,11 +11,15 @@
 //     un patrón aplica .analyze(id) y suena por primera vez.
 import { ensureCompModule, compModuleReady, createCompNode, setCompParams, getOrbitGr, type CompRoute } from './chanComp';
 import { returnsFor, applyLiveReturns } from './fxReturns';
-import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable } from '@strudel/web';
+import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable, strudelScope } from '@strudel/web';
+import { setStrudelScope, mayRun } from '../store/useTrustStore';
 import { registerTransitionSounds, stopTransitionVoices } from './transSounds';
 import { registerMetronomeSound } from './metronomeSound';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
 import { ensureMasterLimiter, getMasterLimiterNode, limiterLatencyFrames, createLimiterFor } from './masterLimiter';
+
+// El verificador de proyectos ajenos mira lo que Strudel registró de verdad en su alcance.
+setStrudelScope(() => strudelScope as Record<string, unknown>);
 
 export const MASTER_ANALYSER_ID = 'telar-master';
 
@@ -308,6 +312,7 @@ export async function swapPattern(code: string, cps: number): Promise<void> {
   // cada Source → los osciloscopios por instrumento se quedaban mudos. En su
   // lugar el master se toma del nodo de salida real (getMasterAnalyser).
   clearError();
+  if (!mayRun(code)) return; // proyecto ajeno sin verificar: no se evalúa (ver useTrustStore)
   const pat = await r.evaluate(code, false); // los errores llegan vía onEvalError, no por throw
   if (epoch !== stopEpoch) return; // ■ durante la evaluación: el reloj queda parado
   if (pat && !r.scheduler.started) {

@@ -15,6 +15,8 @@ import { useGraphStore, type GNode } from './store/useGraphStore';
 import { useScenesStore } from './store/useScenesStore';
 import { tapTempo } from './lib/tapTempo';
 import { readSharedProject, clearShareHash } from './lib/share';
+import { openExternalProject } from './lib/externalProject';
+import { TrustDialog } from './ui/TrustDialog';
 import { nodeTypes } from './nodes/nodeTypes';
 import { SignalEdge } from './nodes/SignalEdge';
 import { setFlowTopology, setFlowEnabled } from './nodes/signalFlow';
@@ -104,7 +106,6 @@ export default function App() {
   const vizVisible = useGraphStore((s) => s.vizVisible);
   const setVizVisible = useGraphStore((s) => s.setVizVisible);
   const moveNodesBy = useGraphStore((s) => s.moveNodesBy);
-  const loadSnapshot = useGraphStore((s) => s.loadSnapshot);
   const loadNonce = useGraphStore((s) => s.loadNonce);
   const undo = useGraphStore((s) => s.undo);
   const redo = useGraphStore((s) => s.redo);
@@ -323,11 +324,11 @@ export default function App() {
   useEffect(() => {
     void readSharedProject().then((snap) => {
       if (snap) {
-        loadSnapshot(snap, 'enlace compartido');
         clearShareHash();
+        void openExternalProject(snap, 'un enlace compartido'); // sin ejecutar su código hasta verificarlo
       }
     });
-  }, [loadSnapshot]);
+  }, []);
 
   // «EDITAR EN LA VISTA ESTÁNDAR» desde un bloque del DAW (Fase 2.3): abre el nodo con su
   // secuenciador, lo selecciona y lo centra (el lienzo se monta al cambiar de vista: se
@@ -558,6 +559,7 @@ export default function App() {
       <SongEngine />
       {/* 12.1–12.2: Ctrl+K, hoja de atajos (?) y la línea de ayuda */}
       <CommandPalette />
+      <TrustDialog />
       <header className="topbar">
         <div className="brand">
           <span className="logo">Telar</span>

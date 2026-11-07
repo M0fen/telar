@@ -52,6 +52,7 @@ import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
 import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
 import { backupProject } from '../lib/projectBackups';
+import { useTrustStore, cleanForeign } from './useTrustStore';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
 import { useSongStore, type SongStep } from './useSongStore';
@@ -110,6 +111,9 @@ interface HistoryEntry {
   // un paso de MEZCLA que también tocó las escenas (dejar margen, Fase 6.2): deshacer devuelve
   // el banco de escenas de antes, sin parar nada
   scenes?: ReturnType<typeof useScenesStore.getState>['scenes'];
+  // marca de proyecto AJENO de ese momento: deshacer/rehacer devuelve también la marca, así
+  // un grafo ajeno nunca vuelve sin ella (p.ej. «limpiar todo» o una plantilla y luego Ctrl+Z)
+  foreign?: string | null;
 }
 
 interface GraphState {
@@ -249,7 +253,7 @@ interface GraphState {
   // menú de proyecto: limpiar a un lienzo nuevo / cargar un proyecto importado.
   // `origin` = qué reemplaza el proyecto (queda escrito en su copia automática).
   resetProject: (origin?: string) => void;
-  loadSnapshot: (snap: Partial<ProjectSnapshot>, origin?: string) => void;
+  loadSnapshot: (snap: Partial<ProjectSnapshot>, origin?: string, opts?: { quiet?: boolean }) => void;
   // contador que sube en cada carga de grafo (demo/proyecto/IA/reset). La vista lo
   // observa para RE-ENCUADRAR el lienzo (fitView) y que el grafo nuevo se vea siempre
   // — antes quedaba fuera de cuadro y parecía "pantalla en negro" tras generar con IA.
@@ -333,7 +337,11 @@ export const useGraphStore = create<GraphState>((set, get) => {
 
   // --- historial (deshacer/rehacer) -----------------------------------------
   // Snapshot profundo de nodos/edges (sin funciones → structuredClone es seguro).
-  const snap = (): HistoryEntry => ({ nodes: structuredClone(get().nodes), edges: structuredClone(get().edges) });
+  const snap = (): HistoryEntry => ({ nodes: structuredClone(get().nodes), edges: structuredClone(get().edges), foreign: useTrustStore.getState().origin });
+  const restoreTrust = (f: string | null | undefined) => {
+    if (f === undefined || f === useTrustStore.getState().origin) return;
+    if (f) useTrustStore.getState().mark(f); else useTrustStore.getState().trust();
+  };
   // Empuja el estado ACTUAL a la pila `past` ANTES de una mutación. Coalescido:
   // los arrastres de sliders (muchos updateNodeData/frame) generan 1 paso, no 60
   // (a menos que `force`, para cambios estructurales: crear/borrar/conectar).
@@ -668,6 +676,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       set({ nodes: prev.nodes, edges: prev.edges, past: past.slice(0, -1), future: [cur, ...get().future].slice(0, 50) });
       if (prev.extras) applyExtras(prev.extras, prev.live);
       if (prev.scenes) useScenesStore.setState({ scenes: prev.scenes });
+      restoreTrust(prev.foreign);
       get().recompile();
     },
     redo: () => {
@@ -681,6 +690,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       set({ nodes: next.nodes, edges: next.edges, future: future.slice(1), past: [...get().past, cur].slice(-50) });
       if (next.extras) applyExtras(next.extras, next.live);
       if (next.scenes) useScenesStore.setState({ scenes: next.scenes });
+      restoreTrust(next.foreign);
       get().recompile();
     },
     canUndo: () => get().past.length > 0,
@@ -1074,6 +1084,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
 
     resetProject: (origin) => {
       safetyBackup(origin ?? 'limpiar todo'); // copia del proyecto que se va (recuperable)
+      useTrustStore.getState().trust(); // lienzo en blanco: proyecto propio
       // lienzo nuevo: un Source vacío conectado al Out, listo para empezar.
       const src: GNode = { id: 'src_1', type: 'source', position: { x: 140, y: 180 }, data: { kind: 'source', code: 's("bd*4")' } };
       const out: GNode = { id: 'out_1', type: 'out', position: { x: 560, y: 180 }, data: { kind: 'out' } };
@@ -1089,9 +1100,15 @@ export const useGraphStore = create<GraphState>((set, get) => {
       get().recompile();
     },
 
-    loadSnapshot: (snap, origin) => {
-      safetyBackup(origin ?? 'cargar proyecto'); // copia del proyecto que se va (recuperable tras recargar)
+    loadSnapshot: (snap, origin, opts) => {
+      // copia del proyecto que se va (recuperable tras recargar); «volver a mi proyecto» no la
+      // hace: el que se va es el ajeno que el usuario acaba de rechazar
+      if (!opts?.quiet) safetyBackup(origin ?? 'cargar proyecto');
       pushPast(true, true); // cargar (demo/proyecto/copiloto IA) es deshacible con Ctrl+Z, canción y escenas incluidas
+      // marca de ajeno ANTES de compilar/sonar: plantillas, ejemplos y la galería propia no la
+      // traen; un enlace, un .json o Nod-IA la ponen (openExternalProject) y viaja al guardar.
+      const foreign = cleanForeign(snap.foreign);
+      if (foreign) useTrustStore.getState().mark(foreign); else useTrustStore.getState().trust();
       const rawNodes = (snap.nodes as GNode[] | undefined) ?? get().nodes;
       // Al CARGAR un proyecto/demo, los Source aparecen COLAPSADOS: lienzo limpio y
       // legible de un vistazo (se expanden con clic). Pedido del usuario.
@@ -1189,6 +1206,7 @@ export function projectSnapshotNow(): ProjectSnapshot {
     title: s.title,
     songKey: s.songKey,
     ...currentExtras(),
+    ...(useTrustStore.getState().origin ? { foreign: useTrustStore.getState().origin! } : {}),
   };
 }
 export function saveProjectSoon(): void {

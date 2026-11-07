@@ -5,7 +5,7 @@ import type { Edge, Node } from '@xyflow/react';
 import type { NodeData } from '../graph/types';
 import { sanitizeMasterFx, type MasterFx } from '../graph/compile';
 import type { SongStep } from '../store/useSongStore';
-import type { Scene } from '../store/useScenesStore';
+import type { Scene, SceneState } from '../store/useScenesStore';
 
 // La canción (secciones escena × compases) y el banco de escenas 1–9 son PARTE del
 // proyecto: las escenas guardan estado por nodeId de ESTE grafo, así que fuera de él no
@@ -51,6 +51,7 @@ export interface ProjectSnapshot {
   songKey?: SongKey | null; // tonalidad del tema (Fase 5.1)
   song?: ProjectSong; // canción; si falta al cargar, la canción queda vacía
   scenes?: Record<number, Scene>; // escenas 1–9; si faltan al cargar, quedan vacías
+  foreign?: string; // proyecto AJENO (de dónde vino): su código se verifica antes de evaluarlo
 }
 
 const KEY = 'telar.project.v1';
@@ -97,6 +98,48 @@ export function sanitizeSong(raw: unknown): ProjectSong | null {
   return { steps, loop: r.loop !== false, ...(markers.length ? { markers } : {}) };
 }
 
+// Estado de mezcla de una escena: SOLO lo que una escena captura (mute, solo, gain, filtro,
+// paneo, EQ, compresor, envíos y params). applyNodeStates mezcla el parche sobre el nodo,
+// así que un campo de más (p.ej. `code` en un .json ajeno) cambiaría el código al disparar.
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+// Solo las claves conocidas: números finitos y `on` como booleano.
+const pick = (v: unknown, keys: readonly string[]): Record<string, number | boolean> | undefined => {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const src = v as Record<string, unknown>;
+  const o: Record<string, number | boolean> = {};
+  for (const k of keys) {
+    if (k === 'on') { if (typeof src.on === 'boolean') o.on = src.on; continue; }
+    const n = num(src[k]); if (n !== undefined) o[k] = n;
+  }
+  return o;
+};
+const EQ_KEYS = ['on', 'low', 'mid', 'high', 'midFreq'] as const;
+const COMP_KEYS = ['on', 'thr', 'ratio', 'att', 'rel', 'makeup'] as const;
+const SEND_KEYS = ['rev', 'del'] as const;
+export function sanitizeSceneStates(raw: unknown): Record<string, SceneState> {
+  const out: Record<string, SceneState> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) continue;
+    const s = v as Record<string, unknown>;
+    const st: SceneState = { mute: !!s.mute, solo: !!s.solo };
+    for (const k of ['gain', 'chFilter', 'chPan'] as const) { const n = num(s[k]); if (n !== undefined) st[k] = n; }
+    const eq = pick(s.eq, EQ_KEYS); if (eq) st.eq = eq as SceneState['eq'];
+    const comp = pick(s.comp, COMP_KEYS); if (comp) st.comp = comp as SceneState['comp'];
+    const sends = pick(s.sends, SEND_KEYS); if (sends) st.sends = sends as SceneState['sends'];
+    if (s.params && typeof s.params === 'object' && !Array.isArray(s.params)) {
+      const p: Record<string, number | string> = {};
+      for (const [k, x] of Object.entries(s.params as Record<string, unknown>)) {
+        if (typeof x === 'number' && Number.isFinite(x)) p[k] = x;
+        else if (typeof x === 'string' && x.length <= 400) p[k] = x; // señal (p.ej. sine.range(…)): se verifica al abrir
+      }
+      st.params = p;
+    }
+    out[id] = st;
+  }
+  return out;
+}
+
 // Escenas 1–9 con su estado de mezcla. El máster de cada escena pasa por el mismo saneo
 // que el del proyecto: un filtro −3 de otra IA dejaría muda la canción al dispararla.
 export function sanitizeScenes(raw: unknown): Record<number, Scene> | null {
@@ -111,7 +154,7 @@ export function sanitizeScenes(raw: unknown): Record<number, Scene> | null {
     const scene: Scene = {
       slot,
       name: typeof sc.name === 'string' && sc.name.trim() ? sc.name : `escena ${slot}`,
-      state: sc.state,
+      state: sanitizeSceneStates(sc.state),
       savedAt: Number(sc.savedAt) || 0,
     };
     if (sc.master && typeof sc.master === 'object') scene.master = sanitizeMasterFx(sc.master as MasterFx).master;

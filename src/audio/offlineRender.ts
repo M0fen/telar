@@ -34,6 +34,7 @@ import {
   type SdController,
 } from './engine';
 import type { BakedSection } from '../lib/songBake';
+import { mayRun } from '../store/useTrustStore';
 import { ensureCompModule } from './chanComp';
 import { returnsFor } from './fxReturns';
 import { returnsFromMaster, dbToGain } from '../lib/returns';
@@ -194,6 +195,7 @@ export async function renderOffline(o: OfflineRenderOpts): Promise<OfflineRender
   beginOfflineRender();
   try {
     // el patrón: misma transpilación que en vivo (el reloj está parado: no suena nada)
+    if (!mayRun(o.code)) throw new Error('el proyecto trae código sin verificar');
     const pattern = (await repl.evaluate(o.code, false)) as {
       queryArc: (a: number, b: number, opts?: object) => {
         whole?: { begin: { valueOf(): number } };

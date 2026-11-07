@@ -6,6 +6,7 @@
 // hace el motor al iniciar). Un código que no compila no tiene vista previa (null), nunca lanza.
 import * as strudel from '@strudel/web';
 import { noteNumber } from '../lib/patternDraw';
+import { mayRun } from '../store/useTrustStore';
 
 export interface PreviewEvent {
   t: number; // inicio, en compases desde el comienzo del tramo
@@ -50,6 +51,7 @@ export function previewPattern(code: string): Promise<Pat | null> {
   if (hit) return hit;
   const p = (async () => {
     if (!(await ensureScope())) return null;
+    if (!mayRun(key)) return null; // miniatura de un proyecto ajeno sin verificar: no se evalúa
     try {
       const tr = (strudel as unknown as { transpiler: (c: string, o: object) => { output: string } }).transpiler(key, {
         wrapAsync: false, addReturn: true, emitMiniLocations: false, emitWidgets: false,

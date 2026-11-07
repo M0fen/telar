@@ -13,13 +13,29 @@ async function gzip(str: string): Promise<Uint8Array> {
   return new Uint8Array(ab);
 }
 
+// Tope al descomprimir: un enlace de pocos KB podría inflarse a cientos de MB y colgar la
+// pestaña. Ningún proyecto real pasa de unos cientos de KB.
+const MAX_PROJECT_BYTES = 4 * 1024 * 1024;
+
 async function gunzip(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
   const ds = new DecompressionStream('gzip');
   const writer = ds.writable.getWriter();
-  void writer.write(bytes);
-  void writer.close();
-  const ab = await new Response(ds.readable).arrayBuffer();
-  return new TextDecoder().decode(ab);
+  void writer.write(bytes).catch(() => {});
+  void writer.close().catch(() => {});
+  const reader = ds.readable.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_PROJECT_BYTES) { void reader.cancel(); throw new Error('proyecto demasiado grande'); }
+    parts.push(value);
+  }
+  const all = new Uint8Array(total);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.byteLength; }
+  return new TextDecoder().decode(all);
 }
 
 function toB64url(bytes: Uint8Array): string {

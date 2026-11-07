@@ -8,6 +8,7 @@ import { DEMOS } from '../lib/demos';
 import { TEMPLATES } from '../lib/templates';
 import { setExportPrefs } from '../lib/songExport';
 import { buildShareUrl, shortenUrl } from '../lib/share';
+import { openExternalProject } from '../lib/externalProject';
 import { askPrompt, askConfirm } from '../store/useNotifyStore';
 import { listBackups, type ProjectBackup } from '../lib/projectBackups';
 
@@ -110,7 +111,7 @@ export function ProjectMenu() {
       const f = input.files?.[0];
       if (!f) return;
       try {
-        loadSnapshot(JSON.parse(await f.text()), `abrir archivo · ${f.name}`);
+        await openExternalProject(JSON.parse(await f.text()), `el archivo ${f.name}`);
         flash('proyecto cargado');
       } catch {
         flash('archivo inválido');

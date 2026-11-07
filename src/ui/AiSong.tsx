@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
+import { openExternalProject } from '../lib/externalProject';
 import { getAudioCtx } from '../audio/engine';
 import { DEFAULT_VOICE } from '../graph/types';
 import { requestAiGraph, sanitizeAiGraph } from '../lib/aiGraph';
@@ -23,7 +24,6 @@ async function blobDurationSec(blob: Blob): Promise<number> {
 }
 
 export function AiSong({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const loadSnapshot = useGraphStore((s) => s.loadSnapshot);
   const play = useGraphStore((s) => s.play);
   const [prompt, setPrompt] = useState('');
   const [withVocals, setWithVocals] = useState(true);
@@ -52,7 +52,7 @@ export function AiSong({ open, onClose }: { open: boolean; onClose: () => void }
     try {
       const raw = await requestAiGraph(p, undefined, { withLyrics: withVocals });
       const { snap, warnings } = sanitizeAiGraph(raw);
-      loadSnapshot(snap, 'Nod-IA · canción');
+      await openExternalProject(snap, 'Nod-IA · canción');
       const cps = useGraphStore.getState().cps || 0.5;
       const lyrics = String((raw.lyrics as string) || '').trim();
       const title = String((raw.lyricsTitle as string) || 'preview').trim();

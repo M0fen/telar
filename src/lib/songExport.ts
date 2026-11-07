@@ -11,6 +11,7 @@ import { getScheduler, getMasterPostNode, getAudioCtx, getMasterPostLatency } fr
 import { startAudioRecording, stopAudioRecording, isAudioRecording } from './audioRecorder';
 import { makeZip, type ZipEntry } from './zip';
 import { toast } from '../store/useNotifyStore';
+import { mayRun } from '../store/useTrustStore';
 import { keyShort } from './songKey';
 import { useScenesStore } from '../store/useScenesStore';
 import { bakeSong } from './songBake';
@@ -294,6 +295,7 @@ export async function buildSongMidi(start: number, bars: number): Promise<Uint8A
   if (!baked.code) throw new Error(baked.error ?? 'el proyecto no compila');
   const cps = OWN_TEMPO.test(baked.code) ? 0.5 : g.cps || 0.5;
   const repl = await ensureEngine();
+  if (!mayRun(baked.code)) throw new Error('el proyecto trae código sin verificar');
   const pat = (await repl.evaluate(baked.code, false)) as { queryArc: (a: number, b: number, o?: object) => { value: unknown; whole?: { begin: { valueOf(): number }; end: { valueOf(): number } } | null; hasOnset?: () => boolean }[] } | undefined;
   if (!pat) throw new Error('el patrón no compiló');
   const haps = pat.queryArc(start, start + bars, { _cps: cps });

@@ -11,6 +11,8 @@ import type { ProjectSnapshot } from './projectStore';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
 import { sanitizeMasterFx } from '../graph/compile';
+import { syntaxOk } from './safeCode';
+import { strudelReady, vetCode } from '../store/useTrustStore';
 
 // tokens que no aparecen en mini-notación de Strudel y sí en código malicioso/roto.
 const DANGER = /\b(import|require|fetch|eval|Function|window|document|globalThis|constructor|__proto__|prototype|process|async|await|XMLHttpRequest|location|cookie|localStorage)\b|`|=>/;
@@ -57,18 +59,11 @@ export function validStrudel(code: string): boolean {
     const name = c.slice(1, c.length - 1).trim().replace(/\($/, '').trim();
     if (!VALID_METHODS.has(name)) return false;
   }
-  try {
-    // proxy encadenable: cualquier get/llamada devuelve el mismo proxy.
-    const proxy: unknown = new Proxy(function () {}, { get: () => proxy, apply: () => proxy });
-    // `has:()=>true` hace que `with` capture TODOS los identificadores; pero hay que
-    // devolver undefined en Symbol.unscopables o `with` los trata como fuera de alcance.
-    const env = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : proxy) });
-    // eslint-disable-next-line no-new-func
-    new Function('__env', 'with(__env){ return (\n' + code + '\n) }')(env);
-    return true;
-  } catch {
-    return false;
-  }
+  // sintaxis con acorn, SIN ejecutar (antes se ejecutaba con un proxy: se podía escapar)
+  if (!syntaxOk(code, 2000)) return false;
+  // con el motor listo, la verificación completa contra el alcance real de Strudel
+  if (strudelReady() && !vetCode(code).ok) return false;
+  return true;
 }
 
 // TEMPO nunca es un nodo. Si el código de un source es un fijador de tempo GLOBAL

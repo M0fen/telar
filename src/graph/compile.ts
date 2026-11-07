@@ -10,6 +10,7 @@
 // código dentro del string compilado: eso permite mapear los eventos activos
 // (hap.context.locations, en coords del código evaluado) de vuelta a su editor
 // para resaltar qué se está tocando, como en strudel.cc.
+import { syntaxOk } from '../lib/safeCode';
 import { cleanSends, sendsActive, RETURN_RANGES, DEFAULT_RETURNS } from '../lib/returns';
 import type { Edge, Node } from '@xyflow/react';
 import { automationSuffix, masterAutomationSuffix, cleanAuto, isActive, curveSignal } from '../lib/automation';
@@ -70,7 +71,8 @@ export interface CompileResult {
 // `=>`: las funciones flecha SÍ son válidas en patrones Strudel (p.ej. .every(4, x=>x.rev())).
 const DANGER_SRC = /\b(import|require|eval|Function|constructor|__proto__|prototype|globalThis|window|document|process|XMLHttpRequest|fetch|localStorage|cookie)\b/;
 
-// ¿el código de una fuente PARSEA (y ejecuta con un proxy inofensivo)? Un source con
+// ¿el código de una fuente PARSEA? (con acorn, sin ejecutarlo: antes se ejecutaba con un
+// proxy y eso dejaba correr código ajeno — ver lib/safeCode). Un source con
 // sintaxis rota (paréntesis/comillas sin cerrar — típico al pegar código de otra IA)
 // rompería el `stack(...)` ENTERO al evaluar → SILENCIO TOTAL. Detectarlo aquí permite
 // AISLAR esa sola fuente (suena `silence`) y dejar sonar el resto. Solo juzga sintaxis,
@@ -78,15 +80,7 @@ const DANGER_SRC = /\b(import|require|eval|Function|constructor|__proto__|protot
 function sourceCompiles(code: string): boolean {
   if (!code || code.length > 8000) return false;
   if (DANGER_SRC.test(code)) return false;
-  try {
-    const proxy: unknown = new Proxy(function () {}, { get: () => proxy, apply: () => proxy });
-    const env = new Proxy({}, { has: () => true, get: (_t, k) => (k === Symbol.unscopables ? undefined : proxy) });
-    // eslint-disable-next-line no-new-func
-    new Function('__env', 'with(__env){ return (\n' + code + '\n) }')(env);
-    return true;
-  } catch {
-    return false;
-  }
+  return syntaxOk(code);
 }
 
 // Expresión compilada: su texto y los spans de los Source que contiene,
