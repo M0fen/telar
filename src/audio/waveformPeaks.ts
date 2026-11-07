@@ -10,6 +10,7 @@ import { resolveSampleUrl } from '../lib/sampleResolve';
 export interface WaveInfo { peaks: Float32Array; duration: number }
 
 const cache = new Map<string, WaveInfo>();
+const MAX_WAVES = 3000; // picos ya calculados (unos pocos cientos de bytes cada uno)
 const failed = new Set<string>();
 const MAX_CONCURRENT = 3;
 let active = 0;
@@ -56,11 +57,12 @@ export function getWaveInfo(name: string, buckets = 56): Promise<WaveInfo | null
   return new Promise((resolve) => {
     const run = () => {
       active++;
-      loadSampleBuffer(name)
+      loadSampleBuffer(name, { keep: false }) // de la miniatura solo se guardan los picos
         .then((buf) => {
           if (!buf) { if (resolveSampleUrl(name) === url) failed.add(url); resolve(null); return; }
           const info: WaveInfo = { peaks: computePeaks(buf, buckets), duration: buf.duration };
           cache.set(key, info);
+          if (cache.size > MAX_WAVES) cache.delete(cache.keys().next().value as string);
           resolve(info);
         })
         .catch(() => { failed.add(url); resolve(null); })

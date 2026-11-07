@@ -12,19 +12,54 @@ import { resolveSampleUrl } from '../lib/sampleResolve';
 // Todo va por la URL del sample, no por su nombre: un loop al tempo (wl_…) cambia de audio con el
 // BPM sin cambiar de nombre, y un nombre que AÚN no está registrado (el banco cargando, el loop
 // estirándose) no es un fallo: se vuelve a pedir cuando aparezca.
+// La caché de audio decodificado tiene TOPE (antes guardaba cada sonido escuchado para
+// siempre: ~3,5 MB por cada 10 s de audio estéreo; en sesiones largas tumbaba la pestaña).
+// Se suelta lo menos usado últimamente (el orden del Map es el de uso).
 const bufCache = new Map<string, AudioBuffer>();
+const MAX_BYTES = 96 * 1024 * 1024; // ~4,5 min de audio estéreo a 44,1 kHz
+let cachedBytes = 0;
+const sizeOf = (b: AudioBuffer): number => b.length * b.numberOfChannels * 4;
+function cacheGet(url: string): AudioBuffer | undefined {
+  const b = bufCache.get(url);
+  if (b) { bufCache.delete(url); bufCache.set(url, b); } // pasa a ser el más reciente
+  return b;
+}
+function cachePut(url: string, b: AudioBuffer): void {
+  const old = bufCache.get(url);
+  if (old) { cachedBytes -= sizeOf(old); bufCache.delete(url); }
+  bufCache.set(url, b);
+  cachedBytes += sizeOf(b);
+  while (cachedBytes > MAX_BYTES && bufCache.size > 1) {
+    const [k, v] = bufCache.entries().next().value as [string, AudioBuffer];
+    bufCache.delete(k);
+    cachedBytes -= sizeOf(v);
+  }
+}
+export const previewCacheBytes = (): number => cachedBytes; // (pruebas y medidor)
 const loading = new Map<string, Promise<AudioBuffer | null>>();
 const failed = new Set<string>();
 let previewGain: GainNode | null = null;
 let currentSrc: AudioBufferSourceNode | null = null;
 
-// Decodifica (y cachea) el AudioBuffer de un sample por su nombre. Lo comparten el
-// preview y la miniatura de forma de onda (una sola decodificación por sample).
-export async function loadSampleBuffer(name: string): Promise<AudioBuffer | null> {
+// Decodifica (y cachea) el AudioBuffer de un sample por su nombre. Lo comparten el preview,
+// los editores y la miniatura de forma de onda. `keep: false` (miniaturas): usa la caché si ya
+// está, pero no la llena — de una miniatura solo se guardan los picos.
+export async function loadSampleBuffer(name: string, opts: { keep?: boolean } = {}): Promise<AudioBuffer | null> {
   const url = resolveSampleUrl(name);
   if (!url) return null;
-  const hit = bufCache.get(url);
+  const hit = cacheGet(url);
   if (hit) return hit;
+  const inFlightKeep = loading.get(url);
+  if (opts.keep === false && !inFlightKeep) {
+    if (failed.has(url)) return null;
+    try {
+      const ab = await (await fetch(url)).arrayBuffer();
+      return await getAudioContext().decodeAudioData(ab);
+    } catch {
+      failed.add(url);
+      return null;
+    }
+  }
   if (failed.has(url)) return null;
   const inFlight = loading.get(url);
   if (inFlight) return inFlight;
@@ -32,7 +67,7 @@ export async function loadSampleBuffer(name: string): Promise<AudioBuffer | null
     try {
       const ab = await (await fetch(url)).arrayBuffer();
       const buf = await getAudioContext().decodeAudioData(ab);
-      bufCache.set(url, buf);
+      cachePut(url, buf);
       return buf;
     } catch {
       failed.add(url);
