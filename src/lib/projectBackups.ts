@@ -13,10 +13,12 @@ export interface ProjectBackup {
   reason: string; // qué lo iba a reemplazar («ejemplo · …», «Nod-IA», «abrir archivo»…)
   summary: string; // «8 pistas · kick, rumble, sub bass…»
   snap: Partial<ProjectSnapshot>;
+  periodic?: boolean; // copia por tiempo (cada pocos minutos / al abrir): rotan aparte
 }
 
 export const BACKUPS_KEY = 'telar.backups.v1';
 export const BACKUPS_MAX = 20;
+export const PERIODIC_MAX = 6; // de las 20, como mucho 6 por tiempo: no desplazan a las de antes de reemplazar
 
 type SnapLike = Partial<ProjectSnapshot>;
 type NodeLike = { id: string; type?: string; position?: { x: number; y: number }; data?: Record<string, unknown> };
@@ -82,17 +84,24 @@ export function listBackups(): ProjectBackup[] {
   }
 }
 
+// Deja solo las PERIODIC_MAX copias por tiempo más nuevas (la lista va de nueva a vieja).
+export function prunePeriodic(list: ProjectBackup[], max = PERIODIC_MAX): ProjectBackup[] {
+  let seen = 0;
+  return list.filter((b) => !b.periodic || ++seen <= max);
+}
+
 let n = 0;
 // Guarda una copia del proyecto que se va a reemplazar. Devuelve true si quedó guardada (no
 // la había ya, valía la pena y cupo). Nunca lanza.
-export function backupProject(snap: SnapLike, reason: string): boolean {
+export function backupProject(snap: SnapLike, reason: string, opts: { periodic?: boolean } = {}): boolean {
   try {
     const compact = compactSnap(snap);
     if (!worthBackup(compact)) return false;
-    const entry: ProjectBackup = { id: `bk_${Date.now().toString(36)}_${n++}`, at: Date.now(), reason, summary: summarizeSnap(compact), snap: compact };
+    const entry: ProjectBackup = { id: `bk_${Date.now().toString(36)}_${n++}`, at: Date.now(), reason, summary: summarizeSnap(compact), snap: compact, ...(opts.periodic ? { periodic: true } : {}) };
     const before = listBackups();
     let list = pushBackup(before, entry);
     if (list === before) return false; // igual a la última copia
+    list = prunePeriodic(list);
     // si no cabe en el almacenamiento, suelta las más viejas hasta que quepa
     while (list.length) {
       try {

@@ -50,7 +50,7 @@ import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
-import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, sanitizeGraph, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
+import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, sanitizeGraph, migrateProject, PROJECT_FORMAT, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
 import { backupProject } from '../lib/projectBackups';
 import { useTrustStore, cleanForeign } from './useTrustStore';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
@@ -1111,7 +1111,11 @@ export const useGraphStore = create<GraphState>((set, get) => {
       get().recompile();
     },
 
-    loadSnapshot: (snap, origin, opts) => {
+    loadSnapshot: (rawSnap, origin, opts) => {
+      // formato al día (y aviso si viene de una Telar más nueva)
+      const mig = migrateProject(rawSnap);
+      const snap = mig.snap;
+      if (mig.newer) toast.warn('Este proyecto es de una versión más nueva de Telar: puede que algo no suene o no se vea igual.');
       // copia del proyecto que se va (recuperable tras recargar); «volver a mi proyecto» no la
       // hace: el que se va es el ajeno que el usuario acaba de rechazar
       if (!opts?.quiet) safetyBackup(origin ?? 'cargar proyecto');
@@ -1220,10 +1224,25 @@ export function projectSnapshotNow(): ProjectSnapshot {
     songKey: s.songKey,
     ...currentExtras(),
     ...(useTrustStore.getState().origin ? { foreign: useTrustStore.getState().origin! } : {}),
+    v: PROJECT_FORMAT,
   };
 }
+let backupDirty = false; // hubo cambios desde la última copia por tiempo
 export function saveProjectSoon(): void {
+  backupDirty = true;
   saveProjectDebounced(projectSnapshotNow());
+}
+
+// COPIAS POR TIEMPO: cada 5 minutos, si algo cambió, y una al abrir Telar. Así borrar pistas
+// y recargar tiene vuelta atrás (antes solo se copiaba al reemplazar el proyecto). Rotan
+// aparte (PERIODIC_MAX) para no desplazar las copias de antes de reemplazar.
+const BACKUP_EVERY_MS = 5 * 60_000;
+function periodicBackup(reason: string): void {
+  try { backupProject(projectSnapshotNow(), reason, { periodic: true }); } catch { /* nunca molesta */ }
+}
+if (typeof window !== 'undefined') {
+  setTimeout(() => periodicBackup('al abrir Telar'), 4000);
+  setInterval(() => { if (!backupDirty) return; backupDirty = false; periodicBackup('copia cada 5 min'); }, BACKUP_EVERY_MS);
 }
 
 // COPIA AUTOMÁTICA antes de REEMPLAZAR el proyecto (cargar ejemplo, Nod-IA, archivo, galería,

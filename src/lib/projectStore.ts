@@ -52,6 +52,22 @@ export interface ProjectSnapshot {
   song?: ProjectSong; // canción; si falta al cargar, la canción queda vacía
   scenes?: Record<number, Scene>; // escenas 1–9; si faltan al cargar, quedan vacías
   foreign?: string; // proyecto AJENO (de dónde vino): su código se verifica antes de evaluarlo
+  v?: number; // versión del formato (PROJECT_FORMAT); sin ella = 1
+}
+
+// VERSIÓN DEL FORMATO del proyecto. Si un cambio futuro cambia la forma de lo guardado, sube
+// el número y agrega en MIGRATIONS cómo pasar de la anterior: todo lo guardado (autoguardado,
+// galería, copias, archivos, enlaces) se pone al día al abrirlo.
+export const PROJECT_FORMAT = 2;
+const MIGRATIONS: Record<number, (s: Record<string, unknown>) => Record<string, unknown>> = {
+  1: (s) => s, // 1 → 2: se estrena el número de versión; la forma no cambió
+};
+export function migrateProject<T extends Partial<ProjectSnapshot>>(raw: T): { snap: T; newer: boolean } {
+  let v = typeof raw.v === 'number' && Number.isInteger(raw.v) && raw.v >= 1 ? raw.v : 1;
+  if (v > PROJECT_FORMAT) return { snap: raw, newer: true }; // de una Telar más nueva: se abre tal cual
+  let s: Record<string, unknown> = { ...raw };
+  while (v < PROJECT_FORMAT) { s = (MIGRATIONS[v] ?? ((x) => x))(s); v++; }
+  return { snap: { ...s, v: PROJECT_FORMAT } as T, newer: false };
 }
 
 const KEY = 'telar.project.v1';
@@ -70,7 +86,10 @@ export function loadProject(): Partial<ProjectSnapshot> | null {
 // de él (grafo, canción, escenas): parsearlo tres veces sería tirar tiempo de arranque.
 let savedCache: Partial<ProjectSnapshot> | null | undefined;
 export function savedProject(): Partial<ProjectSnapshot> | null {
-  if (savedCache === undefined) savedCache = loadProject();
+  if (savedCache === undefined) {
+    const raw = loadProject();
+    try { savedCache = raw && typeof raw === 'object' ? migrateProject(raw).snap : null; } catch { savedCache = raw; }
+  }
   return savedCache;
 }
 

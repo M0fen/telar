@@ -62,3 +62,22 @@ test('saneo al cargar: un proyecto mal formado no rompe la app', () => {
   assert.notEqual(g.edges[0].id, g.edges[1].id);
   assert.equal(g.dropped, 7);
 });
+
+import { migrateProject, PROJECT_FORMAT } from '../src/lib/projectStore.ts';
+import { prunePeriodic, type ProjectBackup } from '../src/lib/projectBackups.ts';
+
+test('versión de formato: lo viejo se pone al día, lo más nuevo se abre tal cual con aviso', () => {
+  const old = migrateProject({ title: 'viejo' } as Partial<ProjectSnapshot>);
+  assert.equal(old.snap.v, PROJECT_FORMAT);
+  assert.equal(old.newer, false);
+  assert.equal(old.snap.title, 'viejo');
+  const future = migrateProject({ v: PROJECT_FORMAT + 1 } as Partial<ProjectSnapshot>);
+  assert.equal(future.newer, true);
+});
+
+test('copias por tiempo: rotan aparte y no desplazan a las de antes de reemplazar', () => {
+  const mk = (i: number, periodic: boolean) => ({ id: `b${i}`, at: i, reason: '', summary: '', snap: {}, ...(periodic ? { periodic: true } : {}) }) as ProjectBackup;
+  const list = [mk(1, true), mk(2, false), mk(3, true), mk(4, true), mk(5, true), mk(6, true), mk(7, true), mk(8, true), mk(9, false)];
+  const out = prunePeriodic(list, 6);
+  assert.deepEqual(out.map((b) => b.id), ['b1', 'b2', 'b3', 'b4', 'b5', 'b6', 'b7', 'b9']);
+});
