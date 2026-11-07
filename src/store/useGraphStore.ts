@@ -50,7 +50,7 @@ import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
-import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
+import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, sanitizeGraph, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
 import { backupProject } from '../lib/projectBackups';
 import { useTrustStore, cleanForeign } from './useTrustStore';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
@@ -93,8 +93,19 @@ const initialEdges: Edge[] = [
 
 // Restaura el último proyecto si existe (autoguardado en localStorage).
 const saved = savedProject();
-const startNodes: GNode[] = (saved?.nodes as GNode[] | undefined) ?? initialNodes;
-const startEdges: Edge[] = saved?.edges ?? initialEdges;
+// saneado: un autoguardado mal formado no puede tumbar la app en cada arranque
+function startGraph(): { nodes: GNode[]; edges: Edge[] } {
+  if (!saved?.nodes) return { nodes: initialNodes, edges: initialEdges };
+  try {
+    const g = sanitizeGraph(saved.nodes, saved.edges);
+    if (g.nodes.length) return { nodes: g.nodes as GNode[], edges: g.edges };
+  } catch { /* sigue al lienzo inicial */ }
+  try { backupProject(saved, 'autoguardado dañado'); } catch { /* nunca bloquea el arranque */ }
+  return { nodes: initialNodes, edges: initialEdges };
+}
+const startG = startGraph();
+const startNodes: GNode[] = startG.nodes;
+const startEdges: Edge[] = startG.edges;
 idCounter = maxIdCounter(startNodes); // evita colisiones de id al crear nodos
 
 // Paso del historial. `extras` (canción + escenas) solo en los pasos de una CARGA: deshacer
@@ -1109,7 +1120,9 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // traen; un enlace, un .json o Nod-IA la ponen (openExternalProject) y viaja al guardar.
       const foreign = cleanForeign(snap.foreign);
       if (foreign) useTrustStore.getState().mark(foreign); else useTrustStore.getState().trust();
-      const rawNodes = (snap.nodes as GNode[] | undefined) ?? get().nodes;
+      const clean = sanitizeGraph(snap.nodes ?? get().nodes, snap.edges ?? get().edges);
+      if (clean.dropped) toast.warn(`Quité ${clean.dropped} elemento${clean.dropped === 1 ? '' : 's'} dañado${clean.dropped === 1 ? '' : 's'} del proyecto al abrirlo.`);
+      const rawNodes = clean.nodes as GNode[];
       // Al CARGAR un proyecto/demo, los Source aparecen COLAPSADOS: lienzo limpio y
       // legible de un vistazo (se expanden con clic). Pedido del usuario.
       const nodes = rawNodes.map((n) =>
@@ -1117,7 +1130,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
         // a una carga — un valor rancio con solo activo tocaría el patrón equivocado.
         n.data.kind === 'source' ? { ...n, data: { ...n.data, collapsed: true, seqPreviewCode: undefined } } : n,
       );
-      const edges = snap.edges ?? get().edges;
+      const edges = clean.edges;
       idCounter = maxIdCounter(nodes);
       // sanea el modo: solo 'standard'|'dj'|'daw' son válidos. Un valor inválido (p.ej.
       // "studio") hacía que la app cayera al layout DJ (roto para proyectos de grafo).

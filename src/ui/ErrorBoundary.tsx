@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
+import { listBackups, type ProjectBackup } from '../lib/projectBackups';
 
 // RED DE SEGURIDAD: si un error de render se propaga sin capturar, React DESMONTA
 // todo el árbol → "pantalla negra" de la que no se puede salir (aunque el audio, que
@@ -22,12 +23,13 @@ interface Props {
 }
 interface State {
   error: Error | null;
+  backups: ProjectBackup[] | null; // lista abierta de copias (pantalla de recuperación)
 }
 
 export class ErrorBoundary extends Component<Props, State> {
-  state: State = { error: null };
+  state: State = { error: null, backups: null };
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { error };
   }
 
@@ -36,13 +38,24 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('[Telar] error de render capturado:', error, info.componentStack);
   }
 
-  private reset = () => this.setState({ error: null });
+  private reset = () => this.setState({ error: null, backups: null });
+
+  // Recuperar sin depender de lo que se rompió: cargar una copia automática o empezar en
+  // blanco (el proyecto roto queda a su vez como copia: nada se pierde).
+  private recover = (b: ProjectBackup) => {
+    try { useGraphStore.getState().loadSnapshot(b.snap, `recuperar copia · ${b.reason}`); } catch { /* sigue */ }
+    this.reset();
+  };
+  private blank = () => {
+    try { useGraphStore.getState().resetProject('lienzo nuevo tras un error'); } catch { /* sigue */ }
+    this.reset();
+  };
 
   private undoAndReset = () => {
     const st = useGraphStore.getState();
     // revierte hasta salir del estado que rompía (varias veces por si acaso).
     for (let i = 0; i < 3 && st.past.length; i++) useGraphStore.getState().undo();
-    this.setState({ error: null });
+    this.reset();
   };
 
   render() {
@@ -85,12 +98,27 @@ export class ErrorBoundary extends Component<Props, State> {
         <div className="app-error-card">
           <div className="app-error-mark">⚠</div>
           <h2>Algo se rompió al dibujar</h2>
-          <p>La música sigue sonando. Puedes volver al estado anterior sin perder el trabajo.</p>
+          <p>La música sigue sonando. Puedes volver al estado anterior, abrir una copia automática o empezar un lienzo nuevo: el proyecto de ahora queda guardado como copia.</p>
           <div className="app-error-actions">
-            <button className="app-error-primary" onClick={this.undoAndReset}>↶ deshacer y volver</button>
-            <button className="app-error-ghost" onClick={this.reset}>reintentar</button>
+            {useGraphStore.getState().past.length > 0 && <button className="app-error-primary" onClick={this.undoAndReset}>↶ deshacer y volver</button>}
+            <button className="app-error-ghost" onClick={() => this.setState({ backups: this.state.backups ? null : listBackups().slice(0, 6) })}>recuperar una copia</button>
+            <button className="app-error-ghost" onClick={this.blank}>lienzo nuevo</button>
             <button className="app-error-ghost" onClick={() => window.location.reload()}>recargar</button>
           </div>
+          {this.state.backups && (
+            this.state.backups.length ? (
+              <ul className="app-error-backups">
+                {this.state.backups.map((b) => (
+                  <li key={b.id}>
+                    <button onClick={() => this.recover(b)}>
+                      <b>{new Date(b.at).toLocaleString('es', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</b>
+                      <span>{b.summary}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p className="app-error-none">No hay copias automáticas todavía.</p>
+          )}
           <pre className="app-error-detail">{error.message}</pre>
         </div>
       </div>

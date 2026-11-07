@@ -163,6 +163,47 @@ export function sanitizeScenes(raw: unknown): Record<number, Scene> | null {
   return out;
 }
 
+// GRAFO SANO al cargar (autoguardado, archivo, enlace, galería, copia): un proyecto mal
+// formado rompía la app para siempre (tras recargar volvía a romperse). Se quedan solo los
+// nodos de un tipo que existe, con id único y datos; posición finita; los campos que se
+// pintan tal cual, del tipo correcto. Las conexiones, solo entre nodos que quedaron.
+const NODE_TYPES = new Set(['source', 'transform', 'fx', 'out']);
+const fin = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? Math.max(-1e6, Math.min(1e6, v)) : 0);
+const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+export function sanitizeGraph(rawNodes: unknown, rawEdges: unknown): { nodes: Node<NodeData>[]; edges: Edge[]; dropped: number } {
+  const nodes: Node<NodeData>[] = [];
+  const ids = new Set<string>();
+  let dropped = 0;
+  for (const n of Array.isArray(rawNodes) ? rawNodes : []) {
+    if (!isObj(n) || !isObj(n.data)) { dropped++; continue; }
+    const id = typeof n.id === 'string' ? n.id : typeof n.id === 'number' ? String(n.id) : '';
+    const kind = typeof n.data.kind === 'string' ? n.data.kind : typeof n.type === 'string' ? n.type : '';
+    if (!id || id.length > 120 || ids.has(id) || !NODE_TYPES.has(kind)) { dropped++; continue; }
+    ids.add(id);
+    const data: Record<string, unknown> = { ...n.data, kind };
+    for (const k of ['label', 'name', 'code', 'lastCode']) if (k in data && typeof data[k] !== 'string') delete data[k];
+    for (const k of ['mute', 'solo', 'collapsed']) if (k in data && typeof data[k] !== 'boolean') delete data[k];
+    for (const k of ['gain', 'chFilter', 'chPan', 'laneH']) if (k in data && !(typeof data[k] === 'number' && Number.isFinite(data[k]))) delete data[k];
+    if ('params' in data && !isObj(data.params)) delete data.params;
+    const p = isObj(n.position) ? n.position : {};
+    nodes.push({ id, type: kind, position: { x: fin(p.x), y: fin(p.y) }, data: data as unknown as NodeData });
+  }
+  const edges: Edge[] = [];
+  const eids = new Set<string>();
+  for (const [i, e] of (Array.isArray(rawEdges) ? rawEdges : []).entries()) {
+    if (!isObj(e) || typeof e.source !== 'string' || typeof e.target !== 'string' || !ids.has(e.source) || !ids.has(e.target)) { dropped++; continue; }
+    let id = typeof e.id === 'string' && e.id ? e.id : `e_${e.source}_${e.target}_${i}`;
+    if (eids.has(id)) id = `${id}_${i}`;
+    eids.add(id);
+    edges.push({
+      id, source: e.source, target: e.target,
+      ...(typeof e.sourceHandle === 'string' ? { sourceHandle: e.sourceHandle } : {}),
+      ...(typeof e.targetHandle === 'string' ? { targetHandle: e.targetHandle } : {}),
+    });
+  }
+  return { nodes, edges, dropped };
+}
+
 // Lo que sale de Telar (.json, enlace, galería) = lo MISMO que el autoguardado, compacto:
 // posiciones redondeadas, sin estado de React Flow (selección, medidas) y sin canción ni
 // escenas vacías. Antes se armaba aparte y perdía título, tonalidad y marcadores.

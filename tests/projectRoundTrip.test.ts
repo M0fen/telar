@@ -34,3 +34,31 @@ test('exportar/compartir = autoguardado: título, tonalidad y marcadores viajan'
 test('la galería conserva la marca de ajeno', () => {
   assert.equal(compactSnapshot(full, { keepForeign: true }).foreign, 'un enlace compartido');
 });
+
+import { sanitizeGraph } from '../src/lib/projectStore.ts';
+
+test('saneo al cargar: un proyecto mal formado no rompe la app', () => {
+  const g = sanitizeGraph([
+    { id: 'a', type: 'source', position: { x: NaN, y: 'x' }, data: { kind: 'source', code: 's("bd")', label: { mal: 1 }, gain: 'alto', mute: 'sí' } },
+    { id: 'a', type: 'source', data: { kind: 'source' } }, // id repetido
+    { id: 'b', type: 'raro', data: { kind: 'raro' } }, // tipo que no existe
+    null, 7, { id: 'c', type: 'out' }, // sin datos
+    { id: 'o', type: 'out', position: { x: 1e12, y: 5 }, data: { kind: 'out' }, style: { background: 'url(https://x)' }, hidden: true },
+  ], [
+    { id: 'e1', source: 'a', target: 'o' },
+    { id: 'e1', source: 'a', target: 'o' }, // id repetido → se renombra
+    { source: 'a', target: 'falta' }, // a un nodo que no está
+    'basura',
+  ]);
+  assert.deepEqual(g.nodes.map((n) => n.id), ['a', 'o']);
+  assert.deepEqual(g.nodes[0].position, { x: 0, y: 0 });
+  assert.equal('label' in g.nodes[0].data, false);
+  assert.equal('gain' in g.nodes[0].data, false);
+  assert.equal('mute' in g.nodes[0].data, false);
+  assert.equal(g.nodes[0].data.code, 's("bd")');
+  assert.deepEqual(g.nodes[1].position, { x: 1e6, y: 5 });
+  assert.equal('style' in g.nodes[1], false);
+  assert.equal(g.edges.length, 2);
+  assert.notEqual(g.edges[0].id, g.edges[1].id);
+  assert.equal(g.dropped, 7);
+});
