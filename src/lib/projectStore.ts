@@ -1,6 +1,7 @@
 // Autoguardado del proyecto completo en localStorage (grafo + transporte +
 // máster + vista + canción + escenas). Misma idea que patternStore: cambiar el backend aquí.
 import type { SongKey } from './songKey';
+import { idbGetProject, idbPutProject } from './projectIdb';
 import type { Edge, Node } from '@xyflow/react';
 import type { NodeData } from '../graph/types';
 import { sanitizeMasterFx, type MasterFx } from '../graph/compile';
@@ -287,14 +288,61 @@ function parseJson(raw: string | null): unknown {
   }
 }
 
+// ARRANQUE: el autoguardado vive en localStorage (síncrono, alcanza al cerrar la pestaña) y en
+// IndexedDB (mucho más espacio). Antes de crear los stores, main.tsx espera esto: gana la copia
+// más nueva. Si IndexedDB no responde a tiempo, sigue con localStorage.
+const savedAtOf = (o: unknown): number => {
+  const v = o && typeof o === 'object' ? (o as { savedAt?: unknown }).savedAt : undefined;
+  return typeof v === 'number' && Number.isFinite(v) ? v : 0;
+};
+export async function primeSavedProject(timeoutMs = 1500): Promise<void> {
+  const ls = loadProject();
+  let idb: Partial<ProjectSnapshot> | null = null;
+  try {
+    const json = await Promise.race([idbGetProject(), new Promise<null>((r) => setTimeout(() => r(null), timeoutMs))]);
+    const parsed = json ? JSON.parse(json) : null;
+    idb = parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    idb = null;
+  }
+  const pick = idb && savedAtOf(idb) > savedAtOf(ls) ? idb : ls;
+  try { savedCache = pick ? migrateProject(pick).snap : null; } catch { savedCache = pick; }
+}
+
+// GUARDADO: localStorage + IndexedDB. Si fallan los dos (almacenamiento lleno, modo privado
+// estricto) se avisa UNA vez; al volver a guardar bien, se avisa también.
+let saveFailed = false;
+let problemListener: ((msg: string | null) => void) | null = null;
+export function onSaveProblem(fn: (msg: string | null) => void): void { problemListener = fn; }
+function reportSave(ok: boolean): void {
+  if (ok) {
+    if (saveFailed) { saveFailed = false; problemListener?.(null); }
+    return;
+  }
+  if (saveFailed) return;
+  saveFailed = true;
+  problemListener?.('No se pudo guardar el proyecto en este navegador (¿almacenamiento lleno?). Guárdalo como archivo desde «proyecto ▾ › Guardar proyecto» para no perderlo.');
+}
+
 let timer: ReturnType<typeof setTimeout> | null = null;
 let pending: ProjectSnapshot | null = null;
 function writeProject(s: ProjectSnapshot): void {
+  let json: string;
   try {
-    localStorage.setItem(KEY, JSON.stringify(s));
+    json = JSON.stringify({ ...s, savedAt: Date.now() });
   } catch (e) {
-    console.warn('projectStore: no se pudo guardar', e);
+    console.warn('projectStore: no se pudo serializar', e);
+    reportSave(false);
+    return;
   }
+  let lsOk = false;
+  try {
+    localStorage.setItem(KEY, json);
+    lsOk = true;
+  } catch (e) {
+    console.warn('projectStore: localStorage no guardó', e);
+  }
+  idbPutProject(json).then(() => reportSave(true), () => reportSave(lsOk));
 }
 export function saveProjectDebounced(s: ProjectSnapshot): void {
   pending = s;

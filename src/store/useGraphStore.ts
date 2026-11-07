@@ -50,8 +50,10 @@ import { syncWarpedLoops } from '../audio/warpLoops';
 import { songBpmOf, WARP_PREFIX } from '../lib/loopWarp';
 import { getLufs } from '../audio/lufsMeter';
 import { setSpans, startHighlightLoop } from '../nodes/highlight';
-import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, sanitizeGraph, migrateProject, PROJECT_FORMAT, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
+import { savedProject, saveProjectDebounced, maxIdCounter, projectExtras, sanitizeGraph, migrateProject, onSaveProblem, PROJECT_FORMAT, type ProjectExtras, type ProjectSnapshot, type SongMarker } from '../lib/projectStore';
 import { backupProject } from '../lib/projectBackups';
+import { requestPersistentStorage } from '../lib/projectIdb';
+import { watchOtherTabs } from '../lib/tabGuard';
 import { useTrustStore, cleanForeign } from './useTrustStore';
 // Canción y escenas son parte del proyecto. useScenesStore importa este módulo: aquí solo
 // se usan DENTRO de acciones (nunca al evaluar el módulo), así el ciclo es inocuo.
@@ -1237,9 +1239,15 @@ export function saveProjectSoon(): void {
 // y recargar tiene vuelta atrás (antes solo se copiaba al reemplazar el proyecto). Rotan
 // aparte (PERIODIC_MAX) para no desplazar las copias de antes de reemplazar.
 const BACKUP_EVERY_MS = 5 * 60_000;
+let persistAsked = false;
 function periodicBackup(reason: string): void {
   try { backupProject(projectSnapshotNow(), reason, { periodic: true }); } catch { /* nunca molesta */ }
+  // ya hay trabajo que cuidar: pedir que el navegador no borre lo guardado (una vez por sesión)
+  if (!persistAsked && reason !== 'al abrir Telar') { persistAsked = true; void requestPersistentStorage(); }
 }
+// si el guardado falla (almacenamiento lleno…), se avisa una vez; y cuando vuelve a guardar bien
+onSaveProblem((msg) => { if (msg) toast.err(msg); else toast.ok('El proyecto se vuelve a guardar bien.'); });
+if (typeof window !== 'undefined') watchOtherTabs((m) => toast.warn(m));
 if (typeof window !== 'undefined') {
   setTimeout(() => periodicBackup('al abrir Telar'), 4000);
   setInterval(() => { if (!backupDirty) return; backupDirty = false; periodicBackup('copia cada 5 min'); }, BACKUP_EVERY_MS);
