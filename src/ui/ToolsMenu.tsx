@@ -11,6 +11,12 @@ import { SpatialMix } from './SpatialMix';
 import { useSamplePacksStore } from '../store/useSamplePacksStore';
 import { loadSamplePack } from '../audio/engine';
 
+// «opinar»: un tema nuevo en GitHub con la versión y el navegador ya escritos (sin datos del proyecto)
+function feedbackUrl(): string {
+  const body = `**Qué pasó o qué propones:**\n\n\n---\nversión ${String(import.meta.env.VITE_COMMIT ?? '')} · ${navigator.userAgent}`;
+  return `https://github.com/M0fen/telar/issues/new?body=${encodeURIComponent(body)}`;
+}
+
 // Cargador de PACKS de sonidos: el usuario pega `github:usuario/repo` o una URL a un
 // strudel.json y quedan disponibles como `s("nombre")`. Persiste y recarga al abrir.
 function PacksLoader() {
@@ -161,6 +167,7 @@ export function ToolsMenu() {
             <div className="tools-legal">
               <a href="/licencias.html" target="_blank" rel="noopener">código · licencias · créditos</a>
               <a href="/privacidad.html" target="_blank" rel="noopener">privacidad · términos</a>
+              <a href={feedbackUrl()} target="_blank" rel="noopener">opinar · reportar un error</a>
             </div>
           </div>
         </>

@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { listBackups, type ProjectBackup } from '../lib/projectBackups';
+import { reportError } from '../lib/errorReport';
 
 // RED DE SEGURIDAD: si un error de render se propaga sin capturar, React DESMONTA
 // todo el árbol → "pantalla negra" de la que no se puede salir (aunque el audio, que
@@ -36,6 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     // deja rastro en consola para depurar sin romper la experiencia.
     console.error('[Telar] error de render capturado:', error, info.componentStack);
+    reportError('render', error, `${this.props.variant ?? 'app'}${this.props.label ? ' · ' + this.props.label : ''}`);
   }
 
   private reset = () => this.setState({ error: null, backups: null });

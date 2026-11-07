@@ -71,3 +71,23 @@ test('acortador: solo enlaces de proyecto de esta Telar', () => {
   assert.equal(isTelarProjectUrl('javascript:alert(1)//#p=a', hosts), false);
   assert.equal(isTelarProjectUrl('http://telar.example/#p=abc', hosts), false);
 });
+
+// @ts-expect-error módulo JS de las funciones de Vercel
+import errores from '../api/errores.js';
+
+test('registro de errores: solo de la propia Telar, recortado, sin guardar nada más', async () => {
+  const logs: string[] = [];
+  const orig = console.error;
+  console.error = (...a: unknown[]) => { logs.push(a.map(String).join(' ')); };
+  try {
+    const ok = mkRes() as Res & { end: () => void };
+    ok.end = () => {};
+    await errores({ method: 'POST', headers: { host: 'telar.example', 'sec-fetch-site': 'same-origin', 'x-real-ip': '10.9.9.9' }, body: { kind: 'error', message: 'x'.repeat(900), stack: 'a\nb', version: 'abc1234' } }, ok);
+    assert.equal(ok.code, 204);
+    assert.equal(logs.length, 1);
+    assert.ok(logs[0].includes('"message":"' + 'x'.repeat(400) + '"'));
+    const bad = mkRes();
+    await errores({ method: 'POST', headers: { host: 'telar.example', origin: 'https://otro.example' }, body: { message: 'hola' } }, bad);
+    assert.equal(bad.code, 403);
+  } finally { console.error = orig; }
+});

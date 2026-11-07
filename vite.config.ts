@@ -1,6 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { telarDownloader } from './vite-plugin-downloader';
+import { execSync } from 'node:child_process';
+
+// versión publicada (commit corto): la llevan los reportes de error
+function commitShort(): string {
+  const v = process.env.VERCEL_GIT_COMMIT_SHA;
+  if (v) return v.slice(0, 7);
+  try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return 'local'; }
+}
 
 // COOP/COEP: superdough puede necesitar SharedArrayBuffer en su AudioWorklet
 // (master-prompt §7). Usamos COEP `credentialless` en vez de `require-corp`:
@@ -22,6 +30,7 @@ const API_UPSTREAM = process.env.TELAR_API_UPSTREAM || 'https://telar-livid.verc
 
 export default defineConfig({
   plugins: [react(), telarDownloader()],
+  define: { 'import.meta.env.VITE_COMMIT': JSON.stringify(commitShort()) },
   server: {
     port: 5173,
     proxy: {

@@ -23,6 +23,7 @@
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@strudel/web": "^1.0.3",
     "@uiw/codemirror-theme-vscode": "^4.23.6",
+    "@vercel/analytics": "^1.6.1",
     "@xyflow/react": "^12.3.5",
     "acorn": "^8.17.0",
     "butterchurn": "^2.6.7",

@@ -14,6 +14,7 @@ export const FAMILIES = {
   voz: { off: 'TELAR_VOZ_OFF', perMin: 4, perDay: 30, dailyEnv: 'TELAR_VOZ_DAILY_MAX', daily: 150, label: 'la voz IA' },
   voces: { off: 'TELAR_VOZ_OFF', perMin: 30, perDay: 300, dailyEnv: '', daily: 0, label: 'la lista de voces' },
   link: { off: '', perMin: 10, perDay: 100, dailyEnv: 'TELAR_LINK_DAILY_MAX', daily: 2000, label: 'el acortador' },
+  errores: { off: '', perMin: 10, perDay: 60, dailyEnv: '', daily: 0, label: 'el registro de errores' },
 };
 
 const header = (req, name) => {

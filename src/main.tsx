@@ -10,6 +10,13 @@ import '@fontsource/ibm-plex-mono/500.css';
 import '@fontsource/ibm-plex-mono/600.css';
 import './styles.css';
 import { primeSavedProject } from './lib/projectStore';
+import { watchErrors } from './lib/errorReport';
+import { inject } from '@vercel/analytics';
+
+// errores que nadie atrapó → registro; visitas anónimas sin cookies (Vercel Web Analytics:
+// solo cuenta si está activada en el panel de Vercel; si no, no hace nada)
+watchErrors();
+inject({ mode: import.meta.env.DEV ? 'development' : 'production' });
 
 // Tras publicar una versión, una pestaña vieja ya no encuentra las partes que carga después
 // (los archivos cambian de nombre): en vez de fallar, se ofrece recargar.
