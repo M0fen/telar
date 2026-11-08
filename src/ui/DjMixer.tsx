@@ -14,7 +14,7 @@ import { useMidiStore, midiKeyLabel } from '../store/useMidiStore';
 import { connectMidi } from '../audio/midiIn';
 import { djSlotName, deckSlot } from '../audio/djMidi';
 import { deckEq, eqPatch, EQ_MAX, EQ_MIN, isDeck, isKilled, killPatch, useDjStore, type EqBand } from '../audio/djMix';
-import { canPickOutput, listOutputs, syncHeadphones, type OutputDevice } from '../audio/cueOut';
+import { canPickOutput, canUseController, listOutputs, syncHeadphones, type OutputDevice } from '../audio/cueOut';
 import { importDroppedFiles, isAudioFile } from '../lib/dropFiles';
 import { sampleDuration } from '../lib/audioMeta';
 import { SongDeckBody } from './SongDeck';
@@ -239,23 +239,29 @@ function Headphones() {
   useEffect(() => { if (can) void listOutputs(false).then(setDevs); }, [can]);
   useEffect(() => {
     let alive = true;
-    const run = () => void syncHeadphones(hp.device, hp.mix, hp.vol).then((m) => { if (alive) setMsg(m ?? ''); });
+    const run = () => void syncHeadphones(hp.device, hp.mix, hp.vol, hp.ctrl).then((m) => { if (alive) setMsg(m ?? ''); });
     run();
     // se rearma solo si el motor se reinicia o el máster se reconstruye
     const t = hp.device ? window.setInterval(run, 2000) : undefined;
     return () => { alive = false; window.clearInterval(t); };
-  }, [hp.device, hp.mix, hp.vol, playing]);
+  }, [hp.device, hp.mix, hp.vol, hp.ctrl, playing]);
   if (!can) return <p className="dj-hp-msg">🎧 Para audífonos aparte usa Chrome o Edge (este navegador no deja elegir la salida).</p>;
   const known = !hp.device || devs.some((d) => d.id === hp.device);
   return (
     <div className="dj-hp">
       <span className="dj-hp-ico" title="audífonos (cue)">🎧</span>
-      <select className="dj-hp-dev" value={hp.device ?? ''} onChange={(e) => setHp({ device: e.target.value || null })} title="salida de los audífonos (otra que la de la sala)">
+      <select className="dj-hp-dev" value={hp.device ?? ''} onChange={(e) => setHp({ device: e.target.value || null })} title={hp.ctrl ? 'el controlador: la sala sale por sus canales 1-2 y los audífonos por los 3-4' : 'salida de los audífonos (otra que la de la sala)'}>
         <option value="">audífonos apagados</option>
         {!known && <option value={hp.device ?? ''}>salida guardada</option>}
         {devs.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)}
       </select>
       <button className="dj-hp-scan" onClick={() => void listOutputs(true).then(setDevs)} title="buscar salidas (pide permiso de audio una vez para ver sus nombres; no graba nada)">↻</button>
+      {hp.device && canUseController() && (
+        <label className="dj-hp-ctrl" title="un controlador con la sala y los audífonos en el mismo aparato (4 canales: sala 1-2, audífonos 3-4), como el DDJ-FLX4: todo Telar sale por él">
+          <input type="checkbox" checked={hp.ctrl} onChange={(e) => setHp({ ctrl: e.target.checked })} />
+          controlador
+        </label>
+      )}
       <div className="dj-hp-knob">
         <Knob value={hp.mix} min={0} max={1} step={0.01} size={24} defaultValue={0.25} label="audífonos: cue ◄► máster" hideValue onChange={(v) => setHp({ mix: v })} />
         <span>cue·mst</span>

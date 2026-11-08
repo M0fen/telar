@@ -11,13 +11,14 @@ import { audioNow, hasStrip, nextBarAudioTime, setCue, setStripLive } from './en
 const Q_KEY = 'telar.dj.quantize';
 const HP_KEY = 'telar.dj.hp';
 const readQ = () => { try { return localStorage.getItem(Q_KEY) !== '0'; } catch { return true; } };
-interface HpPrefs { device: string | null; mix: number; vol: number }
+// `ctrl`: la salida es un controlador de 4 canales (sala 1-2, audífonos 3-4: DDJ-FLX4 y similares)
+interface HpPrefs { device: string | null; mix: number; vol: number; ctrl: boolean }
 const readHp = (): HpPrefs => {
   try {
     const v = JSON.parse(localStorage.getItem(HP_KEY) ?? '{}') as Partial<HpPrefs>;
-    return { device: typeof v.device === 'string' ? v.device : null, mix: clamp01(v.mix ?? 0.25), vol: Math.max(0, Math.min(1.5, Number(v.vol ?? 1))) };
+    return { device: typeof v.device === 'string' ? v.device : null, mix: clamp01(v.mix ?? 0.25), vol: Math.max(0, Math.min(1.5, Number(v.vol ?? 1))), ctrl: v.ctrl === true };
   } catch {
-    return { device: null, mix: 0.25, vol: 1 };
+    return { device: null, mix: 0.25, vol: 1, ctrl: false };
   }
 };
 const clamp01 = (x: unknown) => Math.max(0, Math.min(1, Number(x) || 0));

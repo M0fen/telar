@@ -3394,3 +3394,7 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .detail-pick select { max-width: 150px; background: var(--panel-solid); color: var(--text); border: 1px solid var(--line); border-radius: 3px; font-family: var(--mono); font-size: 10.5px; padding: 1px 4px; }
 .detail-pick-btn { background: transparent; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); font-family: var(--mono); font-size: 9.5px; padding: 1px 6px; cursor: pointer; }
 .detail-pick-btn:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+/* audífonos por el controlador (4 canales) */
+.dj-hp-ctrl { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 9.5px; color: var(--dim); cursor: pointer; white-space: nowrap; }
+.dj-hp-ctrl input { accent-color: var(--accent); margin: 0; }
