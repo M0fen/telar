@@ -3,7 +3,7 @@
 // cue, mute y solo. Se aprenden tocando el control en la mesa con «aprender» activo.
 import type { MidiSlot } from './midiIn';
 import { useGraphStore } from '../store/useGraphStore';
-import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, useDjStore, type EqBand } from './djMix';
+import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, orderDecks, useDjStore, type EqBand } from './djMix';
 import type { NodeData } from '../graph/types';
 import { startSet, stopSet, useSetRec } from './setRecorder';
 import { deckAlignBars, deckBrake, deckCueDown, deckEchoOut, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopResize, deckNudge, deckPitch, deckRoll, deckSync, deckToggle, HOT_N, PITCH_RANGE } from './songDeck';
@@ -18,7 +18,7 @@ export function buildDjSlots(): Record<string, MidiSlot> {
   slots['dj.xfader'] = { kind: 'knob', get: () => gs().xfader, set: (v) => gs().setXfader(v) };
   slots['dj.quant'] = { kind: 'tap', tap: () => useDjStore.getState().setQuantize(!useDjStore.getState().quantize) };
   slots['dj.setrec'] = { kind: 'tap', tap: () => { if (useSetRec.getState().rec) void stopSet(); else void startSet(); } };
-  const decks = gs().nodes.filter(isDeck).slice(0, 8);
+  const decks = orderDecks(gs().nodes.filter(isDeck)).slice(0, 8);
   decks.forEach((n, i) => {
     const id = n.id;
     const data = (): NodeData => (gs().nodes.find((x) => x.id === id)?.data ?? n.data) as NodeData;

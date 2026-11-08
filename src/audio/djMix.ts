@@ -57,6 +57,12 @@ export const DJ_LIVE_KEYS = new Set(['gain', 'chFilter', 'eq', 'mute', 'solo', '
 
 interface DeckNode { id: string; data: NodeData }
 export const isDeck = (n: DeckNode) => n.data.kind === 'source' && !Array.isArray(n.data.transitions);
+// ORDEN DE LA MESA (pantalla y MIDI por posición): el tema del lado A, el del B, los demás temas y
+// los decks de patrón, cada grupo en su orden. Así el deck 1 de un controlador es siempre el A
+export const deckRank = (n: DeckNode) => (n.data.djTrack ? (n.data.xfa === 'a' ? 0 : n.data.xfa === 'b' ? 1 : 2) : 3);
+export function orderDecks<T extends DeckNode>(ds: T[]): T[] {
+  return ds.map((n, i) => ({ n, i })).sort((x, y) => deckRank(x.n) - deckRank(y.n) || x.i - y.i).map((x) => x.n);
+}
 
 export { KILL_DB, EQ_MIN, EQ_MAX, deckEq, eqPatch, isKilled, killPatch, eqFrom01, eqTo01, type EqBand } from '../lib/djEq';
 

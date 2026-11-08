@@ -6,7 +6,7 @@ import { addLoopToCanvas } from './warpActions';
 import { addMidiToCanvas, isMidiFile } from './midiActions';
 import { useGraphStore } from '../store/useGraphStore';
 
-export const isAudioFile = (f: File) => !isMidiFile(f) && (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aac|m4a|webm)$/i.test(f.name));
+export const isAudioFile = (f: File) => !isMidiFile(f) && (f.type.startsWith('audio/') || /\.(wav|mp3|ogg|flac|aac|m4a|webm|aif|aiff|aifc)$/i.test(f.name));
 
 export function importDroppedFiles(files: FileList | File[], at?: { x: number; y: number }): number {
   const list = Array.from(files);

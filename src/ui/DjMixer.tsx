@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, Fragment } from 'react';
 import { useGraphStore } from '../store/useGraphStore';
 import { MiniEditor } from '../nodes/MiniEditor';
 import { AnalyserScope } from './AnalyserScope';
@@ -13,7 +13,7 @@ import { useSequencerStore } from '../store/useSequencerStore';
 import { useMidiStore, midiKeyLabel } from '../store/useMidiStore';
 import { connectMidi } from '../audio/midiIn';
 import { djSlotName, deckSlot } from '../audio/djMidi';
-import { deckEq, eqPatch, EQ_MAX, EQ_MIN, isDeck, isKilled, killPatch, useDjStore, type EqBand } from '../audio/djMix';
+import { deckEq, deckRank, eqPatch, EQ_MAX, EQ_MIN, isDeck, isKilled, killPatch, orderDecks, useDjStore, type EqBand } from '../audio/djMix';
 import { canPickOutput, canUseController, listOutputs, syncHeadphones, type OutputDevice } from '../audio/cueOut';
 import { importDroppedFiles, isAudioFile } from '../lib/dropFiles';
 import { sampleDuration } from '../lib/audioMeta';
@@ -292,6 +292,32 @@ function MidiBtn() {
 // un tema de la biblioteca arrastrado (DJ-3)
 const TRACK_MIME = 'application/telar-track';
 
+// un lado de la mesa sin tema: soltar aquí un tema (archivo o de «temas») o elegirlo
+function EmptyDeck({ side }: { side: 'a' | 'b' }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [over, setOver] = useState(false);
+  return (
+    <div className={`ch deck deck-empty${over ? ' drop-here' : ''}`}
+      onDragOver={(e) => { if (e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(TRACK_MIME)) { e.preventDefault(); e.stopPropagation(); setOver(true); } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        setOver(false);
+        const tid = e.dataTransfer.getData(TRACK_MIME);
+        e.preventDefault();
+        e.stopPropagation();
+        if (tid) { void newSongDeckFromTrack(tid, side); return; }
+        const f = Array.from(e.dataTransfer.files ?? []).find(isAudioFile);
+        if (f) void newSongDeck(f, f.name, side);
+      }}>
+      <span className="deck-empty-side">{side.toUpperCase()}</span>
+      <p>deck {side.toUpperCase()} · sin tema</p>
+      <button className="dj-add" onClick={() => ref.current?.click()} title={`elegir un tema (mp3, wav, aiff…) para el lado ${side.toUpperCase()} del crossfader`}>cargar tema…</button>
+      <p className="deck-empty-hint">o arrástralo aquí, desde tu carpeta o desde la pestaña «temas»</p>
+      <input ref={ref} type="file" accept="audio/*,.aif,.aiff,.aifc" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void newSongDeck(f, f.name, side); }} />
+    </div>
+  );
+}
+
 // pestaña de la consola, recordada en este navegador
 type Tab = 'master' | 'live' | 'sounds' | 'tracks';
 const TAB_KEY = 'telar.dj.tab';
@@ -311,7 +337,8 @@ export function DjMixer() {
   const [dropping, setDropping] = useState(false);
   const setTab = (t: Tab) => { setTabState(t); try { localStorage.setItem(TAB_KEY, t); } catch { /* solo esta sesión */ } };
   // las transiciones del DAW no son un deck (no suenan como canal)
-  const decks = nodes.filter((n) => isDeck(n as { id: string; data: NodeData }));
+  const decks = orderDecks(nodes.filter((n) => isDeck(n as { id: string; data: NodeData })));
+  const hasSide = (s: 'a' | 'b') => decks.some((n) => deckRank(n as { id: string; data: NodeData }) === (s === 'a' ? 0 : 1));
   useEffect(() => { initSongDecks(); }, []);
   // TEMAS (DJ-1): un audio largo (más de 45 s) entra como deck de tema; uno corto, como loop
   const fileRef = useRef<HTMLInputElement>(null);
@@ -319,6 +346,8 @@ export function DjMixer() {
     const rest: File[] = [];
     for (const f of files) {
       if (!isAudioFile(f)) { rest.push(f); continue; }
+      // AIFF: el navegador no lo mide (lo lee el DJ a mano): siempre es un tema
+      if (/\.(aif|aiff|aifc)$/i.test(f.name)) { void newSongDeck(f, f.name); continue; }
       const url = URL.createObjectURL(f);
       const dur = await sampleDuration(url).catch(() => 0);
       URL.revokeObjectURL(url);
@@ -354,13 +383,19 @@ export function DjMixer() {
           e.preventDefault();
           void dropAudio(Array.from(e.dataTransfer.files));
         }}>
+        {/* DOS DECKS FIJOS: el lado A (izquierda) y el B esperan su tema (soltarlo o elegirlo) */}
+        {!hasSide('a') && <EmptyDeck side="a" />}
         {decks.map((n, i) => (
-          <Deck key={n.id} id={n.id} index={i} data={n.data as NodeData} showCode={showCode} />
+          <Fragment key={n.id}>
+            {i === decks.findIndex((x) => deckRank(x as { id: string; data: NodeData }) > 0) && !hasSide('b') && <EmptyDeck side="b" />}
+            <Deck id={n.id} index={i} data={n.data as NodeData} showCode={showCode} />
+          </Fragment>
         ))}
+        {!hasSide('b') && decks.every((x) => deckRank(x as { id: string; data: NodeData }) === 0) && <EmptyDeck side="b" />}
         <div className="dj-adds">
           <button className="dj-add" onClick={() => fileRef.current?.click()} title="deck de TEMA: elige un tema completo (mp3, wav…) — o suéltalo aquí. Se analiza su tempo, su rejilla, su tonalidad y su volumen">+ tema</button>
           <button className="dj-add" onClick={addSourceToOut} title="deck de patrón (o suelta aquí un loop / .mid, o tráelo de «sonidos»)">+ deck</button>
-          <input ref={fileRef} type="file" accept="audio/*" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; for (const f of fs) void newSongDeck(f, f.name); }} />
+          <input ref={fileRef} type="file" accept="audio/*,.aif,.aiff,.aifc" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; for (const f of fs) void newSongDeck(f, f.name); }} />
         </div>
       </div>
 

@@ -121,7 +121,7 @@ export function SetLibrary() {
       <div className="lib-top">
         <input className="lib-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="buscar tema, tono (8A)…" aria-label="buscar en la biblioteca" />
         <button className="sd-btn" onClick={() => fileRef.current?.click()} title="guardar temas en la biblioteca (se analizan una vez: tempo, rejilla, tonalidad y volumen)">+ temas</button>
-        <input ref={fileRef} type="file" accept="audio/*" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; void importFiles(fs); }} />
+        <input ref={fileRef} type="file" accept="audio/*,.aif,.aiff,.aifc" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []); e.target.value = ''; void importFiles(fs); }} />
       </div>
       <p className="lib-ref">
         {ref ? <>encajan con <b>«{ref.title}»</b> · <span className="lib-cam">{refCam || '—'}</span> · sesión a {sessionBpm.toFixed(1)} BPM</>

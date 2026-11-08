@@ -888,7 +888,7 @@ export async function deckLoadTrack(id: string, trackId: string): Promise<boolea
 // MESA LIMPIA LA PRIMERA VEZ: el bombo de ejemplo del lienzo en blanco no es un tema; al poner el
 // primer tema se quita (si no, sonaría encima en cuanto arranca el reloj; Ctrl+Z lo devuelve). Cada
 // deck nuevo cae en el lado del crossfader con menos decks: A, B, A…
-function newDeckExtras(): Partial<NodeData> {
+function newDeckExtras(side?: 'a' | 'b'): Partial<NodeData> {
   const g = gs();
   const srcs = g.nodes.filter((n) => n.data.kind === 'source');
   const decks = srcs.filter((n) => n.data.djTrack);
@@ -897,6 +897,7 @@ function newDeckExtras(): Partial<NodeData> {
     const nm = String(ex[0]?.data.name ?? '').trim();
     if (ex.length === 1 && String(ex[0].data.code ?? '').trim() === 's("bd*4")' && (!nm || nm === 'bombo') && !ex[0].data.auto) g.removeNode(ex[0].id);
   }
+  if (side) return { xfa: side };
   const a = decks.filter((n) => n.data.xfa === 'a').length;
   const b = decks.filter((n) => n.data.xfa === 'b').length;
   return { xfa: a <= b ? 'a' : 'b' };
@@ -905,19 +906,19 @@ function newDeckExtras(): Partial<NodeData> {
 const placeholderTrack = (title: string): DjTrack => ({ id: '', title, bpm: 120, first: 0, beats: 4, dur: 0, cue: 0, hot: Array(HOT_N).fill(null), sync: true });
 
 // DECK NUEVO con un tema (en pausa, en su cue: suena al darle ▶)
-export async function newSongDeck(file: Blob, name: string): Promise<string | null> {
+export async function newSongDeck(file: Blob, name: string, side?: 'a' | 'b'): Promise<string | null> {
   const title = name.replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim() || 'tema';
-  const id = gs().addPattern('silence', title, { mute: false, ...newDeckExtras(), djTrack: placeholderTrack(title) } as Partial<NodeData>);
+  const id = gs().addPattern('silence', title, { mute: false, ...newDeckExtras(side), djTrack: placeholderTrack(title) } as Partial<NodeData>);
   if (!id) return null;
   const ok = await deckLoadFile(id, file, name);
   if (!ok) { gs().removeNode?.(id); return null; }
   return id;
 }
 // DECK NUEVO con un tema de la biblioteca
-export async function newSongDeckFromTrack(trackId: string): Promise<string | null> {
+export async function newSongDeckFromTrack(trackId: string, side?: 'a' | 'b'): Promise<string | null> {
   const meta = await getMeta(trackId);
   if (!meta) return null;
-  const id = gs().addPattern('silence', meta.title, { mute: false, ...newDeckExtras(), djTrack: placeholderTrack(meta.title) } as Partial<NodeData>);
+  const id = gs().addPattern('silence', meta.title, { mute: false, ...newDeckExtras(side), djTrack: placeholderTrack(meta.title) } as Partial<NodeData>);
   if (!id) return null;
   const ok = await deckLoadTrack(id, trackId);
   if (!ok) { gs().removeNode?.(id); return null; }
