@@ -1,7 +1,16 @@
 // MAPAS DE CONTROLADORES DE DJ listos (sin «aprender»): firma física ('n<canal>:<nota>' /
 // 'c<canal>:<cc>', como midiIn) → slot de la mesa. Deck 1 = el lado A, deck 2 = el B (orderDecks).
 // Puro: el que lo aplica es midiIn (al conectar, si reconoce el nombre del aparato).
-export interface ControllerMap { name: string; match: RegExp; map: Record<string, string>; rel: Record<string, string> }
+// lo que muestra un deck en las luces del controlador
+export interface DeckLights { loaded: boolean; playing: boolean; sync: boolean; pfl: boolean; hot: boolean[]; loopBeats: number | null }
+export type LightMsg = [number, number, number];
+export interface ControllerMap {
+  name: string;
+  match: RegExp;
+  map: Record<string, string>;
+  rel: Record<string, string>;
+  lights?: (decks: DeckLights[]) => LightMsg[]; // todas las luces, encendidas o apagadas
+}
 
 // Pioneer DJ DDJ-FLX4 (sirve para el DDJ-400, que manda lo mismo). Números de su lista de mensajes
 // MIDI (los mismos que usa el mapa de Mixxx): botones del deck en el canal 1/2, mezclador y
@@ -41,7 +50,24 @@ function ddjFlx4(): ControllerMap {
       map[`n${pad}:${96 + k}`] = s(beatLoopSlot(BEAT_LOOPS[k])); // pads en modo BEAT LOOP
     }
   }
-  return { name: 'Pioneer DDJ-FLX4 / DDJ-400', match: /DDJ-?(FLX4|400)/i, map, rel };
+  return { name: 'Pioneer DDJ-FLX4 / DDJ-400', match: /DDJ-?(FLX4|400)/i, map, rel, lights: flx4Lights };
+}
+
+// LUCES del FLX4 (las mismas notas que se tocan, con 127 = encendida y 0 = apagada): PLAY, CUE
+// (en pausa con tema), SYNC, cue de audífonos, LOOP IN/OUT con el loop puesto y, en los pads,
+// los cues rápidos puestos (modo HOT CUE) y el loop que suena (modo BEAT LOOP)
+export function flx4Lights(decks: DeckLights[]): LightMsg[] {
+  const out: LightMsg[] = [];
+  const on = (b: boolean) => (b ? 127 : 0);
+  for (const d of [0, 1]) {
+    const s = decks[d] ?? { loaded: false, playing: false, sync: false, pfl: false, hot: [], loopBeats: null };
+    const ch = 0x90 + d, pad = d === 0 ? 0x97 : 0x99;
+    const looping = s.loopBeats != null;
+    out.push([ch, 0x0b, on(s.playing)], [ch, 0x0c, on(s.loaded && !s.playing)], [ch, 0x58, on(s.loaded && s.sync)], [ch, 0x54, on(s.pfl)], [ch, 0x10, on(looping)], [ch, 0x11, on(looping)]);
+    for (let k = 0; k < 8; k++) out.push([pad, k, on(!!s.hot[k])]);
+    BEAT_LOOPS.forEach((b, k) => out.push([pad, 0x60 + k, on(looping && Math.abs((s.loopBeats as number) - b) < 1e-6)]));
+  }
+  return out;
 }
 
 export const CONTROLLER_MAPS: ControllerMap[] = [ddjFlx4()];

@@ -22,3 +22,17 @@ test('FLX4: los controles principales van a su slot (deck 1 = canal 1, deck 2 = 
   assert.equal(beatLoopSlot(0.25), 'loopb0_25');
   assert.equal(controllerFor(['DDJ-FLX4'])!.rel['c0:33'], '64');
 });
+
+test('luces del FLX4: lo que suena, los cues puestos y el loop', async () => {
+  const { flx4Lights } = await import('../src/lib/controllerMaps');
+  const msgs = flx4Lights([{ loaded: true, playing: true, sync: true, pfl: false, hot: [true, false], loopBeats: 4 }]);
+  const v = (st: number, n: number) => msgs.find((m) => m[0] === st && m[1] === n)?.[2];
+  assert.equal(v(0x90, 0x0b), 127); // PLAY del deck 1
+  assert.equal(v(0x90, 0x0c), 0); // CUE apagado sonando
+  assert.equal(v(0x90, 0x58), 127); // SYNC
+  assert.equal(v(0x97, 0x00), 127); // pad 1: cue rápido puesto
+  assert.equal(v(0x97, 0x01), 0);
+  assert.equal(v(0x97, 0x64), 127); // pad 5 en BEAT LOOP: 4 tiempos
+  assert.equal(v(0x90, 0x10), 127); // LOOP IN encendido
+  assert.equal(v(0x91, 0x0b), 0); // deck 2 vacío: apagado
+});

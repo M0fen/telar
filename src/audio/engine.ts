@@ -82,6 +82,17 @@ function getMidiOutput(name?: string) {
   return outs.find((o) => o.name === name) ?? outs[0];
 }
 
+// MIDI DE VUELTA a un controlador (sus luces): a las salidas cuyo nombre coincide
+export function sendMidiTo(match: RegExp, bytes: number[]): boolean {
+  if (!midiAccess) return false;
+  let sent = false;
+  for (const o of midiAccess.outputs.values()) {
+    if (!match.test(o.name ?? '')) continue;
+    try { o.send(bytes); sent = true; } catch { /* un controlador que se fue: nada */ }
+  }
+  return sent;
+}
+
 // --- MIDI IN (WebMIDI nativo) ----------------------------------------------
 // Entrada de controlador para el modo EN VIVO (pads/perillas → control, no audio).
 // Reusa el MISMO `midiAccess` que la salida; enlaza `onmidimessage` en cada input

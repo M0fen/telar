@@ -157,6 +157,8 @@ export async function connectMidi(): Promise<string | null> {
   }
   // un controlador conocido (DDJ-FLX4…) sin la mesa asignada: queda mapeado solo
   const known = controllerFor(list);
+  // sus luces siguen a la mesa (código del DJ: se carga aparte)
+  if (known?.lights) void import('./djLights').then((m) => m.startLights(known)).catch(() => { /* sin luces */ });
   const map0 = useMidiStore.getState().map;
   if (known && !Object.values(map0).some((v) => v.startsWith('dj.'))) {
     useMidiStore.getState().assignMany(known.map, known.rel);
