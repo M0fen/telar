@@ -2,7 +2,7 @@
 // ENTRE las líneas del código, donde el usuario escribe `._scope()`. Lee el
 // AnalyserNode propio del Source (tap `.analyze("telar-src-<id>")` que inyecta el
 // compilador al ver el marcador). rAF compartido por todos los canvases activos.
-import { getSourceAnalyser } from '../audio/engine';
+import { getSourceAnalyser, isStarted } from '../audio/engine';
 import { drawWave, drawFlat } from './drawWave';
 
 const canvases = new Map<string, HTMLCanvasElement>();
@@ -10,9 +10,11 @@ const canvases = new Map<string, HTMLCanvasElement>();
 const buffers = new Map<string, Uint8Array<ArrayBuffer>>();
 let running = false;
 let raf = 0;
+let idleAt = 0; // parado: último dibujo (se redibuja poco, solo por si cambió el tamaño)
 
 export function registerScope(nodeId: string, canvas: HTMLCanvasElement): void {
   canvases.set(nodeId, canvas);
+  idleAt = 0;
   if (!running) {
     running = true;
     raf = requestAnimationFrame(tick);
@@ -40,8 +42,12 @@ function fit(canvas: HTMLCanvasElement): boolean {
   return true;
 }
 
-function tick() {
+function tick(t: number) {
   raf = requestAnimationFrame(tick);
+  if (!isStarted()) {
+    if (idleAt && t - idleAt < 500) return;
+    idleAt = t;
+  } else idleAt = 0;
   for (const [nodeId, canvas] of canvases) {
     if (!fit(canvas)) continue;
     const ctx = canvas.getContext('2d');

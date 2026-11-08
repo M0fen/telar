@@ -11,7 +11,7 @@ import {
   type XYPosition,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useGraphStore, type GNode } from './store/useGraphStore';
+import { useGraphStore, wouldCycle, type GNode } from './store/useGraphStore';
 import { useScenesStore } from './store/useScenesStore';
 import { tapTempo } from './lib/tapTempo';
 import { readSharedProject, clearShareHash } from './lib/share';
@@ -463,15 +463,16 @@ export default function App() {
 
   // Inyecta el resaltado "imán" en el cable destino mientras se arrastra. Con edgeFlow
   // activo, los cables usan el edge de señal (V1a): la energía viaja por ellos al Out.
+  const edgesPlaying = useGraphStore((s) => s.playing);
   const displayEdges = useMemo<Edge[]>(
     () =>
       edges.map((ed) => {
         const type = edgeFlow ? 'signal' : undefined;
         return ed.id === hoverEdgeId
           ? { ...ed, type, className: 'edge-magnet', animated: true, style: { stroke: tokens.accent, strokeWidth: 3 } }
-          : { ...ed, type };
+          : { ...ed, type, animated: edgesPlaying };
       }),
-    [edges, hoverEdgeId, edgeFlow]
+    [edges, hoverEdgeId, edgeFlow, edgesPlaying]
   );
 
   // V1a: fija la topología del grafo en signalFlow para propagar el pulso source→out.
@@ -508,6 +509,15 @@ export default function App() {
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              isValidConnection={(c) => !!c.source && !!c.target && !wouldCycle(edges, c.source, c.target)}
+              deleteKeyCode={['Backspace', 'Delete']}
+              onBeforeDelete={async ({ nodes: ns, edges: es }) => {
+                // con nodos de por medio, el borrado lo hace el store (un paso de deshacer, cadena reconectada, Out a salvo)
+                if (!ns.length) return true;
+                useGraphStore.getState().removeElements(ns.map((n) => n.id), es.filter((e) => e.selected).map((e) => e.id));
+                return false;
+              }}
+              onlyRenderVisibleElements
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={onNodeDragStop}
@@ -515,7 +525,7 @@ export default function App() {
               onDrop={onDrop}
               onDragOver={onDragOver}
               onDragLeave={() => setHoverEdge(null)}
-              defaultEdgeOptions={{ animated: true, style: { stroke: tokens.edge, strokeWidth: 1.4 } }}
+              defaultEdgeOptions={{ style: { stroke: tokens.edge, strokeWidth: 1.4 } }}
               proOptions={{ hideAttribution: true }}
               fitView
               fitViewOptions={FIT}

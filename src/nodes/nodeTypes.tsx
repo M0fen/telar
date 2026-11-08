@@ -152,7 +152,7 @@ function NodeHeader({
       <button
         className="tn-eye nodrag"
         onClick={() => update(id, { collapsed: !collapsed })}
-        title={collapsed ? 'mostrar código' : 'plegar'}
+        title={collapsed ? 'desplegar el nodo' : 'plegar'}
       >
         <Eye open={!collapsed} />
       </button>
@@ -234,6 +234,24 @@ function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
       >
         vista {open ? '▴' : '▾'}
       </button>
+      {isSeqable(data.code ?? '') && (
+        <button
+          className={`tn-tool tn-tool-txt nodrag${data.showSeq ? ' on' : ''}`}
+          onClick={() => update(id, { showSeq: !data.showSeq })}
+          onMouseDown={(e) => e.stopPropagation()}
+          title="secuenciador: rejilla de pasos de esta pista (sin código)"
+        >
+          pasos
+        </button>
+      )}
+      <button
+        className={`tn-tool tn-tool-txt nodrag${data.synthOn ? ' on' : ''}`}
+        onClick={() => { update(id, { synth: data.synth ?? DEFAULT_SYNTH }); setSynthEdit(id); }}
+        onMouseDown={(e) => e.stopPropagation()}
+        title={data.synthOn ? 'synth activo · abrir el estudio de sonido' : 'estudio de sonido: onda, envolvente, filtro, FM'}
+      >
+        sonido
+      </button>
       <button
         className={`tn-tool tn-tool-code nodrag${data.showCode ? ' on' : ''}`}
         onClick={() => update(id, { showCode: !data.showCode })}
@@ -249,17 +267,6 @@ function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1" />
           <polyline points="3 3.5 3 8 7.5 8" />
-        </svg>
-      </ToolBtn>
-      <ToolBtn
-        active={!!data.synthOn}
-        onClick={() => { update(id, { synth: data.synth ?? DEFAULT_SYNTH }); setSynthEdit(id); }}
-        title={data.synthOn ? 'synth ACTIVO · abrir estudio' : 'abrir el estudio de synth (onda, envolvente por nodos, filtro, FM…)'}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
-          <rect x="3" y="5" width="18" height="14" rx="1.5" />
-          <line x1="9" y1="5" x2="9" y2="14" />
-          <line x1="15" y1="5" x2="15" y2="14" />
         </svg>
       </ToolBtn>
       <ToolBtn
@@ -358,19 +365,6 @@ function SourceToolbar({ id, data }: { id: string; data: NodeData }) {
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
             <rect x="3" y="4" width="18" height="16" rx="1.5" />
             <rect x="3" y="12" width="18" height="8" rx="1" fill="currentColor" stroke="none" opacity="0.55" />
-          </svg>
-        </ToolBtn>
-      )}
-      {isSeqable(data.code ?? '') && (
-        <ToolBtn active={!!data.showSeq} onClick={() => update(id, { showSeq: !data.showSeq })} title="secuenciador: rejilla multi-sonido — añade golpes y otros sonidos (tu/pa), previsualiza (sin código)">
-          {/* rejilla 2×4 = secuenciador */}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-            <rect x="3" y="4" width="4" height="4" rx="1" fill="currentColor" stroke="none" />
-            <rect x="10" y="4" width="4" height="4" rx="1" />
-            <rect x="17" y="4" width="4" height="4" rx="1" fill="currentColor" stroke="none" />
-            <rect x="3" y="13" width="4" height="4" rx="1" />
-            <rect x="10" y="13" width="4" height="4" rx="1" fill="currentColor" stroke="none" />
-            <rect x="17" y="13" width="4" height="4" rx="1" />
           </svg>
         </ToolBtn>
       )}
@@ -726,9 +720,17 @@ function SourceNode({ id, data, selected }: NodeProps) {
         <>
           <SourceToolbar id={id} data={d} />
           {selected && <SourcePerfRow id={id} perf={d.perf} />}
-          {codeVisible
-            ? <MiniEditor nodeId={id} value={d.code ?? ''} onChange={(code) => update(id, { code })} />
-            : <InstrumentViz nodeId={id} code={d.code ?? ''} />}
+          {codeVisible ? (
+            <MiniEditor nodeId={id} value={d.code ?? ''} onChange={(code) => update(id, { code })} />
+          ) : (
+            <>
+              {/* qué toca, a la vista (clic: abrir el código) */}
+              <button className="tn-codeline nodrag" title={`${d.code ?? ''}\n\nclic: ver y editar el código`} onClick={() => update(id, { showCode: true })}>
+                {(d.code ?? '').split('\n')[0].slice(0, 60)}
+              </button>
+              <InstrumentViz nodeId={id} code={d.code ?? ''} />
+            </>
+          )}
           {d.showArrange && (d.code ?? '').includes('arrange') && <ArrangeStrip id={id} code={d.code ?? ''} />}
           {/* el secuenciador es UNIVERSAL: también las melodías van a StepSeq (rejilla
               de pasos con afinación por arrastre, la disposición preferida); dentro

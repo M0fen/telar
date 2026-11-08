@@ -111,6 +111,9 @@ const startNodes: GNode[] = startG.nodes;
 const startEdges: Edge[] = startG.edges;
 idCounter = maxIdCounter(startNodes); // evita colisiones de id al crear nodos
 
+import { bridgeEdges, reachesOut } from '../lib/graphEdges';
+export { bridgeEdges, wouldCycle } from '../lib/graphEdges';
+
 // Mensaje de error de Strudel en palabras del usuario: sin la cadena `x(...).y(...).` del
 // principio (el motivo real quedaba cortado) y con los casos más comunes traducidos.
 export function friendlyError(raw: string): string {
@@ -263,6 +266,7 @@ interface GraphState {
   addSources: (list: { name: string; code: string }[]) => void;
   updateNodeData: (id: string, patch: Partial<NodeData>) => void;
   removeNode: (id: string) => void;
+  removeElements: (nodeIds: string[], edgeIds: string[]) => void;
   // Reemplaza la operación de un nodo fx/transform (params a sus valores por defecto).
   replaceOp: (id: string, opId: string) => void;
   // Inserta un nodo FX/transform partiendo un cable existente (inserción en vivo).
@@ -338,6 +342,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     });
   };
   let isolating = false;
+  let mayHaveSilenced = false; // ya se mandó `silence` por falta de camino al Out
   let noCulpritFor: string | null = null; // código ya revisado sin encontrar culpable (no repetir en cada tic)
   const isolateBroken = async (reason?: string) => {
     if (isolating || (noCulpritFor !== null && noCulpritFor === get().lastCode)) return;
@@ -467,6 +472,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
     // El clic (8.3) va al lado del máster (sin swing ni efectos); al exportar no suena.
     const song = useSongStore.getState();
     const exporting = song.stopAt != null || song.exportOnly != null;
+    // nada llega al Out mientras suena (se quitó el último cable): silencio, no lo de antes.
+    // Con un error de código, en cambio, sigue sonando lo último que funcionó.
+    if (playing && !code && !mayHaveSilenced && !reachesOut(nodes, edges)) { mayHaveSilenced = true; void swapPattern('silence', cps); }
+    if (code) mayHaveSilenced = false;
     if (playing && code) {
       void swapPattern(withMetronome(applyGlobalMaster(applyTimeline(code, song), master), { on: useMetroStore.getState().on && !exporting, beats: get().beatsPerCycle, countIn: exporting ? 0 : song.countIn }), cps)
         .then((ok) => {
@@ -564,8 +573,12 @@ export const useGraphStore = create<GraphState>((set, get) => {
     songKey: cleanKey(saved?.songKey),
     loadNonce: 0,
 
-    onNodesChange: (changes) => {
-      // borrar nodos (tecla Supr de React Flow) es undoable y debe recompilar.
+    onNodesChange: (rawChanges) => {
+      // el Out no se borra con la tecla (sin él no suena nada y no hay cómo recrearlo)
+      const kindOf = (id: string) => get().nodes.find((n) => n.id === id)?.data.kind;
+      const changes = rawChanges.filter((c) => !(c.type === 'remove' && kindOf(c.id) === 'out'));
+      // borrar nodos (Supr o Retroceso) es undoable y debe recompilar.
+      // (la tecla pasa por removeElements desde onBeforeDelete; esto queda por si llega otro borrado)
       const removes = changes.some((c) => c.type === 'remove');
       if (removes) pushPast(true);
       let next = applyNodeChanges(changes, get().nodes) as GNode[];
@@ -810,11 +823,20 @@ export const useGraphStore = create<GraphState>((set, get) => {
       // showSynth es solo visibilidad de panel: no recompila (no cambia el sonido).
     },
 
-    removeNode: (id) => {
+    removeNode: (id) => get().removeElements([id], []),
+
+    // Borrar nodos y cables en UN paso de deshacer (tecla Supr/Retroceso, botón ×). El Out no se
+    // borra (sin él no suena nada). Al quitar un FX/transform del medio, lo que le entraba pasa
+    // directo a lo que alimentaba: la cadena no se corta.
+    removeElements: (nodeIds, edgeIds) => {
+      const nodes = get().nodes;
+      const gone = new Set(nodeIds.filter((id) => nodes.find((n) => n.id === id)?.data.kind !== 'out'));
+      const dropEdges = new Set(edgeIds);
+      if (!gone.size && !dropEdges.size) return;
       pushPast(true);
       set({
-        nodes: get().nodes.filter((n) => n.id !== id),
-        edges: get().edges.filter((e) => e.source !== id && e.target !== id),
+        nodes: nodes.filter((n) => !gone.has(n.id)),
+        edges: bridgeEdges(nodes, get().edges, gone).filter((e) => !gone.has(e.source) && !gone.has(e.target) && !dropEdges.has(e.id)),
       });
       get().recompile();
     },
