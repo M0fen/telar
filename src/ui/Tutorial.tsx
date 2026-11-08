@@ -76,6 +76,37 @@ export function Tutorial({ open, onClose }: { open: boolean; onClose: () => void
       action: { label: '🎹 abrir el bajo en grande', run: openBig },
     },
     {
+      tag: 'el grafo',
+      title: 'Cómo suena: el grafo',
+      body: (
+        <>
+          <p>La vista <b>standard</b> muestra el camino del sonido: cada <b>Source</b> (un instrumento) pasa por sus <b>efectos</b> hasta el <b>Out</b>. Lo que llega al Out es lo que oyes; un Source sin cable al Out no suena.</p>
+          <p>Cada Source muestra la línea de código que toca (clic: abrirla), <b>pasos</b> abre su rejilla y <b>sonido</b> su estudio de synth.</p>
+        </>
+      ),
+      action: { label: '⇶ ver el grafo de este tema', run: () => { g().setMode('standard'); onClose(); } },
+    },
+    {
+      tag: 'efectos',
+      title: 'Pon efectos en la cadena',
+      body: (
+        <>
+          <p>En la <b>paleta</b> (izquierda), <b>clic en un efecto</b>: entra justo después del nodo que tengas elegido (o antes del Out). Otro clic encadena el siguiente. También puedes <b>arrastrarlo a un cable</b>.</p>
+          <p><b>Doble clic en un lugar vacío</b> del lienzo abre la búsqueda: escribe «lpf», «reverb», «trap»… y Enter. <b>Supr</b> borra lo elegido y la cadena se vuelve a unir sola.</p>
+        </>
+      ),
+    },
+    {
+      tag: 'código',
+      title: 'Si algo se rompe, no se cae el tema',
+      body: (
+        <>
+          <p>Por dentro, cada Source es código de Strudel (<b>&lt;/&gt;</b> lo muestra). Puedes escribirlo a mano: mientras no compila, ese nodo dice <b>«sin aplicar»</b> y sigue sonando lo último que funcionó; si falla al tocar, se <b>silencia solo ese</b> y el resto sigue.</p>
+          <p><b>Ctrl+Z</b> deshace cualquier cosa y <b>Ctrl+S</b> guarda ya (igual se guarda solo).</p>
+        </>
+      ),
+    },
+    {
       tag: 'clips',
       title: 'Mueve, estira y duplica',
       body: (

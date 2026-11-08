@@ -15,16 +15,25 @@ export interface PaletteDrag {
   opId?: string;
 }
 
-// Paleta para crear nodos. Los FX/Transform se arrastran: soltarlos SOBRE un
-// cable los inserta en vivo, o sobre un nodo fx para reemplazarlo (sensación
-// magnética). Las secciones vienen COLAPSADAS: se abren con su cabecera o se
-// revelan escribiendo en el buscador (menos ruido visual). (master-prompt §5)
+// Paleta para crear nodos. CLIC = entra solo: un Source conectado al Out; un FX/transform
+// después del nodo elegido (o antes del Out). ARRASTRAR = donde lo sueltes: sobre un cable lo
+// inserta en vivo, sobre un nodo fx lo reemplaza (sensación magnética). Las secciones vienen
+// COLAPSADAS: se abren con su cabecera o se revelan escribiendo en el buscador.
 function DragItem({ label, item, hint }: { label: string; item: PaletteDrag; hint?: string }) {
   const setDragItem = useGraphStore((s) => s.setDragItem);
   const setHoverEdge = useGraphStore((s) => s.setHoverEdge);
+  const add = () => {
+    const g = useGraphStore.getState();
+    if (item.kind === 'source') g.addPattern('s("hh*8")');
+    else if ((item.kind === 'fx' || item.kind === 'transform') && item.opId) g.addOpChained(item.kind, item.opId);
+  };
   return (
     <div
       className={`pal-item pal-${item.kind}`}
+      role="button"
+      tabIndex={0}
+      onClick={add}
+      onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('application/telar', JSON.stringify(item));
@@ -114,7 +123,7 @@ export function Palette({ dj = false }: { dj?: boolean } = {}) {
       <div className="palette-body">
         {!dj && <section>
           <h3>nodos</h3>
-          <DragItem label="+ source" item={{ kind: 'source' }} hint="patrón / mini-notación" />
+          <DragItem label="+ source" item={{ kind: 'source' }} hint="patrón / mini-notación · clic: entra conectado al Out · o arrástralo al lienzo" />
           <button className="pal-item pal-out" onClick={() => addNode('out')}>+ out</button>
         </section>}
 
@@ -135,7 +144,7 @@ export function Palette({ dj = false }: { dj?: boolean } = {}) {
                 {results.ops.length > 0 && (
                   <div className="pal-grid">
                     {results.ops.map((o) => (
-                      <DragItem key={o.id} label={o.label} item={{ kind: o.kind, opId: o.id }} hint={`${o.kind} · arrastra al cable`} />
+                      <DragItem key={o.id} label={o.label} item={{ kind: o.kind, opId: o.id }} hint={`${o.kind} · clic: después de lo elegido (o antes del Out) · o arrástralo a un cable`} />
                     ))}
                   </div>
                 )}
@@ -149,17 +158,17 @@ export function Palette({ dj = false }: { dj?: boolean } = {}) {
           </section>
         ) : (
           <>
-            {!dj && <Sec id="fx" title="fx · arrastra al cable" count={fx.length} openSet={openSet} toggle={toggle}>
+            {!dj && <Sec id="fx" title="fx · clic o arrastra al cable" count={fx.length} openSet={openSet} toggle={toggle}>
               <div className="pal-grid">
                 {fx.map((o) => (
-                  <DragItem key={o.id} label={o.label} item={{ kind: 'fx', opId: o.id }} hint="suelta sobre un cable → inserción en vivo" />
+                  <DragItem key={o.id} label={o.label} item={{ kind: 'fx', opId: o.id }} hint="clic: entra después de lo elegido (o antes del Out) · arrástralo a un cable para ponerlo ahí" />
                 ))}
               </div>
             </Sec>}
             {!dj && <Sec id="transform" title="transform" count={transforms.length} openSet={openSet} toggle={toggle}>
               <div className="pal-grid">
                 {transforms.map((o) => (
-                  <DragItem key={o.id} label={o.label} item={{ kind: 'transform', opId: o.id }} hint="arrastra al lienzo o al cable" />
+                  <DragItem key={o.id} label={o.label} item={{ kind: 'transform', opId: o.id }} hint="clic: entra después de lo elegido (o antes del Out) · o arrástralo a un cable" />
                 ))}
               </div>
             </Sec>}

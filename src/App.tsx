@@ -13,6 +13,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useGraphStore, wouldCycle, saveProjectSoon, type GNode } from './store/useGraphStore';
 import { playTransport } from './lib/songTransport';
+import { QuickAdd } from './ui/flow/QuickAdd';
 import { flushProjectSave } from './lib/projectStore';
 import { useScenesStore } from './store/useScenesStore';
 import { tapTempo } from './lib/tapTempo';
@@ -125,6 +126,8 @@ export default function App() {
   const canRedo = useGraphStore((s) => s.future.length > 0);
   const hasSelection = useGraphStore((s) => s.nodes.some((n) => n.selected && n.data.kind !== 'out'));
   const [rightOpen, setRightOpen] = useState(true);
+  // buscar y añadir: doble clic en un lugar vacío del lienzo
+  const [quick, setQuick] = useState<{ at: XYPosition; flow: XYPosition; edgeId: string | null } | null>(null);
   // PANELES ACOPLADOS (8.6): en standard y DAW la biblioteca y el panel derecho ocupan su franja;
   // el modo DJ sigue como estaba (pantalla completa con el panel MIDI flotante)
   const dockView = mode === 'daw' ? 'daw' : 'std';
@@ -292,6 +295,16 @@ export default function App() {
   // registra el vocal de la demo "Master show" (s("voxmaster")).
   // loops al tempo (Fase 5.2): al cambiar el BPM (o los loops del proyecto) se re-estiran solos
   useEffect(() => initWarpSync(useGraphStore), []);
+
+  // probado en Chrome y Edge: en otro navegador se avisa UNA vez qué puede fallar
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const brands = (navigator as Navigator & { userAgentData?: { brands?: { brand: string }[] } }).userAgentData?.brands ?? [];
+    const chromium = brands.some((b) => /Chromium|Google Chrome|Microsoft Edge/.test(b.brand)) || (/Chrome\/|Edg\//.test(ua) && !/Firefox|FxiOS/.test(ua));
+    if (chromium) return;
+    try { if (localStorage.getItem('telar.browser-note')) return; localStorage.setItem('telar.browser-note', '1'); } catch { /* sin almacenamiento: avisa igual */ }
+    toast.warn('Telar está probado en Chrome y Edge. En este navegador algunas cosas pueden fallar (audífonos del DJ, controladores MIDI, exportar).');
+  }, []);
 
   useEffect(() => {
     for (const p of useSamplePacksStore.getState().packs) void loadSamplePack(p);
@@ -529,6 +542,14 @@ export default function App() {
                 return false;
               }}
               onlyRenderVisibleElements
+              zoomOnDoubleClick={false}
+              onDoubleClick={(e) => {
+                const inst = rfRef.current;
+                if (!inst || !(e.target as HTMLElement).classList?.contains('react-flow__pane')) return;
+                const flow = inst.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+                setQuick({ at: { x: e.clientX, y: e.clientY }, flow, edgeId: nearestEdge(flow) });
+              }}
+              data-help="lienzo · doble clic en un lugar vacío: buscar y añadir un nodo · arrastrar: elegir varios · botón derecho o rueda: mover"
               onNodeDragStart={onNodeDragStart}
               onNodeDrag={onNodeDrag}
               onNodeDragStop={onNodeDragStop}
@@ -566,6 +587,7 @@ export default function App() {
                 maskColor="rgba(3, 5, 8, 0.62)"
               />
             </ReactFlow>
+            {quick && <QuickAdd at={quick.at} flow={quick.flow} edgeId={quick.edgeId} onClose={() => setQuick(null)} />}
           </div>
         </>
       ) : mode === 'dj' ? (

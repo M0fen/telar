@@ -3376,4 +3376,21 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 /* --- Source: qué toca, a la vista; botones con texto --- */
 .tn-codeline { display: block; width: calc(100% - 16px); margin: 4px 8px 2px; padding: 3px 6px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--line-soft); border-radius: 3px; color: var(--text); font-family: var(--mono); font-size: 10.5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: text; }
 .tn-codeline:hover { border-color: var(--accent-dim); }
-.tn-tool-txt { font-family: var(--mono); font-size: 10px; padding: 0 6px; }
+.tn-tool.tn-tool-txt { width: auto; padding: 0 4px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.04em; text-transform: uppercase; }
+
+/* --- Buscar y añadir en el lienzo (doble clic) --- */
+.qa-backdrop { position: fixed; inset: 0; z-index: 60; }
+.qa { position: fixed; width: 250px; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--hud-shadow); font-family: var(--mono); overflow: hidden; }
+.qa-in { width: 100%; box-sizing: border-box; padding: 8px 10px; background: transparent; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font-family: var(--mono); font-size: 12px; outline: none; }
+.qa-list { max-height: 260px; overflow-y: auto; display: flex; flex-direction: column; }
+.qa-item { display: flex; justify-content: space-between; gap: 8px; padding: 5px 10px; background: transparent; border: 0; color: var(--text); font-family: var(--mono); font-size: 11.5px; text-align: left; cursor: pointer; }
+.qa-item i { color: var(--dim); font-style: normal; font-size: 10px; }
+.qa-item.on { background: rgba(61, 240, 208, 0.1); color: var(--accent); }
+.qa-empty { padding: 8px 10px; color: var(--dim); font-size: 11px; }
+.qa-foot { padding: 5px 10px; border-top: 1px solid var(--line-soft); color: var(--faint); font-size: 9.5px; }
+
+/* --- panel de detalle: kit / sonido de la pista --- */
+.detail-pick { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 9.5px; color: var(--dim); letter-spacing: 0.05em; }
+.detail-pick select { max-width: 150px; background: var(--panel-solid); color: var(--text); border: 1px solid var(--line); border-radius: 3px; font-family: var(--mono); font-size: 10.5px; padding: 1px 4px; }
+.detail-pick-btn { background: transparent; border: 1px solid var(--line); border-radius: 3px; color: var(--dim); font-family: var(--mono); font-size: 9.5px; padding: 1px 6px; cursor: pointer; }
+.detail-pick-btn:hover { color: var(--accent); border-color: var(--accent-dim); }

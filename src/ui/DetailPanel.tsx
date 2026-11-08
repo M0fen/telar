@@ -5,6 +5,54 @@ import { useTrackColor } from '../store/useTrackColorStore';
 import { StepSeq } from '../nodes/StepSeq';
 import { SeqBigContext } from '../nodes/seqBig';
 import { ErrorBoundary } from './ErrorBoundary';
+import { kitBankOf, setKitBank } from '../lib/kitBank';
+import { SEQ_BANKS } from '../store/useSequencerStore';
+import { SYNTH_PRESETS, PRESET_GENRES } from '../graph/synthPresets';
+import { DEFAULT_SYNTH, type NodeData } from '../graph/types';
+
+// EL SONIDO DE LA PISTA, sin código: una batería elige su kit (banco de muestras, los golpes no
+// cambian); una melodía, un timbre del synth por género (o volver a su sonido) y el estudio.
+function InstrumentPick({ id, data }: { id: string; data: NodeData }) {
+  const update = useGraphStore((s) => s.updateNodeData);
+  const code = data.code ?? '';
+  const bank = kitBankOf(code);
+  if (bank !== null) {
+    return (
+      <label className="detail-pick" title="kit de la batería: cambia el sonido de todos sus golpes (el patrón queda igual)">
+        kit
+        <select value={bank} onChange={(e) => update(id, { code: setKitBank(code, e.target.value) })}>
+          {SEQ_BANKS.map((b) => <option key={b || 'def'} value={b}>{b || 'por defecto'}</option>)}
+          {bank && !SEQ_BANKS.includes(bank) && <option value={bank}>{bank}</option>}
+        </select>
+      </label>
+    );
+  }
+  if (!/\b(?:note|n)\(/.test(code)) return null;
+  const syn = data.synth;
+  const cur = data.synthOn && syn ? SYNTH_PRESETS.find((p) => Object.entries(p.params).every(([k, v]) => (syn as unknown as Record<string, unknown>)[k] === v))?.name ?? 'propio' : '';
+  const pick = (name: string) => {
+    if (!name) { update(id, { synthOn: false }); return; }
+    const p = SYNTH_PRESETS.find((x) => x.name === name);
+    if (p) update(id, { synthOn: true, synth: { ...DEFAULT_SYNTH, ...p.params, macro: 0, macroPreset: p.macro ? p.name : undefined } });
+  };
+  return (
+    <>
+      <label className="detail-pick" title="timbre: un sonido del synth por género, o el de su código">
+        sonido
+        <select value={cur} onChange={(e) => pick(e.target.value)}>
+          <option value="">el de su código</option>
+          {cur === 'propio' && <option value="propio" disabled>propio (estudio)</option>}
+          {PRESET_GENRES.map((gn) => (
+            <optgroup key={gn} label={gn}>
+              {SYNTH_PRESETS.filter((p) => p.genre === gn).map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <button className="detail-pick-btn" onClick={() => { update(id, { synth: data.synth ?? DEFAULT_SYNTH }); useGraphStore.getState().setSynthEdit(id); }} title="estudio de sonido: onda, envolvente, filtro, FM">estudio</button>
+    </>
+  );
+}
 
 // PANEL DE DETALLE (Fase 9.2): abajo, entre los paneles laterales, el editor de la pista elegida en
 // grande — el mismo secuenciador del nodo (secciones, variación, rejilla o piano roll) con celdas
@@ -49,6 +97,7 @@ export function DetailPanel() {
       <header className="detail-head">
         <span className="detail-dot" />
         <b className="detail-name">{name}</b>
+        <InstrumentPick id={node.id} data={node.data} />
         <span className="detail-hint">edición en grande · los cambios suenan al instante · Esc cierra</span>
         <button className="detail-x" onClick={close} title="cerrar el editor (Esc)" aria-label="cerrar el editor">×</button>
       </header>

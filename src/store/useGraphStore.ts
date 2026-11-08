@@ -271,6 +271,7 @@ interface GraphState {
   replaceOp: (id: string, opId: string) => void;
   // Inserta un nodo FX/transform partiendo un cable existente (inserción en vivo).
   insertOnEdge: (edgeId: string, kind: NodeKind, opId: string, position: { x: number; y: number }) => void;
+  addOpChained: (kind: NodeKind, opId: string, position?: { x: number; y: number }) => void;
   setDragItem: (item: DragItem | null) => void;
   setHoverEdge: (id: string | null) => void;
   setCpsValue: (cps: number) => void;
@@ -1149,6 +1150,36 @@ export const useGraphStore = create<GraphState>((set, get) => {
       newEdges.push({ id: `e_${id}_out`, source: id, target: edge.target });
       set({ nodes: [...get().nodes, node], edges: newEdges });
       get().recompile();
+    },
+
+    // CLIC en la paleta o en la búsqueda del lienzo (sin arrastrar): el FX/transform entra DESPUÉS
+    // del nodo elegido (en su cable de salida) o, sin nada elegido, justo antes del Out. Queda
+    // elegido, así otro clic encadena el siguiente detrás.
+    addOpChained: (kind, opId, position) => {
+      const { nodes, edges } = get();
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+      const sel = nodes.filter((n) => n.selected && n.data.kind !== 'out').pop();
+      let edge = sel ? edges.find((e) => e.source === sel.id) : undefined;
+      if (!edge && !sel) edge = edges.find((e) => byId.get(e.target)?.data.kind === 'out');
+      const before = new Set(nodes.map((n) => n.id));
+      if (edge) {
+        const a = byId.get(edge.source)!, b = byId.get(edge.target)!;
+        get().insertOnEdge(edge.id, kind, opId, position ?? { x: (a.position.x + b.position.x) / 2, y: (a.position.y + b.position.y) / 2 + 30 });
+      } else if (sel) {
+        // elegido y sin salida: se cuelga de él y sigue al Out
+        pushPast(true);
+        const id = nextId(kind);
+        const out = nodes.find((n) => n.data.kind === 'out');
+        const node: GNode = { id, type: kind, position: position ?? { x: sel.position.x + 40, y: sel.position.y + 140 }, data: { kind, opId, params: opParams(opId) } };
+        const add: Edge[] = [{ id: `e_${sel.id}_${id}`, source: sel.id, target: id }];
+        if (out) add.push({ id: `e_${id}_${out.id}`, source: id, target: out.id });
+        set({ nodes: [...nodes, node], edges: [...edges, ...add] });
+        get().recompile();
+      } else {
+        get().addNode(kind, opId, position);
+      }
+      const created = get().nodes.find((n) => !before.has(n.id));
+      if (created) set({ nodes: get().nodes.map((n) => (n.selected === (n.id === created.id) ? n : { ...n, selected: n.id === created.id })) });
     },
 
     setCpsValue: (cps) => {

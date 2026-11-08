@@ -23,7 +23,7 @@ export function PhoneGate() {
       <div className="phone-gate-card">
         <h2 id="phone-gate-t">Telar es para computador</h2>
         <p>Hacer música con nodos pide pantalla grande, teclado y ratón: en el teléfono la app se ve cortada.</p>
-        <p>Ábrela en un computador con Chrome, Edge o Firefox. Si te llegó un proyecto por enlace, cópialo y ábrelo allá.</p>
+        <p>Ábrela en un computador con Chrome o Edge. Si te llegó un proyecto por enlace, cópialo y ábrelo allá.</p>
         <div className="phone-gate-actions">
           <button className="phone-gate-primary" onClick={() => void copy()}>{copied ? 'enlace copiado' : 'copiar el enlace'}</button>
           <button className="phone-gate-ghost" onClick={go}>seguir igual</button>
