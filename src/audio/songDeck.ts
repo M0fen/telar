@@ -20,6 +20,7 @@ import {
   type Bands, type DjTrack, type Grid, type PlayModel,
 } from '../lib/djDeck';
 import type { NodeData } from '../graph/types';
+import { createLockVoice, loadPcm, pcmReady, releasePcm } from './deckPlayer';
 
 const gs = () => useGraphStore.getState();
 
@@ -29,10 +30,27 @@ export const useSongDecks = create<{ d: Record<string, DeckUi> }>(() => ({ d: {}
 const setUi = (id: string, patch: Partial<DeckUi>) => useSongDecks.setState((s) => ({ d: { ...s.d, [id]: { ...(s.d[id] ?? UI0), ...patch } } }));
 export const deckUi = (id: string): DeckUi => useSongDecks.getState().d[id] ?? UI0;
 
+// UNA VOZ del deck: la de siempre (AudioBufferSourceNode: velocidad = tono) o la de TONO FIJO
+// (deckPlayer: AudioWorklet que sigue el mismo modelo). Lo que cambia entre las dos vive aquí.
+interface Voice {
+  node: AudioNode; // lo que se conecta al fundido
+  src: AudioBufferSourceNode | null; // la voz de siempre
+  lock: AudioWorkletNode | null; // la voz con tono fijo
+}
+const voiceModel = (v: Voice, m: PlayModel) => { try { v.lock?.port.postMessage({ type: 'model', at: m.t0, m: { t0: m.t0, pos0: m.pos0, rate: m.rate, loop: m.loop } }); } catch { /* */ } };
+function voiceStop(v: Voice, at: number): void {
+  if (v.src) { try { v.src.stop(at); } catch { try { v.src.stop(); } catch { /* ya parado */ } } return; }
+  if (!v.lock) return;
+  const n = v.lock;
+  try { n.port.postMessage({ type: 'stop', at }); } catch { /* */ }
+  const ms = Math.max(0, (at - ctxNow()) * 1000) + 120;
+  window.setTimeout(() => { try { n.disconnect(); n.port.onmessage = null; } catch { /* */ } }, ms);
+}
+
 interface RT {
   id: string;
   out: GainNode | null; // ganancia del tema → tira del deck
-  node: AudioBufferSourceNode | null;
+  node: Voice | null;
   ng: GainNode | null; // fundido corto al cortar (sin clic)
   buf: AudioBuffer | null;
   bufId: string | null;
@@ -195,6 +213,7 @@ async function ready(id: string): Promise<RT | null> {
     if (!r.playing) r.m = { t0: 0, pos0: t.cue, rate: 0, loop: null };
   }
   if (!r.wave) window.setTimeout(() => computeWave(r), 0);
+  if (t.keylock !== false && !pcmReady(getAudioCtx(), r.bufId)) void ensureLock(r);
   return ensureOut(r) ? r : null;
 }
 // precarga (la vista del deck la pide al montarse: forma de onda y audio listos antes del ▶)
@@ -209,11 +228,12 @@ function killNode(r: RT, at: number): void {
     g.gain.cancelScheduledValues(at);
     g.gain.setValueAtTime(g.gain.value, at);
     g.gain.linearRampToValueAtTime(0, at + 0.006);
-    n.stop(at + 0.02);
-  } catch { try { n.stop(); } catch { /* ya parado */ } }
+  } catch { /* */ }
+  voiceStop(n, at + 0.02);
 }
 
-function startNode(r: RT, at: number, pos: number, rate: number, loop: { a: number; b: number } | null): void {
+// `plain`: la voz de siempre aunque el deck tenga tono fijo (el freno: un plato que se para baja el tono)
+function startNode(r: RT, at: number, pos: number, rate: number, loop: { a: number; b: number } | null, plain = false): void {
   if (!r.buf || !r.out) return;
   const ctx = getAudioCtx();
   let t0 = Math.max(at, ctx.currentTime + 0.01);
@@ -223,27 +243,69 @@ function startNode(r: RT, at: number, pos: number, rate: number, loop: { a: numb
   // pegado a 0 — entra justo cuando le toca, en fase (si no, el guardián lo corregía a saltos)
   if (p < 0 && rate > 0) { t0 += -p / rate; p = 0; }
   p = Math.max(0, Math.min(r.buf.duration - 0.01, p));
-  const src = new AudioBufferSourceNode(ctx, { buffer: r.buf, playbackRate: rate });
   const L = loop && loop.b > loop.a && p < loop.b ? loop : null;
-  if (L) { src.loop = true; src.loopStart = L.a; src.loopEnd = L.b; }
+  const m: PlayModel = { t0, pos0: p, rate, loop: L };
+  // TONO FIJO si el deck lo tiene y su audio ya está en el reproductor; si no, la voz de siempre
+  const t = trackOf(r.id);
+  const lockNode = !plain && t?.keylock !== false && pcmReady(ctx, r.bufId) ? createLockVoice(ctx, r.bufId!, m) : null;
+  let v: Voice;
+  if (lockNode) {
+    v = { node: lockNode, src: null, lock: lockNode };
+  } else {
+    const src = new AudioBufferSourceNode(ctx, { buffer: r.buf, playbackRate: rate });
+    if (L) { src.loop = true; src.loopStart = L.a; src.loopEnd = L.b; }
+    v = { node: src, src, lock: null };
+  }
   const ng = new GainNode(ctx, { gain: 0 });
-  src.connect(ng);
+  v.node.connect(ng);
   ng.connect(r.out);
   ng.gain.setValueAtTime(0, t0);
   ng.gain.linearRampToValueAtTime(1, t0 + 0.006);
-  src.start(t0, p);
+  v.src?.start(t0, p);
   killNode(r, t0);
-  r.node = src;
+  r.node = v;
   r.ng = ng;
-  r.m = { t0, pos0: p, rate, loop: L };
-  src.onended = () => {
-    if (r.node !== src || r.brake) return; // el freno se cierra solo (endBrake)
+  r.m = m;
+  const ended = () => {
+    if (r.node !== v || r.brake) return; // el freno se cierra solo (endBrake)
     // llegó al final del tema
     r.node = null;
     r.playing = false;
     r.m = { t0: ctx.currentTime, pos0: r.buf?.duration ?? p, rate: 0, loop: null };
     setUi(r.id, { playing: false, preview: false });
   };
+  if (v.src) v.src.onended = ended;
+  else if (v.lock) v.lock.port.onmessage = (e) => { if (e.data?.type === 'ended') ended(); };
+}
+
+// TONO FIJO: el audio del tema pasa al reproductor (una vez); si el deck ya sonaba con la voz de
+// siempre, cambia a la de tono fijo en el acto, sin corte (fundido de 6 ms)
+async function ensureLock(r: RT): Promise<void> {
+  const t = trackOf(r.id);
+  if (!r.buf || !r.bufId || t?.keylock === false) return;
+  const id = r.bufId;
+  const ok = await loadPcm(getAudioCtx(), id, r.buf);
+  if (ok && r.bufId === id) relock(r);
+}
+// vuelve a arrancar la voz en el mismo punto (con la clase de voz que corresponda ahora)
+function relock(r: RT): void {
+  if (!r.playing || r.preview || r.brake || !r.node || !r.buf) return;
+  const want = trackOf(r.id)?.keylock !== false && pcmReady(getAudioCtx(), r.bufId);
+  if (!!r.node.lock === want) return;
+  const at = ctxNow() + 0.03;
+  startNode(r, at, posAt(r.m, at, r.buf.duration), r.m.rate, r.m.loop);
+}
+// TONO FIJO encendido/apagado (por deck; viaja con el deck)
+export function deckKeylock(id: string, on: boolean): void {
+  const r = rts.get(id);
+  setTrack(id, { keylock: on });
+  if (!r) return;
+  if (on) void ensureLock(r);
+  else relock(r);
+}
+// suelta del reproductor los temas que ya no tiene ningún deck
+function releaseUnused(): void {
+  try { releasePcm(getAudioCtx(), new Set([...rts.values()].map((x) => x.bufId).filter((x): x is string => !!x))); } catch { /* */ }
 }
 
 // velocidad de base del deck (sin el empujón): con SYNC, la de la sesión; si no, su pitch
@@ -255,8 +317,9 @@ function setRate(r: RT, rate: number, at: number): void {
   if (!r.node || !r.buf) return;
   if (Math.abs(rate - r.m.rate) < 1e-7) return;
   const pos = posAt(r.m, at, r.buf.duration);
-  try { r.node.playbackRate.setValueAtTime(rate, at); } catch { return; }
+  if (r.node.src) { try { r.node.src.playbackRate.setValueAtTime(rate, at); } catch { return; } }
   r.m = { t0: at, pos0: pos, rate, loop: r.m.loop };
+  voiceModel(r.node, r.m);
 }
 
 // el reloj de la sesión, arrancándolo si estaba parado (con SYNC el tema lo necesita). El ancla sale
@@ -415,9 +478,10 @@ export async function deckLoop(id: string, bars: number | null): Promise<void> {
   const cur = deckUi(id).loop;
   if (bars == null || cur === bars) {
     // salir: el audio sigue de largo; el lock queda en la relación de ahora (el loop corrió el tema)
-    if (r.node) r.node.loop = false;
+    if (r.node?.src) r.node.src.loop = false;
     const pos = posAt(r.m, now, r.buf.duration);
     r.m = { t0: now, pos0: pos, rate: r.m.rate, loop: null };
+    if (r.node) voiceModel(r.node, r.m);
     const sb = sessionBeat(now);
     if (r.playing && sb != null && t.sync !== false) r.lock = beatAt(g, pos) - sb;
     setUi(id, { loop: null });
@@ -427,10 +491,13 @@ export async function deckLoop(id: string, bars: number | null): Promise<void> {
   const L = loopFrom(g, pos, bars);
   if (L.b > r.buf.duration) return;
   if (r.playing && r.node) {
-    r.node.loopStart = L.a;
-    r.node.loopEnd = L.b;
-    r.node.loop = true;
+    if (r.node.src) {
+      r.node.src.loopStart = L.a;
+      r.node.src.loopEnd = L.b;
+      r.node.src.loop = true;
+    }
     r.m = { t0: now, pos0: pos, rate: r.m.rate, loop: L };
+    voiceModel(r.node, r.m);
   } else r.m = { ...r.m, loop: L };
   setUi(id, { loop: bars });
 }
@@ -605,7 +672,10 @@ export function deckBrake(id: string): void {
   const D = Math.max(0.35, (2 * 60) / Math.max(40, effBpm(t)));
   const rate = r.m.rate || baseRate(t);
   const pos0 = posAt(r.m, at, r.buf.duration);
-  const node = r.node, ng = r.ng;
+  // con tono fijo, el freno toca con la voz de siempre (que es la que baja de tono al frenar)
+  if (!r.node.src) startNode(r, at, pos0, rate, null, true);
+  const node = r.node?.src, ng = r.ng;
+  if (!node || !ng) { deckPause(id); return; }
   try {
     node.loop = false;
     node.playbackRate.cancelScheduledValues(at);
@@ -692,14 +762,16 @@ function applyTrack(id: string, meta: TrackMeta, buf: AudioBuffer): void {
   r.wave = null;
   r.m = { t0: 0, pos0: cue, rate: 0, loop: null };
   window.setTimeout(() => computeWave(r), 0);
+  releaseUnused();
   const prev = trackOf(id);
   const hot = [0, 1, 2, 3].map((k) => meta.hot?.[k] ?? null);
   const t: DjTrack = {
     id: meta.id, title: meta.title, bpm: meta.bpm, first: meta.first, beats: meta.beats, dur: meta.dur,
-    key: meta.key, lufs: meta.lufs, cue, hot, sync: prev?.sync ?? true, pitch: prev?.pitch,
+    key: meta.key, lufs: meta.lufs, cue, hot, sync: prev?.sync ?? true, pitch: prev?.pitch, keylock: prev?.keylock,
   };
   gs().updateNodeData(id, { name: meta.title, djTrack: t });
   ensureOut(r);
+  if (t.keylock !== false) void ensureLock(r); // el audio al reproductor con tono fijo, por trozos
   setUi(id, { loading: false, missing: false, playing: false, loop: null, preview: false });
 }
 
@@ -791,6 +863,7 @@ export function initSongDecks(): void {
           killNode(r, ctxNow());
           setStripInput(id, null);
           rts.delete(id);
+          releaseUnused();
           useSongDecks.setState((st) => { const d = { ...st.d }; delete d[id]; return { d }; });
         }
       }

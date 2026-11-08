@@ -25,6 +25,7 @@ export interface DjTrack {
   sync?: boolean; // false = a su tempo (con `pitch`)
   pitch?: number; // −0,16…0,16 sin sync
   trim?: number; // dB a mano (si no, la ganancia automática por loudness)
+  keylock?: boolean; // false = la velocidad cambia el tono (como un plato); por defecto, tono fijo
 }
 export const gridOf = (t: { bpm: number; first: number; beats?: number }): Grid => ({ bpm: t.bpm, first: t.first, beats: t.beats || 4 });
 

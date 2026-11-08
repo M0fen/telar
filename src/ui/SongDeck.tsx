@@ -4,7 +4,7 @@ import { useMidiStore, midiKeyLabel } from '../store/useMidiStore';
 import { deckSlot } from '../audio/djMidi';
 import {
   deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckNudge, deckPhase,
-  deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
+  deckKeylock, deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
   deckBrake, deckEchoOut,
 } from '../audio/songDeck';
 import { autoGainDb, barLen, beatAt, camelot, fmtTime, gridOf, posOfBeat, type DjTrack } from '../lib/djDeck';
@@ -182,6 +182,9 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
   const eff = sync ? sessionBpm : t.bpm * (1 + (t.pitch ?? 0));
   const pct = ((eff / t.bpm - 1) * 100);
   const gainDb = t.trim ?? autoGainDb(t.lufs);
+  const keylock = t.keylock !== false;
+  // sin tono fijo, la velocidad mueve el tono: cuántos semitonos (para la mezcla armónica)
+  const semis = keylock ? 0 : 12 * Math.log2(eff / t.bpm);
   const hot = [0, 1, 2, 3].map((k) => t.hot?.[k] ?? null);
   const ovClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -199,6 +202,7 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
       <div className="sd-info">
         <span className="sd-key" title={t.key ? `tonalidad ${keyShort(t.key)} · Camelot ${camelot(t.key)} (mezcla armónica: misma clave, ±1 o la otra letra)` : 'sin tonalidad detectada'}>
           {t.key ? <><b>{camelot(t.key)}</b> {keyShort(t.key)}</> : '—'}
+          {Math.abs(semis) >= 0.05 && <i className="sd-semis" title="sin tono fijo, la velocidad mueve el tono">{`${semis > 0 ? '+' : ''}${semis.toFixed(1)} st`}</i>}
         </span>
         <span className="sd-bpm" title={`tempo original ${t.bpm.toFixed(2)} BPM${sync ? ` · con SYNC suena a ${eff.toFixed(1)} (${pct >= 0 ? '+' : ''}${pct.toFixed(1)} %)` : ''}${t.lufs != null ? ` · volumen igualado: ${t.lufs} LUFS → ${gainDb >= 0 ? '+' : ''}${gainDb} dB (a −14, como los demás temas)` : ''}`}>
           <b>{eff.toFixed(1)}</b> <i>{t.bpm.toFixed(1)}{Math.abs(pct) > 0.05 ? ` ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : ''}</i>
@@ -207,6 +211,10 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
         <button className={`sd-btn sd-sync${sync ? ' on' : ''}`} data-midi={slot('sync')} onClick={() => void deckSync(id, !sync)}
           title={sync ? 'SYNC: el tema va al tempo de la sesión y con su fase fija (toca para soltarlo a su tempo)' : 'sin SYNC: el tema va a su tempo (toca para sincronizarlo)'}>
           sync<MK slot={slot('sync')} />
+        </button>
+        <button className={`sd-btn${keylock ? ' on' : ''}`} onClick={() => deckKeylock(id, !keylock)}
+          title={keylock ? 'TONO FIJO: el tempo cambia sin cambiar el tono (key lock). Toca para que la velocidad mueva el tono, como un plato' : 'la velocidad mueve el tono (como un plato). Toca para tono fijo'}>
+          tono
         </button>
         <button className="sd-btn" onClick={() => sessionToTrack(id)} title={`que la sesión vaya al tempo de este tema (${t.bpm.toFixed(1)} BPM): los demás decks lo siguen`}>♩=</button>
         <button className={`sd-btn${gridOpen ? ' on' : ''}`} onClick={() => setGridOpen(!gridOpen)} title="rejilla a mano: si los tiempos o los compases no caen donde debe (el análisis se equivocó)">⌗</button>
