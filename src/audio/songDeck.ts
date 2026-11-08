@@ -15,12 +15,13 @@ import { useDjStore } from './djMix';
 import { addTrack, loadBuffer, rememberBuffer, getMeta, putMeta, type TrackMeta } from './trackStore';
 import { toast } from '../store/useNotifyStore';
 import {
-  autoGainDb, bandPeaks, barLen, barOffset, beatAt, beatLen, gridDownbeatAt, gridOf, gridScale, gridShift, gridTempo, jumpBeats, lockedPos,
+  autoGainDb, bandPeaks, barLen, barOffset, beatAt, beatLen, bestMult, gridDownbeatAt, gridOf, gridScale, gridShift, gridTempo, jumpBeats, lockedPos, rawGridOf,
   loopFrom, normBands, posAt, posOfBeat, snapPos, syncRate,
   type Bands, type DjTrack, type Grid, type PlayModel,
 } from '../lib/djDeck';
 import type { NodeData } from '../graph/types';
 import { createLockVoice, loadPcm, pcmReady, releasePcm } from './deckPlayer';
+import { djLive } from '../lib/djLive';
 
 const gs = () => useGraphStore.getState();
 
@@ -334,7 +335,7 @@ async function clockRunning(): Promise<boolean> {
 // ▶ — con SYNC entra en el 1 del próximo compás de la sesión (con «♩ al compás»), en fase
 export async function deckPlay(id: string): Promise<void> {
   const r = await ready(id);
-  const t = trackOf(id);
+  let t = trackOf(id);
   if (!r || !t) return;
   endBrake(r); // ▶ durante el freno: sigue desde donde quedó
   if (r.playing && !r.preview) return;
@@ -342,7 +343,13 @@ export async function deckPlay(id: string): Promise<void> {
   // si ningún otro TEMA suena, este manda el tempo (a su velocidad, sin estirarlo): como el deck
   // máster de un controlador. Los loops del grafo siguen a la sesión.
   const otherPlaying = [...rts.values()].some((x) => x.id !== id && x.playing && !x.preview);
-  if (sync && !otherPlaying && Math.abs(sessionBpm() - gridOf(t).bpm) > 0.05) sessionToTrack(id);
+  if (sync) {
+    // solo: manda el tempo a su tempo. Con otro sonando: ½ o ×2 si así queda más cerca (un 70 con un 140)
+    const want = otherPlaying ? bestMult(sessionBpm(), t.bpm) : 1;
+    if ((t.mult ?? 1) !== want) setTrack(id, { mult: want === 1 ? undefined : want });
+    t = trackOf(id) ?? t;
+    if (!otherPlaying && Math.abs(sessionBpm() - t.bpm) > 0.05) sessionToTrack(id);
+  }
   if (sync && !(await clockRunning())) { toast.warn('No pude arrancar el reloj de la sesión: dale ▶ arriba y vuelve a intentar.'); return; }
   const g = gridOf(t);
   const now = ctxNow();
@@ -542,7 +549,22 @@ export function sessionToTrack(id: string): void {
   const t = trackOf(id);
   if (!t) return;
   const g = gs();
-  g.setCpsValue(t.bpm / 60 / (g.beatsPerCycle || 4));
+  g.setCpsValue(gridOf(t).bpm / 60 / (g.beatsPerCycle || 4));
+}
+
+// SYNC a ½ / 1 / ×2 a mano (el número junto al tempo): sonando, la fase se fija al tiempo más cercano
+export function deckMult(id: string, mult: 0.5 | 1 | 2): void {
+  const t = trackOf(id);
+  if (!t) return;
+  const nt = { ...t, mult: mult === 1 ? undefined : mult };
+  const r = rts.get(id);
+  if (r && r.playing && !r.preview && r.buf && t.sync !== false) {
+    const now = ctxNow();
+    const sb = sessionBeat(now);
+    if (sb != null) r.lock = Math.round(beatAt(gridOf(nt), posAt(r.m, now, r.buf.duration)) - sb);
+    setRate(r, baseRate(nt) * (1 + r.nudge), now + 0.02);
+  }
+  setTrack(id, { mult: nt.mult });
 }
 
 // TEMPO A MANO (sin SYNC): ±16 % sobre el tempo del tema, como el fader de pitch de un CDJ
@@ -573,7 +595,7 @@ export async function deckGrid(id: string, e: GridEdit): Promise<void> {
   const t = trackOf(id);
   if (!t || !(t.dur > 0)) return;
   const r = rts.get(id);
-  const g = gridOf(t);
+  const g = rawGridOf(t);
   const pos = r ? (r.playing && !r.preview ? heardPos(r) : r.m.pos0) : t.cue;
   let n: Grid = g;
   if (e.kind === 'one') n = gridDownbeatAt(g, pos);
@@ -853,6 +875,7 @@ let inited = false;
 export function initSongDecks(): void {
   if (inited) return;
   inited = true;
+  djLive.decksPlaying = () => [...rts.values()].some((r) => r.playing && !r.preview);
   keeperTimer = window.setInterval(keeper, 100);
   useGraphStore.subscribe((s, p) => {
     if ((p.playing && !s.playing) || (p.mode === 'dj' && s.mode !== 'dj')) for (const r of rts.values()) if (r.playing) deckPause(r.id);

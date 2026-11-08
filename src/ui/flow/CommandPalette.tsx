@@ -9,6 +9,7 @@ import { useDetailStore } from '../../store/useDetailStore';
 import { dawSection, createFromTemplate } from '../../lib/dawActions';
 import { STRUCTURE_TEMPLATES } from '../../lib/arrangeEdit';
 import { playFrom, playSong } from '../../lib/songTransport';
+import { switchMode } from '../../lib/djLive';
 import { newPadTrack } from '../../audio/padRecorder';
 import { HelpLine } from './HelpLine';
 import { openLibrary } from '../../lib/openLibrary';
@@ -29,9 +30,9 @@ function commands(): Cmd[] {
     { id: 'play', group: 'transporte', label: g.playing ? '■ parar' : '▶ reproducir', keys: 'Espacio', run: () => { if (g.playing) void g.stop(); else void g.play(); } },
     { id: 'song', group: 'transporte', label: '▶ la canción desde el compás 1', run: () => void playSong(), words: 'cancion inicio principio' },
     { id: 'metro', group: 'transporte', label: `metrónomo ${metro.on ? 'apagado' : 'encendido'}`, run: () => metro.setOn(!metro.on), words: 'click clic' },
-    { id: 'v-std', group: 'vistas', label: 'vista standard (grafo)', run: () => g.setMode('standard') },
-    { id: 'v-dj', group: 'vistas', label: 'vista DJ (mesa)', run: () => g.setMode('dj') },
-    { id: 'v-daw', group: 'vistas', label: 'vista DAW (línea de tiempo)', run: () => g.setMode('daw') },
+    { id: 'v-std', group: 'vistas', label: 'vista standard (grafo)', run: () => void switchMode('standard') },
+    { id: 'v-dj', group: 'vistas', label: 'vista DJ (mesa)', run: () => void switchMode('dj') },
+    { id: 'v-daw', group: 'vistas', label: 'vista DAW (línea de tiempo)', run: () => void switchMode('daw') },
     { id: 'mixer', group: 'vistas', label: 'mezclador', keys: 'X', run: () => useMixerStore.getState().toggle(), words: 'mixer tiras eq compresor' },
     { id: 'viz', group: 'vistas', label: g.vizVisible ? 'plegar el visualizador' : 'mostrar el visualizador', run: () => g.setVizVisible(!g.vizVisible) },
     { id: 'follow', group: 'DAW', label: daw.follow ? 'dejar de seguir el cabezal' : 'seguir el cabezal', keys: 'F', run: () => daw.setFollow(!daw.follow) },

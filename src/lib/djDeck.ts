@@ -26,8 +26,18 @@ export interface DjTrack {
   pitch?: number; // −0,16…0,16 sin sync
   trim?: number; // dB a mano (si no, la ganancia automática por loudness)
   keylock?: boolean; // false = la velocidad cambia el tono (como un plato); por defecto, tono fijo
+  mult?: number; // SYNC a la mitad (0,5) o al doble (2) del tempo del tema: un 70 en una sesión a 140
 }
-export const gridOf = (t: { bpm: number; first: number; beats?: number }): Grid => ({ bpm: t.bpm, first: t.first, beats: t.beats || 4 });
+// la rejilla CON LA QUE SINCRONIZA (con ½ / ×2); rawGridOf: la del análisis (la que se corrige a mano)
+export const gridOf = (t: { bpm: number; first: number; beats?: number; mult?: number }): Grid => ({ bpm: t.bpm * (t.mult === 0.5 || t.mult === 2 ? t.mult : 1), first: t.first, beats: t.beats || 4 });
+export const rawGridOf = (t: { bpm: number; first: number; beats?: number }): Grid => ({ bpm: t.bpm, first: t.first, beats: t.beats || 4 });
+// ½, 1 o ×2: el que deja el tema más cerca del tempo de la sesión (1 si ya está a menos de un 25 %)
+export function bestMult(sessionBpm: number, bpm: number): 0.5 | 1 | 2 {
+  if (!(sessionBpm > 0) || !(bpm > 0)) return 1;
+  const d = (m: number) => Math.abs(Math.log2(sessionBpm / (bpm * m)));
+  if (d(1) <= Math.log2(1.25)) return 1;
+  return d(2) < d(0.5) ? (d(2) < d(1) ? 2 : 1) : (d(0.5) < d(1) ? 0.5 : 1);
+}
 
 export const beatLen = (g: Grid) => 60 / Math.max(1, g.bpm);
 export const barLen = (g: Grid) => beatLen(g) * Math.max(1, g.beats);

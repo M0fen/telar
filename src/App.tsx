@@ -13,6 +13,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useGraphStore, wouldCycle, saveProjectSoon, type GNode } from './store/useGraphStore';
 import { playTransport } from './lib/songTransport';
+import { switchMode, djSpaceGuard } from './lib/djLive';
 import { QuickAdd } from './ui/flow/QuickAdd';
 import { flushProjectSave } from './lib/projectStore';
 import { useScenesStore } from './store/useScenesStore';
@@ -238,7 +239,7 @@ export default function App() {
       const key = e.key.toLowerCase();
       if (e.key === ' ') {
         e.preventDefault();
-        if (st.playing) void st.stop();
+        if (st.playing) { if (!djSpaceGuard()) void st.stop(); }
         else void playTransport();
         return;
       }
@@ -644,9 +645,9 @@ export default function App() {
           )}
           <div className="mode-switch">
             <div className="seg">
-              <button className={mode === 'standard' ? 'on' : ''} onClick={() => setMode('standard')}>standard</button>
-              <button className={mode === 'dj' ? 'on' : ''} onClick={() => setMode('dj')}>dj</button>
-              <button className={mode === 'daw' ? 'on' : ''} onClick={() => setMode('daw')} title="línea de tiempo: la canción entera, pistas × compases">daw</button>
+              <button className={mode === 'standard' ? 'on' : ''} onClick={() => void switchMode('standard')}>standard</button>
+              <button className={mode === 'dj' ? 'on' : ''} onClick={() => void switchMode('dj')}>dj</button>
+              <button className={mode === 'daw' ? 'on' : ''} onClick={() => void switchMode('daw')} title="línea de tiempo: la canción entera, pistas × compases">daw</button>
             </div>
             {mode === 'dj' && (
               <div className="seg sub">

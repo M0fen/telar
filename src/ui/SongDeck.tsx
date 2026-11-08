@@ -4,7 +4,7 @@ import { useMidiStore, midiKeyLabel } from '../store/useMidiStore';
 import { deckSlot } from '../audio/djMidi';
 import {
   deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckNudge, deckPhase,
-  deckKeylock, deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
+  deckKeylock, deckMult, deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
   deckBrake, deckEchoOut,
 } from '../audio/songDeck';
 import { autoGainDb, barLen, beatAt, camelot, fmtTime, gridOf, posOfBeat, type DjTrack } from '../lib/djDeck';
@@ -179,12 +179,14 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
   if (!t) return null;
   const playing = !!ui?.playing && !ui?.preview;
   const sync = t.sync !== false;
+  const mult = t.mult === 0.5 || t.mult === 2 ? t.mult : 1;
+  const base = t.bpm * mult; // el tempo del tema con ½ / ×2
   const eff = sync ? sessionBpm : t.bpm * (1 + (t.pitch ?? 0));
-  const pct = ((eff / t.bpm - 1) * 100);
+  const pct = ((eff / (sync ? base : t.bpm) - 1) * 100);
   const gainDb = t.trim ?? autoGainDb(t.lufs);
   const keylock = t.keylock !== false;
   // sin tono fijo, la velocidad mueve el tono: cuántos semitonos (para la mezcla armónica)
-  const semis = keylock ? 0 : 12 * Math.log2(eff / t.bpm);
+  const semis = keylock ? 0 : 12 * Math.log2(eff / (sync ? base : t.bpm));
   const hot = [0, 1, 2, 3].map((k) => t.hot?.[k] ?? null);
   const ovClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -208,6 +210,12 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
           <b>{eff.toFixed(1)}</b> <i>{t.bpm.toFixed(1)}{Math.abs(pct) > 0.05 ? ` ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : ''}</i>
         </span>
         <span className="sd-time"><span ref={elRef}>0:00</span> <i ref={remRef}>−0:00</i></span>
+        {sync && (
+          <button className={`sd-btn sd-mult${mult !== 1 ? ' on' : ''}`} onClick={() => deckMult(id, mult === 1 ? 2 : mult === 2 ? 0.5 : 1)}
+            title={`SYNC a ${mult === 1 ? 'su tempo' : mult === 2 ? 'el doble' : 'la mitad'} (${base.toFixed(1)} BPM). Toca para probar ×2 / ½ / 1: un 70 junto a un 140, o un tema que el análisis leyó a la mitad`}>
+            {mult === 1 ? '1×' : mult === 2 ? '×2' : '½'}
+          </button>
+        )}
         <button className={`sd-btn sd-sync${sync ? ' on' : ''}`} data-midi={slot('sync')} onClick={() => void deckSync(id, !sync)}
           title={sync ? 'SYNC: el tema va al tempo de la sesión y con su fase fija (toca para soltarlo a su tempo)' : 'sin SYNC: el tema va a su tempo (toca para sincronizarlo)'}>
           sync<MK slot={slot('sync')} />

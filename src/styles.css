@@ -3400,3 +3400,6 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .dj-hp-ctrl input { accent-color: var(--accent); margin: 0; }
 
 .sd-semis { margin-left: 4px; color: var(--warn); font-style: normal; font-size: 9px; }
+
+.sd-mult { min-width: 22px; }
+.sd-mult:not(.on) { opacity: 0.55; }
