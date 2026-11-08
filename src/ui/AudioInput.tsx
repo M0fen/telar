@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { registerLocalSample } from '../audio/engine';
 import { useGraphStore } from '../store/useGraphStore';
-import { sampleDuration, naturalLoop } from '../lib/audioMeta';
+import { sampleDuration, sampleSourceCode } from '../lib/audioMeta';
 
 // Entrada de audio EN VIVO (micrófono / línea): graba un fragmento de la entrada y lo
 // deja como un Source en LOOP (`s("in_…").loopAt(n).chop(n)`) — sampleo/looping en
@@ -35,8 +35,9 @@ export function AudioInput() {
           await registerLocalSample(name, blob);
           const url = URL.createObjectURL(blob);
           const cps = useGraphStore.getState().cps || 0.5;
-          const cycles = naturalLoop(await sampleDuration(url), cps);
-          addPattern(`s("${name}").loopAt(${cycles}).chop(${cycles})`, 'audio in');
+          // a su tempo y tono naturales (loopAt estiraba por varispeed: 3 s a 140 BPM sonaban
+          // 2,3 semitonos abajo); se re-dispara justo al terminar, sin solaparse
+          addPattern(sampleSourceCode(name, await sampleDuration(url), cps), 'audio in');
         } finally {
           setBusy(false);
         }

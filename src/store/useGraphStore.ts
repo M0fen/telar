@@ -14,7 +14,7 @@ import { OPS_BY_ID, defaultParams } from '../graph/ops';
 import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, INLINE_VIZ_RE, sourceCompiles, type MasterFx, type CompileOpts } from '../graph/compile';
 import { probeCode } from '../audio/patternPreview';
 import { toast } from './useNotifyStore';
-import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, onEngineLogIssue, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
+import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, onEngineLogIssue, registerSavedLocalSounds, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
 import { applyDjLive, djEntryNeedsCode, DJ_LIVE_KEYS, swapDelayForBar } from '../audio/djMix';
 import { useLaunchStore } from './useLaunchStore';
 let djSwapTimer: number | undefined;
@@ -1212,6 +1212,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       }
       await registerIrReverbs(); // espacios de reverb por IR (ir_hall, ir_plate…)
       await registerUserPacks(); // packs del usuario guardados (IndexedDB) → s("…")
+      await registerSavedLocalSounds(); // sonidos propios sueltos (soltados, grabados, SFX) → vuelven a sonar
       await registerCloudBank(); // banco propio en la nube (R2) → s("…") vía proxy
       // loops al tempo del tema (Fase 5.2): al ▶ suenan ya y se estiran en segundo plano; al
       // exportar se esperan las copias exactas

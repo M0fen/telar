@@ -13,6 +13,7 @@ import { ensureCompModule, compModuleReady, createCompNode, setCompParams, getOr
 import { returnsFor, applyLiveReturns } from './fxReturns';
 import { initStrudel, getAudioContext, getAnalyserById, getSuperdoughAudioController, samples, initAudio, registerWaveTable, strudelScope } from '@strudel/web';
 import { setStrudelScope, mayRun } from '../store/useTrustStore';
+import { saveLocalSound, loadLocalSounds } from '../lib/localSounds';
 import { registerTransitionSounds, stopTransitionVoices } from './transSounds';
 import { registerMetronomeSound } from './metronomeSound';
 import { SRC_ANALYSER_PREFIX } from '../graph/compile';
@@ -1434,12 +1435,26 @@ export async function loadSamplePack(ref: string): Promise<boolean> {
   }
 }
 
-// Registra un archivo de audio LOCAL (drag-drop) como sample de Strudel vía
-// objectURL en memoria. No persiste tras recargar (es para tocar en el momento).
+// Registra un archivo de audio PROPIO (soltado, grabado, SFX, congelado) como sample de Strudel
+// y lo guarda en IndexedDB (lib/localSounds.ts): al recargar vuelve a sonar (registerSavedLocalSounds).
 export async function registerLocalSample(name: string, file: Blob): Promise<void> {
   await ensureEngine();
   const url = URL.createObjectURL(file);
   await samples({ [name]: url });
+  void saveLocalSound(name, file).catch(() => { /* sin espacio: suena igual en esta sesión */ });
+}
+
+// Los sonidos propios guardados vuelven a registrarse UNA vez por sesión, antes de sonar.
+let savedLocalDone: Promise<void> | null = null;
+export function registerSavedLocalSounds(): Promise<void> {
+  savedLocalDone ??= (async () => {
+    try {
+      await ensureEngine();
+      const list = await loadLocalSounds();
+      if (list.length) await samples(Object.fromEntries(list.map((x) => [x.name, URL.createObjectURL(x.blob)])));
+    } catch { /* sin IndexedDB: nada que recuperar */ }
+  })();
+  return savedLocalDone;
 }
 
 // Registra las wavetables propias de Telar (wt_telar_*). El motor las reproduce
