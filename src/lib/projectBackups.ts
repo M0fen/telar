@@ -43,7 +43,8 @@ function sources(snap: SnapLike): NodeLike[] {
 export function worthBackup(snap: SnapLike): boolean {
   const src = sources(snap);
   if (!src.length) return false;
-  if (src.length === 1 && String(src[0].data?.code ?? '').trim() === 's("bd*4")' && !src[0].data?.name && !snap.song?.steps?.length) return false;
+  const nm = String(src[0].data?.name ?? '').trim();
+  if (src.length === 1 && String(src[0].data?.code ?? '').trim() === 's("bd*4")' && (!nm || nm === 'bombo') && !snap.song?.steps?.length) return false;
   return true;
 }
 

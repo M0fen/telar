@@ -3364,3 +3364,11 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .tn.is-broken { border-color: var(--warn) !important; box-shadow: 0 0 0 1px var(--warn), 0 0 14px rgba(224, 99, 58, 0.25); }
 .tn-broken { margin: 4px 8px 6px; padding: 4px 6px; font-family: var(--mono); font-size: 10.5px; line-height: 1.4; color: #ffb59a; background: rgba(224, 99, 58, 0.12); border: 1px solid rgba(224, 99, 58, 0.5); border-radius: 3px; overflow-wrap: anywhere; cursor: default; }
 .tn-broken.is-warn { color: #ffd59a; background: rgba(224, 170, 58, 0.1); border-color: rgba(224, 170, 58, 0.45); }
+
+/* --- DAW: menú de la cabecera de pista (renombrar, color, borrar) y «＋ pista» --- */
+.daw-fmenu-colors { display: grid; grid-template-columns: repeat(8, 18px); gap: 4px; padding: 6px 8px; }
+.daw-swatch { width: 18px; height: 18px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, 0.4); padding: 0; cursor: pointer; }
+.daw-swatch.on, .daw-swatch:hover, .daw-swatch:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.daw-fmenu-danger { color: var(--warn) !important; }
+.daw-addtrack { position: relative; }
+.daw-addmenu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 40; min-width: 210px; display: flex; flex-direction: column; }

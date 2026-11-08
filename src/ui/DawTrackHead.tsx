@@ -6,10 +6,12 @@ import { TrackMeter, GroupMeter } from './TrackMeter';
 import { Knob } from './Knob';
 import { dbToGain, fmtDbShort, fmtPan, folderOf, folderToggle, FOLDER_LABEL, FOLDERS, gainToDb, isTall, LANE_H, laneH, type FolderId } from '../lib/dawFolders';
 import type { DawTrack } from '../lib/dawModel';
+import { TRACK_COLORS } from '../lib/trackColor';
+import { askPrompt, askConfirm } from '../store/useNotifyStore';
 
 // CABECERAS DE PISTA DEL DAW (Fase 9.6): nombre y M/S/A arriba; con la fila alta, volumen en dB,
 // paneo y un medidor vertical con pico. El borde de abajo se arrastra para cambiar el alto (doble
-// clic: compacta ↔ con volumen). Clic derecho: mover la pista a otra carpeta.
+// clic: compacta ↔ con volumen). Clic derecho: renombrar, color, borrar y carpeta.
 
 // cambiar el alto de una fila (vista: deshacer lo agrupa como cualquier arrastre)
 export function useLaneResize(): (id: string, h: number) => void {
@@ -30,10 +32,29 @@ function FolderMenu({ id, x, y, onClose }: { id: string; x: number; y: number; o
   const auto = folderOf({ name: data.name, code: data.code });
   const cur = data.folder;
   const pick = (f: FolderId | undefined) => { useGraphStore.getState().updateNodeData(id, { folder: f }); onClose(); };
+  const name = data.name?.trim() || 'pista';
+  const rename = async () => {
+    onClose();
+    const v = await askPrompt('Renombrar la pista', { defaultValue: name, confirmLabel: 'renombrar' });
+    if (v != null && v.trim()) useGraphStore.getState().updateNodeData(id, { name: v.trim().slice(0, 40) });
+  };
+  const remove = async () => {
+    onClose();
+    const ok = await askConfirm(`¿Borrar la pista «${name}»?`, { message: 'Se puede recuperar con Ctrl+Z.', confirmLabel: 'borrar', danger: true });
+    if (ok) useGraphStore.getState().removeNode(id);
+  };
   // en el <body>: dentro de la cabecera (sticky, con su capa) la tapaban las filas de abajo
   return createPortal(
-    <div ref={ref} className="daw-menu daw-fmenu" role="menu" style={{ left: Math.min(x, window.innerWidth - 190), top: Math.min(y, window.innerHeight - 260) }}>
-      <span className="daw-fmenu-h">carpeta de «{data.name ?? 'pista'}»</span>
+    <div ref={ref} className="daw-menu daw-fmenu" role="menu" style={{ left: Math.min(x, window.innerWidth - 210), top: Math.min(y, window.innerHeight - 380) }}>
+      <span className="daw-fmenu-h">«{name}»</span>
+      <button role="menuitem" onClick={() => void rename()}>renombrar…</button>
+      <div className="daw-fmenu-colors" role="group" aria-label="color de la pista">
+        {TRACK_COLORS.map((c) => (
+          <button key={c} className={`daw-swatch${data.color === c ? ' on' : ''}`} style={{ background: c }} title={c} aria-label={`color ${c}`} onClick={() => { useGraphStore.getState().updateNodeData(id, { color: c }); onClose(); }} />
+        ))}
+      </div>
+      <button role="menuitem" className="daw-fmenu-danger" onClick={() => void remove()}>borrar la pista</button>
+      <span className="daw-fmenu-h">carpeta</span>
       <button role="menuitemradio" aria-checked={cur == null} onClick={() => pick(undefined)}>{cur == null ? '● ' : ''}automática ({FOLDER_LABEL[auto]})</button>
       {FOLDERS.map((f) => (
         <button key={f} role="menuitemradio" aria-checked={cur === f} onClick={() => pick(f)}>{cur === f ? '● ' : ''}{FOLDER_LABEL[f]}</button>

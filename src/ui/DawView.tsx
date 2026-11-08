@@ -23,7 +23,8 @@ import { useDawUiStore } from '../store/useDawUiStore';
 import { useTrackColorStore } from '../store/useTrackColorStore';
 import { TrackColorButton } from './TrackColor';
 import { DawTrackHead, DawFolderRow, useLaneResize } from './DawTrackHead';
-import { dawClip, dropSoundAt } from '../lib/dawActions';
+import { dawClip, dropSoundAt, newDawTrack } from '../lib/dawActions';
+import { openLibrary } from '../lib/openLibrary';
 import { DawMarkers, DawMinimap, addMarkerAt } from './DawMarkers';
 import { useMixerStore } from '../store/useMixerStore';
 import { Launcher } from './Launcher';
@@ -77,6 +78,47 @@ function blockTitle(t: DawTrack, b: DawBlock): string {
 }
 
 const MASTER_ROW = '__master__'; // clave del carril de automatización del máster (7.2)
+
+// «＋ pista ▾»: batería o melodía listas para editar, un archivo de audio o la biblioteca
+function AddTrackButton() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('pointerdown', off, true);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('pointerdown', off, true); window.removeEventListener('keydown', esc); };
+  }, [open]);
+  const make = (kind: 'drum' | 'melody') => {
+    setOpen(false);
+    const id = newDawTrack(kind);
+    if (id) useDetailStore.getState().open(id);
+  };
+  const fromFile = () => {
+    setOpen(false);
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'audio/*,.wav,.mp3,.aif,.aiff,.flac,.ogg,.m4a';
+    input.multiple = true;
+    input.onchange = () => { if (input.files?.length) importDroppedFiles(input.files); };
+    input.click();
+  };
+  return (
+    <span className="daw-addtrack" ref={ref}>
+      <button className={`daw-btn${open ? ' on' : ''}`} onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} title="agregar una pista">＋ pista ▾</button>
+      {open && (
+        <span className="daw-menu daw-addmenu" role="menu">
+          <button role="menuitem" onClick={() => make('drum')}>batería · bombo, caja y hat listos</button>
+          <button role="menuitem" onClick={() => make('melody')}>melodía · notas en el piano roll</button>
+          <button role="menuitem" onClick={fromFile}>desde un archivo de audio…</button>
+          <button role="menuitem" onClick={() => { setOpen(false); openLibrary(); }}>desde la biblioteca de sonidos</button>
+        </span>
+      )}
+    </span>
+  );
+}
 
 export function DawView() {
   const nodes = useGraphStore((s) => s.nodes);
@@ -638,6 +680,7 @@ export function DawView() {
   return (
     <div className="daw">
       <div className="daw-head">
+        <AddTrackButton />
         {steps.length > 0 ? (
           songPlaying ? (
             <button className="daw-btn on" onClick={() => void stop()} title="detener la canción y el transporte">■ canción</button>

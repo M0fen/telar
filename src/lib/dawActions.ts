@@ -407,3 +407,16 @@ function applyJamTake(take: JamTake): void {
   toast.ok(`canción armada desde el jam: ${r.steps.length} secciones · ${total} compases. ▶ canción para escucharla (Ctrl+Z la deshace)`);
   if (r.skipped.length) toast.warn(`${r.skipped.slice(0, 3).map(trackName).join(', ')}${r.skipped.length > 3 ? '…' : ''} ya tenía${r.skipped.length > 1 ? 'n' : ''} secciones propias: no se tocó.`);
 }
+
+// «＋ pista» del DAW: una pista que ya suena y se edita al tiro (la batería trae bombo, caja y
+// hat en su rejilla; la melodía, unas notas en el piano roll). Se abre su panel de detalle.
+const NEW_DRUM = 'stack(s("bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~ bd ~ ~ ~"), s("~ ~ ~ ~ sd ~ ~ ~ ~ ~ ~ ~ sd ~ ~ ~"), s("~ ~ hh ~ ~ ~ hh ~ ~ ~ hh ~ ~ ~ hh ~")).bank("RolandTR909")';
+const NEW_MELODY = 'note("c3 ~ eb3 ~ g3 ~ ~ ~ bb2 ~ ~ ~ g2 ~ ~ ~").s("sawtooth").lpf(1400).decay(0.2).sustain(0.4)';
+export function newDawTrack(kind: 'drum' | 'melody'): string | null {
+  const g = useGraphStore.getState();
+  const before = new Set(g.nodes.map((n) => n.id));
+  const count = g.nodes.filter((n) => n.data.kind === 'source' && !n.data.djTrack).length + 1;
+  g.addSources([kind === 'drum' ? { name: `batería ${count}`, code: NEW_DRUM } : { name: `melodía ${count}`, code: NEW_MELODY }]);
+  const created = useGraphStore.getState().nodes.find((n) => !before.has(n.id) && n.data.kind === 'source');
+  return created?.id ?? null;
+}

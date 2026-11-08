@@ -85,7 +85,7 @@ const DEFAULT_MASTER: MasterFx = {
 
 // Grafo de ejemplo objetivo (master-prompt §5): s("bd*4") → lpf 800 → Out.
 const initialNodes: GNode[] = [
-  { id: 'src_0', type: 'source', position: { x: 80, y: 160 }, data: { kind: 'source', code: 's("bd*4")' } },
+  { id: 'src_0', type: 'source', position: { x: 80, y: 160 }, data: { kind: 'source', name: 'bombo', code: 's("bd*4")' } },
   { id: 'fx_0', type: 'fx', position: { x: 420, y: 160 }, data: { kind: 'fx', opId: 'lpf', params: { cutoff: 800 } } },
   { id: 'out_0', type: 'out', position: { x: 760, y: 160 }, data: { kind: 'out' } },
 ];
@@ -1266,7 +1266,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       safetyBackup(origin ?? 'limpiar todo'); // copia del proyecto que se va (recuperable)
       useTrustStore.getState().trust(); // lienzo en blanco: proyecto propio
       // lienzo nuevo: un Source vacío conectado al Out, listo para empezar.
-      const src: GNode = { id: 'src_1', type: 'source', position: { x: 140, y: 180 }, data: { kind: 'source', code: 's("bd*4")' } };
+      const src: GNode = { id: 'src_1', type: 'source', position: { x: 140, y: 180 }, data: { kind: 'source', name: 'bombo', code: 's("bd*4")' } };
       const out: GNode = { id: 'out_1', type: 'out', position: { x: 560, y: 180 }, data: { kind: 'out' } };
       idCounter = 1;
       set({
