@@ -3,7 +3,7 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useSongStore } from '../store/useSongStore';
 import { tapTempo } from '../lib/tapTempo';
 import { timelinePos } from '../lib/songClock';
-import { playFrom } from '../lib/songTransport';
+import { playFrom, playTransport } from '../lib/songTransport';
 import { heardCycle } from '../audio/engine';
 import { fmtBarPos, fmtClock, parseBarPos } from '../lib/dawGrid';
 import { useMetroStore } from '../store/useMetroStore';
@@ -195,7 +195,6 @@ export function Transport() {
   const [keyOpen, setKeyOpen] = useState(false);
   const compileError = useGraphStore((s) => s.compileError);
   const runtimeError = useGraphStore((s) => s.runtimeError);
-  const play = useGraphStore((s) => s.play);
   const stop = useGraphStore((s) => s.stop);
   const setCpsValue = useGraphStore((s) => s.setCpsValue);
 
@@ -205,7 +204,7 @@ export function Transport() {
 
   return (
     <div className="transport">
-      <button className={`play ${playing ? 'on' : ''}`} onClick={() => (playing ? stop() : play())}>
+      <button className={`play ${playing ? 'on' : ''}`} onClick={() => (playing ? stop() : void playTransport())}>
         {playing ? '■ stop' : '▶ play'}
       </button>
       <PositionCounter />

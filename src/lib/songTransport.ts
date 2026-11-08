@@ -43,6 +43,14 @@ export async function playFrom(bar: number): Promise<void> {
   if (useSongStore.getState().steps.length) useSongStore.getState().setPlaying(true);
 }
 
+// ▶ DEL TRANSPORTE (botón y Espacio): si hay canción, suena COMO canción (las escenas siguen a
+// sus secciones), desde donde marque el cabezal (`from`/región). En el modo DJ no hay canción.
+export async function playTransport(): Promise<void> {
+  const g = useGraphStore.getState();
+  await g.play();
+  if (useGraphStore.getState().mode !== 'dj' && useSongStore.getState().steps.length) useSongStore.getState().setPlaying(true);
+}
+
 // Detiene el MODO canción (deja de disparar escenas); el transporte sigue.
 export function stopSong(): void {
   useSongStore.getState().setPlaying(false);

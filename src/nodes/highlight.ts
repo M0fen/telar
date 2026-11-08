@@ -61,6 +61,7 @@ export function registerEditor(nodeId: string, view: EditorView): void {
 }
 export function unregisterEditor(nodeId: string): void {
   editors.delete(nodeId);
+  shown.delete(nodeId);
 }
 export function getEditor(nodeId: string): EditorView | undefined {
   return editors.get(nodeId);
@@ -88,11 +89,17 @@ const active = new Map<string, Flash[]>();
 let lastCycle: number | null = null;
 let raf = 0;
 let running = false;
+let lastRun = 0;
+const shown = new Map<string, number>(); // cuántos destellos tiene dibujados cada editor
 
+// ~22 veces por segundo basta para destellos de 150 ms: consultar el patrón entero y despachar a
+// cada editor 60 veces por segundo costaba en proyectos grandes. Parado no se consulta nada.
 function tick() {
   raf = requestAnimationFrame(tick);
-  const sched = getScheduler();
   const nowMs = performance.now();
+  if (nowMs - lastRun < 45) return;
+  lastRun = nowMs;
+  const sched = getScheduler();
 
   if (sched?.started && sched.pattern) {
     const cyc = sched.now();
@@ -122,10 +129,13 @@ function tick() {
   }
 
   // Purga expirados y despacha a cada editor (incluye vaciar los que quedaron sin flashes).
+  // (un editor sin destellos antes ni ahora no se toca: despachar cuesta un ciclo de CodeMirror)
   for (const [nodeId, view] of editors) {
     const arr = (active.get(nodeId) ?? []).filter((f) => f.until > nowMs);
     if (arr.length) active.set(nodeId, arr);
     else active.delete(nodeId);
+    if (!arr.length && !shown.get(nodeId)) continue;
+    shown.set(nodeId, arr.length);
     view.dispatch({ effects: setFlash.of(arr.map((f) => ({ from: f.from, to: f.to }))) });
   }
 }

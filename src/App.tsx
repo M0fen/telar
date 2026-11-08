@@ -11,7 +11,9 @@ import {
   type XYPosition,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useGraphStore, wouldCycle, type GNode } from './store/useGraphStore';
+import { useGraphStore, wouldCycle, saveProjectSoon, type GNode } from './store/useGraphStore';
+import { playTransport } from './lib/songTransport';
+import { flushProjectSave } from './lib/projectStore';
 import { useScenesStore } from './store/useScenesStore';
 import { tapTempo } from './lib/tapTempo';
 import { readSharedProject, clearShareHash } from './lib/share';
@@ -207,6 +209,14 @@ export default function App() {
           t.closest('.cm-editor'))
       );
       const st = useGraphStore.getState();
+      // Ctrl/Cmd+S (también escribiendo código): guardar YA, en vez de «guardar página» del navegador
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        saveProjectSoon();
+        flushProjectSave();
+        toast.ok('Guardado en este navegador (Telar guarda solo; esto lo hace ya).');
+        return;
+      }
       // Ctrl/Cmd: deshacer (Z) · rehacer (⇧Z / Y) · duplicar (D). Fuera de campos de
       // texto (ahí el navegador maneja su propio deshacer).
       if ((e.metaKey || e.ctrlKey) && !inField) {
@@ -226,10 +236,11 @@ export default function App() {
       if (e.key === ' ') {
         e.preventDefault();
         if (st.playing) void st.stop();
-        else void st.play();
+        else void playTransport();
         return;
       }
-      if (key === 'm' || key === 's') {
+      // M/S sobre los nodos elegidos: solo en el grafo (en el DAW la selección del grafo no se ve)
+      if ((key === 'm' || key === 's') && st.mode === 'standard') {
         const sel = st.nodes.filter((n) => n.selected);
         if (!sel.length) return;
         e.preventDefault();
