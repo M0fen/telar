@@ -55,7 +55,19 @@ export async function probeCode(code: string): Promise<string | null> {
     });
     // eslint-disable-next-line @typescript-eslint/no-implied-eval
     const pat = (await Function(`"use strict";return (async ()=>{${tr.output}})()`)()) as Pat | undefined;
-    if (pat && typeof pat.queryArc === 'function') pat.queryArc(0, 1);
+    // `queryArc` de Strudel ATRAPA los errores (los manda a su registro y devuelve []): por eso
+    // una escala mal escrita callaba el tema entero sin avisar. `query` directo sí los lanza.
+    // Los primeros 4 ciclos: también los errores de una alternancia <a b>.
+    if (pat && typeof pat.queryArc === 'function') {
+      const lib = strudel as unknown as Record<string, unknown>;
+      const g = globalThis as unknown as Record<string, unknown>;
+      const S = (lib.State ?? g.State) as (new (span: unknown) => unknown) | undefined;
+      const T = (lib.TimeSpan ?? g.TimeSpan) as (new (a: unknown, b: unknown) => unknown) | undefined;
+      const F = (lib.Fraction ?? g.Fraction) as ((n: number) => unknown) | undefined;
+      const raw = pat as unknown as { query?: (st: unknown) => unknown };
+      if (S && T && F && typeof raw.query === 'function') raw.query(new S(new T(F(0), F(4))));
+      else pat.queryArc(0, 4);
+    }
     return null;
   } catch (e) {
     return e instanceof Error ? e.message : String(e);

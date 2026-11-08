@@ -3359,3 +3359,8 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 /* --- Versión nueva publicada: recargar --- */
 #nueva-version { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 300; display: flex; align-items: center; gap: 12px; padding: 10px 14px; max-width: calc(100vw - 32px); background: var(--panel-solid); border: 1px solid var(--accent); border-radius: 4px; color: var(--text); font-family: var(--mono); font-size: 13px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6); }
 #nueva-version button { background: var(--accent); border: none; color: #031210; font-family: var(--mono); font-weight: 600; font-size: 13px; padding: 6px 12px; border-radius: 3px; cursor: pointer; }
+
+/* --- Nodo aislado por un error al sonar --- */
+.tn.is-broken { border-color: var(--warn) !important; box-shadow: 0 0 0 1px var(--warn), 0 0 14px rgba(224, 99, 58, 0.25); }
+.tn-broken { margin: 4px 8px 6px; padding: 4px 6px; font-family: var(--mono); font-size: 10.5px; line-height: 1.4; color: #ffb59a; background: rgba(224, 99, 58, 0.12); border: 1px solid rgba(224, 99, 58, 0.5); border-radius: 3px; overflow-wrap: anywhere; cursor: default; }
+.tn-broken.is-warn { color: #ffd59a; background: rgba(224, 170, 58, 0.1); border-color: rgba(224, 170, 58, 0.45); }

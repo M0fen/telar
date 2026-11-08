@@ -7,7 +7,7 @@ import { AiHelp } from './AiHelp';
 // Si hay un error en el proyecto, el botón lo señala con un punto (pulso suave).
 export function NodIa() {
   const [open, setOpen] = useState(false);
-  const hasError = useGraphStore((s) => !!s.compileError || !!s.runtimeError);
+  const hasError = useGraphStore((s) => !!s.compileError || !!s.runtimeError || Object.keys(s.brokenMsgs).length > 0);
 
   useEffect(() => {
     if (!open) return;

@@ -11,10 +11,10 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, INLINE_VIZ_RE, type MasterFx } from '../graph/compile';
+import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, INLINE_VIZ_RE, type MasterFx, type CompileOpts } from '../graph/compile';
 import { probeCode } from '../audio/patternPreview';
 import { toast } from './useNotifyStore';
-import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
+import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, onEngineLogIssue, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
 import { applyDjLive, djEntryNeedsCode, DJ_LIVE_KEYS, swapDelayForBar } from '../audio/djMix';
 import { useLaunchStore } from './useLaunchStore';
 let djSwapTimer: number | undefined;
@@ -111,6 +111,17 @@ const startNodes: GNode[] = startG.nodes;
 const startEdges: Edge[] = startG.edges;
 idCounter = maxIdCounter(startNodes); // evita colisiones de id al crear nodos
 
+// Mensaje de error de Strudel en palabras del usuario: sin la cadena `x(...).y(...).` del
+// principio (el motivo real quedaba cortado) y con los casos más comunes traducidos.
+export function friendlyError(raw: string): string {
+  let t = String(raw).replace(/^(?:[\w$]+\(\.\.\.\)\.)+/, '').trim();
+  const fn = /^([\w$]+) is not a function$/.exec(t);
+  if (fn) t = `«${fn[1]}» no es una función de Strudel`;
+  const sc = /^Scale name (.+?) is incomplete/.exec(t);
+  if (sc) t = `la escala «${sc[1]}» no existe`;
+  return t.length > 140 ? `…${t.slice(-140)}` : t;
+}
+
 // Paso del historial. `extras` (canción + escenas) solo en los pasos de una CARGA: deshacer
 // una carga devuelve también la canción y las escenas que se reemplazaron. Los demás pasos
 // no las tocan (editar la canción no entra al historial; restaurarla al deshacer otra cosa
@@ -158,6 +169,8 @@ interface GraphState {
   compileError: string | null; // error de compilación del grafo (DAG, nodo vacío…)
   runtimeError: string | null; // error de Strudel al evaluar/programar el patrón
   lastCode: string | null;
+  brokenMsgs: Record<string, string>; // nodos AISLADOS por un error al sonar → su motivo (se marcan en rojo)
+  warnMsgs: Record<string, string>; // nodos con un aviso de Strudel que calla solo una parte (ámbar)
   // historial deshacer/rehacer (pilas de snapshots del grafo).
   past: HistoryEntry[];
   future: HistoryEntry[];
@@ -303,39 +316,113 @@ export const useGraphStore = create<GraphState>((set, get) => {
   // PISTA ROTA AISLADA: si Strudel no puede evaluar el tema (p.ej. un método que no existe en
   // una pista), antes no sonaba NADA. Se prueba cada pista por separado (probeCode, sin tocar
   // el motor), las que fallan suenan `silence` y se avisa; al cambiar su código se reintentan.
-  const broken = new Map<string, string>(); // id → código con el que falló
+  // NODO ROTO AISLADO: si Strudel no puede evaluar el tema (un método que no existe) o falla al
+  // CONSULTARLO mientras suena (una escala mal escrita), antes no sonaba NADA. Se prueba cada
+  // pista por separado (probeCode, sin tocar el motor) y, si no es una pista, cada FX/transform
+  // con su expresión compilada: lo que falla suena `silence` (pista) o pasa su entrada (FX), se
+  // marca en rojo con el motivo y el resto sigue sonando; al cambiarlo se reintenta.
+  const broken = new Map<string, { key: string; msg: string }>(); // id → (lo que falló, motivo)
+  const brokenKey = (n: GNode): string => (n.data.kind === 'source' ? String(n.data.code ?? '') : JSON.stringify([n.data.opId ?? '', n.data.params ?? {}]));
+  const publishBroken = () => set({ brokenMsgs: Object.fromEntries([...broken].map(([id, b]) => [id, b.msg])) });
   let isolating = false;
-  const isolateBroken = async () => {
-    if (isolating) return;
+  let noCulpritFor: string | null = null; // código ya revisado sin encontrar culpable (no repetir en cada tic)
+  const isolateBroken = async (reason?: string) => {
+    if (isolating || (noCulpritFor !== null && noCulpritFor === get().lastCode)) return;
     isolating = true;
     try {
-      const found: { id: string; name: string; code: string; msg: string }[] = [];
+      const found: { id: string; name: string; key: string; msg: string }[] = [];
       for (const n of get().nodes) {
         const d = n.data;
         if (d.kind !== 'source' || d.mute || broken.has(n.id) || typeof d.code !== 'string') continue;
         const code = d.code.replace(INLINE_VIZ_RE, '').trim();
         if (!code) continue;
         const msg = await probeCode(code);
-        if (msg) found.push({ id: n.id, name: String(d.name ?? n.id), code: d.code, msg });
+        if (msg) found.push({ id: n.id, name: String(d.name ?? n.id), key: brokenKey(n), msg: friendlyError(msg) });
       }
-      if (!found.length) return; // el error no está en el código de una pista: queda el aviso de siempre
-      for (const f of found) broken.set(f.id, f.code);
+      if (!found.length) {
+        // ¿un FX/transform? su expresión falla y las de sus entradas no
+        const { nodes, edges } = get();
+        const ex = compileGraph(nodes, edges, { ...compileOptsNow(), withExprs: true }).exprs ?? {};
+        const ok = new Map<string, boolean>();
+        const probe = async (id: string) => {
+          if (!ok.has(id)) ok.set(id, !ex[id] || !(await probeCode(ex[id])));
+          return ok.get(id)!;
+        };
+        for (const n of nodes) {
+          if ((n.data.kind !== 'transform' && n.data.kind !== 'fx') || broken.has(n.id) || !ex[n.id]) continue;
+          if (await probe(n.id)) continue;
+          const ins = edges.filter((e) => e.target === n.id).map((e) => e.source);
+          let insOk = true;
+          for (const i of ins) if (!(await probe(i))) { insOk = false; break; }
+          if (!insOk) continue;
+          const msg = (await probeCode(ex[n.id])) ?? reason ?? 'error al sonar';
+          found.push({ id: n.id, name: String(n.data.opId ?? n.id), key: brokenKey(n), msg: friendlyError(msg) });
+        }
+      }
+      if (!found.length) {
+        noCulpritFor = get().lastCode;
+        if (reason) toast.err(`El tema no suena: ${friendlyError(reason)}`);
+        return;
+      }
+      for (const f of found) broken.set(f.id, { key: f.key, msg: f.msg });
+      publishBroken();
       const names = found.map((f) => `«${f.name}»`).join(', ');
-      toast.warn(`Silencié ${names} porque ${found.length > 1 ? 'tienen' : 'tiene'} un error (${found[0].msg.slice(0, 120)}). El resto sigue sonando; al corregirlo vuelve a sonar.`);
+      toast.warn(`Silencié ${names}: ${found[0].msg}. El resto sigue sonando; al corregirlo vuelve a sonar.`);
       get().recompile();
     } finally {
       isolating = false;
     }
   };
+  // las mismas opciones con las que se compila lo que suena (para probar sus partes)
+  const compileOptsNow = (): CompileOpts => {
+    const { transpose, xfader, songKey } = get();
+    const launch = useLaunchStore.getState().launch;
+    return {
+      transpose, xfader, songBars: songTotal(useSongStore.getState().steps), keyRoot: songKey?.root ?? 0,
+      only: useSongStore.getState().exportOnly, busMix: get().mode === 'dj',
+      launch: Object.keys(launch).length ? launch : undefined, broken: broken.size ? new Set(broken.keys()) : undefined,
+    };
+  };
+  // fallas al consultar mientras suena → aislar; sonidos que no existen → avisar una vez
+  const missingWarned = new Set<string>();
+  // avisos de Strudel que callan solo una parte (una escala mal escrita en n()): se marca el
+  // nodo que la menciona (ámbar) y se avisa una vez; se borra al cambiar ese nodo
+  const warnKeys = new Map<string, string>();
+  const warnedMsgs = new Set<string>();
+  const flagWarning = (raw: string) => {
+    const msg = friendlyError(raw);
+    if (warnedMsgs.has(msg)) return;
+    warnedMsgs.add(msg);
+    const sc = /Scale name (.+?) is incomplete/.exec(raw);
+    const needles = sc ? [sc[1].trim().replace(/\s+/g, ':'), sc[1].trim().split(/\s+/).pop() ?? ''] : [];
+    const hits = needles.length
+      ? get().nodes.filter((n) => { const t = JSON.stringify([n.data.code ?? '', n.data.params ?? {}]); return needles.some((x) => x && t.includes(x)); })
+      : [];
+    for (const n of hits) warnKeys.set(n.id, brokenKey(n));
+    if (hits.length) set({ warnMsgs: { ...get().warnMsgs, ...Object.fromEntries(hits.map((n) => [n.id, msg])) } });
+    const who = hits.map((n) => `«${String(n.data.name ?? n.data.opId ?? n.id)}»`).slice(0, 2).join(', ');
+    toast.warn(who ? `${who}: ${msg}.` : `Strudel avisa: ${msg}.`);
+  };
+  onEngineLogIssue((i) => {
+    if (i.kind === 'query') { if (get().playing) void isolateBroken(i.message); return; }
+    if (i.kind === 'warn') { flagWarning(i.message); return; }
+    const snd = i.sound ?? '';
+    if (!snd || missingWarned.has(snd)) return;
+    missingWarned.add(snd);
+    const users = get().nodes.filter((n) => typeof n.data.code === 'string' && n.data.code.includes(snd)).map((n) => `«${String(n.data.name ?? n.id)}»`);
+    toast.warn(`No encuentro el sonido «${snd}»${users.length ? ` (lo usa ${users.slice(0, 2).join(', ')})` : ''}. Si era un archivo tuyo, vuelve a soltarlo en la pista.`);
+  });
 
   const recompile = () => {
-    const { nodes, edges, cps, playing, master, transpose, xfader, songKey } = get();
-    for (const [id, c] of broken) { const n = nodes.find((x) => x.id === id); if (!n || n.data.code !== c) broken.delete(id); }
+    const { nodes, edges, cps, playing, master } = get();
+    let pruned = false;
+    for (const [id, b] of broken) { const n = nodes.find((x) => x.id === id); if (!n || brokenKey(n) !== b.key) { broken.delete(id); pruned = true; } }
+    if (pruned) publishBroken();
+    let warnPruned = false;
+    for (const [id, k] of warnKeys) { const n = nodes.find((x) => x.id === id); if (!n || brokenKey(n) !== k) { warnKeys.delete(id); warnPruned = true; } }
+    if (warnPruned) { warnedMsgs.clear(); set({ warnMsgs: Object.fromEntries(Object.entries(get().warnMsgs).filter(([id]) => warnKeys.has(id))) }); }
     const songBars = songTotal(useSongStore.getState().steps);
-    // modo DJ: volumen, crossfader, filtro, mute y solo de cada deck van a su tira del bus (en vivo)
-    const busMix = get().mode === 'dj';
-    const launch = useLaunchStore.getState().launch; // 12.5: pistas lanzadas desde el lanzador
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, { transpose, xfader, songBars, keyRoot: songKey?.root ?? 0, only: useSongStore.getState().exportOnly, busMix, launch: Object.keys(launch).length ? launch : undefined, broken: broken.size ? new Set(broken.keys()) : undefined });
+    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, compileOptsNow());
     setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
@@ -425,6 +512,8 @@ export const useGraphStore = create<GraphState>((set, get) => {
     compileError: null,
     runtimeError: null,
     lastCode: null,
+    brokenMsgs: {},
+    warnMsgs: {},
     past: [],
     future: [],
     dragItem: null,

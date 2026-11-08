@@ -208,6 +208,29 @@ function clearError(): void {
   errorListener?.(null);
 }
 
+// Lo que Strudel solo manda a su REGISTRO (evento `strudel.log`), sin pasar por onEvalError:
+// fallas al CONSULTAR el patrón mientras suena (una escala mal escrita calla el tema entero)
+// y sonidos que no existen. Los enrutamos a la app para aislar el nodo y avisar.
+export interface EngineLogIssue { kind: 'query' | 'sound' | 'warn'; message: string; sound?: string }
+let logIssueListener: ((i: EngineLogIssue) => void) | null = null;
+export function onEngineLogIssue(cb: (i: EngineLogIssue) => void): void {
+  logIssueListener = cb;
+}
+if (typeof document !== 'undefined') {
+  document.addEventListener('strudel.log', (e) => {
+    try {
+      const msg = String((e as CustomEvent<{ message?: unknown }>).detail?.message ?? '');
+      const m = /^\[(\w+)\] error: ([\s\S]*)$/.exec(msg);
+      if (!m) return;
+      const snd = /sound (\S+) not found/.exec(m[2]);
+      if (snd) logIssueListener?.({ kind: 'sound', message: m[2], sound: snd[1] });
+      else if (m[1] === 'cyclist' || m[1] === 'query') logIssueListener?.({ kind: 'query', message: m[2] });
+      // el resto (p.ej. [tonal]: una escala mal escrita en n()) calla solo esas notas: aviso, sin aislar
+      else if (m[1] !== 'eval') logIssueListener?.({ kind: 'warn', message: m[2] });
+    } catch { /* el registro nunca rompe el audio */ }
+  });
+}
+
 // initStrudel hace initAudioOnFirstClick(): el AudioContext sólo se reanuda tras
 // un gesto del usuario (autoplay policy). Llamamos esto en el primer Play.
 export async function ensureEngine(): Promise<Repl> {

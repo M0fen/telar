@@ -64,6 +64,7 @@ export interface CompileResult {
   spans: SourceSpan[];
   channelEqs: ChannelEqRoute[];
   dropped: string[]; // nombres de fuentes AISLADAS por código roto (ver sourceCompiles)
+  exprs?: Record<string, string>; // con `withExprs`: la expresión compilada de cada nodo (para aislar errores)
 }
 
 // Tokens que NO aparecen en la mini-notación de Strudel y sí en código roto/malicioso
@@ -77,7 +78,7 @@ const DANGER_SRC = /\b(import|require|eval|Function|constructor|__proto__|protot
 // rompería el `stack(...)` ENTERO al evaluar → SILENCIO TOTAL. Detectarlo aquí permite
 // AISLAR esa sola fuente (suena `silence`) y dejar sonar el resto. Solo juzga sintaxis,
 // no la semántica de Strudel (una escala inválida solo se ve al evaluar de verdad).
-function sourceCompiles(code: string): boolean {
+export function sourceCompiles(code: string): boolean {
   if (!code || code.length > 8000) return false;
   if (DANGER_SRC.test(code)) return false;
   return syntaxOk(code);
@@ -712,6 +713,7 @@ export interface CompileOpts {
   // fuentes que FALLARON al evaluarse (un método que no existe…): suenan `silence` y se avisa,
   // para que el resto del tema suene (useGraphStore las detecta con probeCode)
   broken?: ReadonlySet<string>;
+  withExprs?: boolean; // devolver la expresión de cada nodo (probarlas por separado)
   // CANCIÓN HORNEADA (Fase 4.1): orbits FIJOS para todas las secciones — cada sección se compila
   // con la mezcla de su escena y todas deben mandar cada pista al MISMO bus (si no, el EQ por
   // canal y las colas de reverb cambiarían de pista al pasar de sección). Sin plan: como siempre.
@@ -1067,7 +1069,9 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         const op = node.data.opId ? OPS_BY_ID[node.data.opId] : undefined;
         if (inputs.length === 0) {
           firstError ??= `${node.data.opId ?? 'op'} sin entrada`;
-        } else if (!op) {
+        } else if (!op || opts.broken?.has(id)) {
+          // sin op, o un FX/transform que FALLA al consultarse (p.ej. una escala mal escrita):
+          // pasa su entrada tal cual — el resto del tema sigue sonando
           expr = combine(inputs);
         } else if (op.id === 'sidechain') {
           const base = combine(inputs);
@@ -1132,11 +1136,12 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   };
 
   const outExprs = outs.map((o) => resolve(o.id, new Set())).filter((x): x is Expr => !!x);
-  if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs, dropped: droppedSources };
+  const exprs = opts.withExprs ? Object.fromEntries([...memo].filter(([, e]) => !!e).map(([id, e]) => [id, e!.text])) : undefined;
+  if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs, dropped: droppedSources, exprs };
 
   const master = combine(outExprs);
   // automatización del MÁSTER que vive en el código (reverb/eco/crush, Fase 7.2): del primer Out
   const mAuto = masterAutomationSuffix(outs[0]?.data.auto, opts.songBars ?? 0);
-  if (mAuto) return { code: `(${master.text})${mAuto}`, error: null, spans: shift(master.spans, 1), channelEqs, dropped: droppedSources };
-  return { code: master.text, error: null, spans: master.spans, channelEqs, dropped: droppedSources };
+  if (mAuto) return { code: `(${master.text})${mAuto}`, error: null, spans: shift(master.spans, 1), channelEqs, dropped: droppedSources, exprs };
+  return { code: master.text, error: null, spans: master.spans, channelEqs, dropped: droppedSources, exprs };
 }

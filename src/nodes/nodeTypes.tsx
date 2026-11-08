@@ -607,9 +607,20 @@ function WarpChip({ id, warp }: { id: string; warp: WarpInfo }) {
   );
 }
 
+// Motivo de un nodo AISLADO por un error al sonar (useGraphStore.brokenMsgs): se ve en el nodo,
+// no solo en un aviso que se va.
+function BrokenNote({ id }: { id: string }) {
+  const msg = useGraphStore((s) => s.brokenMsgs[id]);
+  const warn = useGraphStore((s) => s.warnMsgs[id]);
+  if (msg) return <div className="tn-broken nodrag" role="status" title={msg}>⚠ silenciado: {msg}</div>;
+  if (warn) return <div className="tn-broken is-warn nodrag" role="status" title={warn}>⚠ {warn}</div>;
+  return null;
+}
+
 function SourceNode({ id, data, selected }: NodeProps) {
   const d = data as NodeData;
   const update = useGraphStore((s) => s.updateNodeData);
+  const isBroken = useGraphStore((s) => !!s.brokenMsgs[id]);
   // ¿hay algún solo activo en el grafo? (para atenuar los canales no aislados)
   const anySolo = useGraphStore((s) => s.nodes.some((n) => n.data.kind === 'source' && n.data.solo));
   const collapsed = !!d.collapsed;
@@ -684,7 +695,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
     <div
       ref={glowRef}
       style={tc && !trans ? { ['--tc' as string]: tc } : undefined}
-      className={`tn tn-source${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}${d.solo ? ' is-solo' : ''}${dimmed ? ' is-dim' : ''}`}
+      className={`tn tn-source${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}${d.solo ? ' is-solo' : ''}${dimmed ? ' is-dim' : ''}${isBroken ? ' is-broken' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
         update(id, { mute: !d.mute });
@@ -693,6 +704,7 @@ function SourceNode({ id, data, selected }: NodeProps) {
       <NodeHeader id={id} data={d} badge="source" live>
         {!trans && <TrackColorButton id={id} className="tcolor-node" />}
       </NodeHeader>
+      <BrokenNote id={id} />
       <Vu id={id} className="vu-src" />
       {d.warp && <WarpChip id={id} warp={d.warp} />}
       {trans ? (
@@ -870,6 +882,7 @@ function OpNode({ id, data, selected }: NodeProps) {
   const d = data as NodeData;
   const op = d.opId ? OPS_BY_ID[d.opId] : undefined;
   const update = useGraphStore((s) => s.updateNodeData);
+  const isBroken = useGraphStore((s) => !!s.brokenMsgs[id]);
   const replaceOp = useGraphStore((s) => s.replaceOp);
   const isFx = d.kind === 'fx';
   const collapsed = !!d.collapsed;
@@ -895,7 +908,7 @@ function OpNode({ id, data, selected }: NodeProps) {
   return (
     <div
       ref={useFlowGlow(id)}
-      className={`tn ${isFx ? 'tn-fx' : 'tn-transform'}${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}`}
+      className={`tn ${isFx ? 'tn-fx' : 'tn-transform'}${selected ? ' sel' : ''}${collapsed ? ' is-collapsed' : ''}${d.mute ? ' is-cut' : ''}${isBroken ? ' is-broken' : ''}`}
       onContextMenu={(e) => {
         e.preventDefault();
         update(id, { mute: !d.mute });
@@ -905,6 +918,7 @@ function OpNode({ id, data, selected }: NodeProps) {
       <NodeHeader id={id} data={d} badge={isFx ? 'fx' : 'transform'}>
         {opSelect}
       </NodeHeader>
+      <BrokenNote id={id} />
       {collapsed ? (
         <CollapsedChip label={d.name?.trim() || op?.label || d.opId || 'op'} />
       ) : op && op.id === 'sidechain' ? (
