@@ -216,9 +216,13 @@ function killNode(r: RT, at: number): void {
 function startNode(r: RT, at: number, pos: number, rate: number, loop: { a: number; b: number } | null): void {
   if (!r.buf || !r.out) return;
   const ctx = getAudioCtx();
-  const t0 = Math.max(at, ctx.currentTime + 0.01);
+  let t0 = Math.max(at, ctx.currentTime + 0.01);
   // si la hora pedida ya pasó, arranca un poco más adelante en el tema (la fase no se corre)
-  const p = Math.max(0, Math.min(r.buf.duration - 0.01, pos + (t0 - at) * rate));
+  let p = pos + (t0 - at) * rate;
+  // antes del comienzo del audio (el primer 1 del tema cae después en la sesión): no se adelanta
+  // pegado a 0 — entra justo cuando le toca, en fase (si no, el guardián lo corregía a saltos)
+  if (p < 0 && rate > 0) { t0 += -p / rate; p = 0; }
+  p = Math.max(0, Math.min(r.buf.duration - 0.01, p));
   const src = new AudioBufferSourceNode(ctx, { buffer: r.buf, playbackRate: rate });
   const L = loop && loop.b > loop.a && p < loop.b ? loop : null;
   if (L) { src.loop = true; src.loopStart = L.a; src.loopEnd = L.b; }
@@ -272,6 +276,10 @@ export async function deckPlay(id: string): Promise<void> {
   endBrake(r); // ▶ durante el freno: sigue desde donde quedó
   if (r.playing && !r.preview) return;
   const sync = t.sync !== false;
+  // si ningún otro TEMA suena, este manda el tempo (a su velocidad, sin estirarlo): como el deck
+  // máster de un controlador. Los loops del grafo siguen a la sesión.
+  const otherPlaying = [...rts.values()].some((x) => x.id !== id && x.playing && !x.preview);
+  if (sync && !otherPlaying && Math.abs(sessionBpm() - gridOf(t).bpm) > 0.05) sessionToTrack(id);
   if (sync && !(await clockRunning())) { toast.warn('No pude arrancar el reloj de la sesión: dale ▶ arriba y vuelve a intentar.'); return; }
   const g = gridOf(t);
   const now = ctxNow();
@@ -631,6 +639,9 @@ function keeper(): void {
   const now = ctxNow();
   for (const r of rts.values()) {
     if (!r.playing || r.preview || !r.node || !r.buf || r.brake) continue;
+    // agendado para el próximo compás y aún no suena: su modelo ya está en fase; corregirlo antes
+    // de tiempo lo re-arrancaba (el tartamudeo de la entrada)
+    if (now < r.m.t0 + 0.005) continue;
     const t = trackOf(r.id);
     if (!t || t.sync === false || r.nudge) continue;
     const c = sessionClock();
@@ -711,12 +722,29 @@ export async function deckLoadTrack(id: string, trackId: string): Promise<boolea
   return true;
 }
 
+// MESA LIMPIA LA PRIMERA VEZ: el bombo de ejemplo del lienzo en blanco no es un tema; al poner el
+// primer tema se quita (si no, sonaría encima en cuanto arranca el reloj; Ctrl+Z lo devuelve). Cada
+// deck nuevo cae en el lado del crossfader con menos decks: A, B, A…
+function newDeckExtras(): Partial<NodeData> {
+  const g = gs();
+  const srcs = g.nodes.filter((n) => n.data.kind === 'source');
+  const decks = srcs.filter((n) => n.data.djTrack);
+  if (!decks.length) {
+    const ex = srcs.filter((n) => !n.data.djTrack);
+    const nm = String(ex[0]?.data.name ?? '').trim();
+    if (ex.length === 1 && String(ex[0].data.code ?? '').trim() === 's("bd*4")' && (!nm || nm === 'bombo') && !ex[0].data.auto) g.removeNode(ex[0].id);
+  }
+  const a = decks.filter((n) => n.data.xfa === 'a').length;
+  const b = decks.filter((n) => n.data.xfa === 'b').length;
+  return { xfa: a <= b ? 'a' : 'b' };
+}
+
 const placeholderTrack = (title: string): DjTrack => ({ id: '', title, bpm: 120, first: 0, beats: 4, dur: 0, cue: 0, hot: [null, null, null, null], sync: true });
 
 // DECK NUEVO con un tema (en pausa, en su cue: suena al darle ▶)
 export async function newSongDeck(file: Blob, name: string): Promise<string | null> {
   const title = name.replace(/\.[^.]+$/, '').replace(/_+/g, ' ').trim() || 'tema';
-  const id = gs().addPattern('silence', title, { mute: false, djTrack: placeholderTrack(title) } as Partial<NodeData>);
+  const id = gs().addPattern('silence', title, { mute: false, ...newDeckExtras(), djTrack: placeholderTrack(title) } as Partial<NodeData>);
   if (!id) return null;
   const ok = await deckLoadFile(id, file, name);
   if (!ok) { gs().removeNode?.(id); return null; }
@@ -726,7 +754,7 @@ export async function newSongDeck(file: Blob, name: string): Promise<string | nu
 export async function newSongDeckFromTrack(trackId: string): Promise<string | null> {
   const meta = await getMeta(trackId);
   if (!meta) return null;
-  const id = gs().addPattern('silence', meta.title, { mute: false, djTrack: placeholderTrack(meta.title) } as Partial<NodeData>);
+  const id = gs().addPattern('silence', meta.title, { mute: false, ...newDeckExtras(), djTrack: placeholderTrack(meta.title) } as Partial<NodeData>);
   if (!id) return null;
   const ok = await deckLoadTrack(id, trackId);
   if (!ok) { gs().removeNode?.(id); return null; }
