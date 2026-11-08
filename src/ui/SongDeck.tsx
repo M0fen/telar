@@ -72,6 +72,7 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
   const barsRef = useRef<HTMLSpanElement>(null);
   const offRef = useRef<HTMLButtonElement>(null);
   const [gridOpen, setGridOpen] = useState(false);
+  const ovCache = useRef<{ key: string; live: HTMLCanvasElement; dim: HTMLCanvasElement } | null>(null);
   const tRef = useRef(t);
   tRef.current = t;
   const slot = (w: string) => deckSlot(index, w);
@@ -80,10 +81,13 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
 
   useEffect(() => {
     let raf = 0;
-    const frame = () => {
+    let lastIdle = 0;
+    const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       const tt = tRef.current;
       if (!tt || !(tt.dur > 0)) return;
+      // en pausa basta con 5 cuadros por segundo (cue, saltos y rejilla se ven igual)
+      if (!useSongDecks.getState().d[id]?.playing) { if (now - lastIdle < 200) return; lastIdle = now; }
       const pos = deckPos(id);
       const g = gridOf(tt);
       const loop = deckLoopRegion(id);
@@ -113,24 +117,41 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
         const txt = `${off > 0 ? '+' : ''}${off} ${Math.abs(off) === 1 ? 'tiempo' : 'tiempos'} · alinear`;
         if (show && ob.textContent !== txt) ob.textContent = txt;
       }
-      // ONDA ENTERA
+      // ONDA ENTERA: la onda se dibuja UNA vez (dos copias: viva y tenue) y en cada cuadro solo se
+      // pegan las dos partes y lo que se mueve. Antes se recorría el tema entero 60 veces por segundo
       const oc = ovRef.current;
       if (oc) {
         const { g: x, W, H } = fit(oc);
         const wave = deckWave(id);
-        const cols = Math.max(1, Math.floor(W));
-        const mid = H / 2;
-        for (let c = 0; c < cols; c++) {
-          const sec = (c / cols) * tt.dur;
-          const played = sec < pos;
-          if (wave) {
-            const k0 = Math.floor(sec * WAVE_RATE), k1 = Math.max(k0 + 1, Math.floor(((c + 1) / cols) * tt.dur * WAVE_RATE));
-            let lo = 0, md = 0, hi = 0;
-            for (let k = k0; k < k1 && k < wave.lo.length; k++) { if (wave.lo[k] > lo) lo = wave.lo[k]; if (wave.mid[k] > md) md = wave.mid[k]; if (wave.hi[k] > hi) hi = wave.hi[k]; }
-            column(x, c, 1, mid, H, lo, md, hi, color, played ? 0.38 : 0.95);
-          }
+        const dpr = oc.width / Math.max(1, W);
+        const key = `${oc.width}x${oc.height}|${color}|${wave?.lo.length ?? 0}|${tt.dur}`;
+        if (wave && ovCache.current?.key !== key) {
+          const mk = (alpha: number) => {
+            const cv = document.createElement('canvas');
+            cv.width = oc.width; cv.height = oc.height;
+            const g2 = cv.getContext('2d')!;
+            g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+            const cols = Math.max(1, Math.floor(W));
+            for (let c = 0; c < cols; c++) {
+              const sec = (c / cols) * tt.dur;
+              const k0 = Math.floor(sec * WAVE_RATE), k1 = Math.max(k0 + 1, Math.floor(((c + 1) / cols) * tt.dur * WAVE_RATE));
+              let lo = 0, md = 0, hi = 0;
+              for (let k = k0; k < k1 && k < wave.lo.length; k++) { if (wave.lo[k] > lo) lo = wave.lo[k]; if (wave.mid[k] > md) md = wave.mid[k]; if (wave.hi[k] > hi) hi = wave.hi[k]; }
+              column(g2, c, 1, H / 2, H, lo, md, hi, color, alpha);
+            }
+            return cv;
+          };
+          ovCache.current = { key, live: mk(0.95), dim: mk(0.38) };
         }
         const X = (s: number) => (s / tt.dur) * W;
+        const cache = ovCache.current;
+        if (wave && cache?.key === key) {
+          const px = Math.max(0, Math.min(oc.width, Math.round(X(pos) * dpr)));
+          x.setTransform(1, 0, 0, 1, 0, 0);
+          if (px > 0) x.drawImage(cache.dim, 0, 0, px, oc.height, 0, 0, px, oc.height);
+          if (px < oc.width) x.drawImage(cache.live, px, 0, oc.width - px, oc.height, px, 0, oc.width - px, oc.height);
+          x.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
         if (loop) { x.fillStyle = 'rgba(61,240,208,0.16)'; x.fillRect(X(loop.a), 0, Math.max(1, X(loop.b) - X(loop.a)), H); }
         x.fillStyle = '#ff9a3d';
         x.beginPath(); x.moveTo(X(tt.cue) - 4, 0); x.lineTo(X(tt.cue) + 4, 0); x.lineTo(X(tt.cue), 6); x.fill();
