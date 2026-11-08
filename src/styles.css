@@ -3414,3 +3414,12 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 .deck-empty p { margin: 0; font-family: var(--mono); font-size: 10.5px; color: var(--dim); letter-spacing: 0.06em; }
 .deck-empty .deck-empty-hint { font-size: 9.5px; color: var(--faint); max-width: 170px; }
 .deck-empty-side { font-family: var(--tech); font-size: 28px; color: var(--faint); line-height: 1; }
+
+/* opinar */
+.fb .fb-modes { display: flex; gap: 6px; margin-bottom: 10px; }
+.fb .fb-modes .dlg-btn.on { color: var(--accent); border-color: var(--accent-dim); }
+.fb .fb-text { resize: vertical; min-height: 90px; font-family: inherit; line-height: 1.4; margin-bottom: 8px; }
+.fb .dlg-actions { align-items: center; }
+.fb .fb-alt { margin-right: auto; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+.fb .fb-alt[aria-disabled='true'] { opacity: 0.4; pointer-events: none; }
+.fb .dlg-primary:disabled { opacity: 0.45; cursor: default; }

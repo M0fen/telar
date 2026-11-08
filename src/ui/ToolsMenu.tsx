@@ -12,11 +12,7 @@ const SpatialMix = lazy(() => import('./SpatialMix').then((m) => ({ default: m.S
 import { useSamplePacksStore } from '../store/useSamplePacksStore';
 import { loadSamplePack } from '../audio/engine';
 
-// «opinar»: un tema nuevo en GitHub con la versión y el navegador ya escritos (sin datos del proyecto)
-function feedbackUrl(): string {
-  const body = `**Qué pasó o qué propones:**\n\n\n---\nversión ${String(import.meta.env.VITE_COMMIT ?? '')} · ${navigator.userAgent}`;
-  return `https://github.com/M0fen/telar/issues/new?body=${encodeURIComponent(body)}`;
-}
+const Feedback = lazy(() => import('./Feedback').then((m) => ({ default: m.Feedback })));
 
 // Cargador de PACKS de sonidos: el usuario pega `github:usuario/repo` o una URL a un
 // strudel.json y quedan disponibles como `s("nombre")`. Persiste y recarga al abrir.
@@ -69,6 +65,7 @@ function PacksLoader() {
 export function ToolsMenu() {
   const [open, setOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [fbOpen, setFbOpen] = useState(false);
   const [voxOpen, setVoxOpen] = useState(false);
   const [songOpen, setSongOpen] = useState(false);
   const [sfxOpen, setSfxOpen] = useState(false);
@@ -78,8 +75,10 @@ export function ToolsMenu() {
   // Ctrl+K › «tutorial»
   useEffect(() => {
     const onTut = () => setTutOpen(true);
+    const onFb = () => setFbOpen(true);
     window.addEventListener('telar:tutorial', onTut);
-    return () => window.removeEventListener('telar:tutorial', onTut);
+    window.addEventListener('telar:feedback', onFb);
+    return () => { window.removeEventListener('telar:tutorial', onTut); window.removeEventListener('telar:feedback', onFb); };
   }, []);
   // se abre solo la PRIMERA vez (invita a hacer música); luego, desde este menú.
   useEffect(() => {
@@ -168,12 +167,13 @@ export function ToolsMenu() {
             <div className="tools-legal">
               <a href="/licencias.html" target="_blank" rel="noopener">código · licencias · créditos</a>
               <a href="/privacidad.html" target="_blank" rel="noopener">privacidad · términos</a>
-              <a href={feedbackUrl()} target="_blank" rel="noopener">opinar · reportar un error</a>
+              <a href="#opinar" onClick={(e) => { e.preventDefault(); setOpen(false); setFbOpen(true); }}>opinar · contar un error</a>
             </div>
           </div>
         </>
       )}
       <Suspense fallback={null}>
+        {fbOpen && <Feedback onClose={() => setFbOpen(false)} />}
         {aiOpen && <AiCopilot open onClose={() => setAiOpen(false)} />}
         {voxOpen && <VoiceAI open onClose={() => setVoxOpen(false)} />}
         {songOpen && <AiSong open onClose={() => setSongOpen(false)} />}

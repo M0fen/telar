@@ -44,6 +44,7 @@ function commands(): Cmd[] {
     { id: 'export', group: 'canción', label: 'exportar el tema (WAV, MP3, stems, MIDI)', run: () => { g.setMode('daw'); window.setTimeout(() => (document.querySelector('button[title^="exportar a WAV"]') as HTMLButtonElement | null)?.click(), 120); }, words: 'export guardar audio mp3 wav descargar bajar' },
     { id: 'library', group: 'sonidos', label: 'explorar sonidos (biblioteca)', run: openLibrary, words: 'samples sonidos buscar kick bombo hats' },
     { id: 'tutorial', group: 'ayuda', label: 'tutorial: hacer música con Telar', run: () => window.dispatchEvent(new CustomEvent('telar:tutorial')), words: 'ayuda guia empezar aprender' },
+    { id: 'opinar', group: 'ayuda', label: 'opinar o contar un error', run: () => window.dispatchEvent(new CustomEvent('telar:feedback')), words: 'error bug falla opinion sugerencia reportar whatsapp' },
     { id: 'drum', group: 'pistas', label: '＋ pista de batería para grabar con pads', run: () => newPadTrack('drum'), words: 'nueva drums' },
     { id: 'mel', group: 'pistas', label: '＋ pista de melodía para grabar con pads', run: () => newPadTrack('melody'), words: 'nueva teclado' },
   ];
