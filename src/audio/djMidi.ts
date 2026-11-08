@@ -6,6 +6,7 @@ import { useGraphStore } from '../store/useGraphStore';
 import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, orderDecks, useDjStore, type EqBand } from './djMix';
 import type { NodeData } from '../graph/types';
 import { startSet, stopSet, useSetRec } from './setRecorder';
+import { BEAT_LOOP_SIZES, beatLoopSlot } from '../lib/controllerMaps';
 import { deckAlignBars, deckBrake, deckCueDown, deckEchoOut, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopResize, deckNudge, deckPitch, deckRoll, deckSync, deckToggle, HOT_N, PITCH_RANGE } from './songDeck';
 
 const gs = () => useGraphStore.getState();
@@ -18,6 +19,7 @@ export function buildDjSlots(): Record<string, MidiSlot> {
   slots['dj.xfader'] = { kind: 'knob', get: () => gs().xfader, set: (v) => gs().setXfader(v) };
   slots['dj.quant'] = { kind: 'tap', tap: () => useDjStore.getState().setQuantize(!useDjStore.getState().quantize) };
   slots['dj.setrec'] = { kind: 'tap', tap: () => { if (useSetRec.getState().rec) void stopSet(); else void startSet(); } };
+  slots['dj.hpmix'] = { kind: 'knob', get: () => useDjStore.getState().hp.mix, set: (v) => useDjStore.getState().setHp({ mix: v }) };
   const decks = orderDecks(gs().nodes.filter(isDeck)).slice(0, 8);
   decks.forEach((n, i) => {
     const id = n.id;
@@ -51,6 +53,26 @@ export function buildDjSlots(): Record<string, MidiSlot> {
         get: () => ((Number(data().djTrack?.pitch) || 0) + PITCH_RANGE) / (2 * PITCH_RANGE),
         set: (v) => deckPitch(id, Math.abs(v - 0.5) < 0.015 ? 0 : v * 2 * PITCH_RANGE - PITCH_RANGE),
       };
+      // el fader de tempo de los controladores Pioneer: arriba = más lento
+      slots[deckSlot(i, 'pitchinv')] = {
+        kind: 'knob',
+        get: () => 1 - ((Number(data().djTrack?.pitch) || 0) + PITCH_RANGE) / (2 * PITCH_RANGE),
+        set: (v) => deckPitch(id, Math.abs(v - 0.5) < 0.015 ? 0 : (1 - v) * 2 * PITCH_RANGE - PITCH_RANGE),
+      };
+      for (const b of BEAT_LOOP_SIZES) slots[deckSlot(i, beatLoopSlot(b))] = { kind: 'tap', tap: () => void deckLoop(id, b / Math.max(1, data().djTrack?.beats || 4)) };
+      slots[deckSlot(i, 'loopexit')] = { kind: 'tap', tap: () => void deckLoop(id, null) };
+      // JOG: cada giro empuja el tema en su sentido; al dejar de girar, suelta (empujar a mano)
+      let jogT = 0;
+      slots[deckSlot(i, 'jog')] = {
+        kind: 'knob',
+        get: () => 0.5,
+        set: (v) => {
+          if (Math.abs(v - 0.5) < 1e-6) return;
+          deckNudge(id, v > 0.5 ? 1 : -1);
+          window.clearTimeout(jogT);
+          jogT = window.setTimeout(() => deckNudge(id, 0), 120);
+        },
+      };
       slots[deckSlot(i, 'align')] = { kind: 'tap', tap: () => void deckAlignBars(id) };
       slots[deckSlot(i, 'gridone')] = { kind: 'tap', tap: () => void deckGrid(id, { kind: 'one' }) };
       slots[deckSlot(i, 'echoout')] = { kind: 'tap', tap: () => deckEchoOut(id) };
@@ -65,11 +87,13 @@ export function djSlotName(slot: string): string | null {
   if (slot === 'dj.xfader') return 'crossfader';
   if (slot === 'dj.quant') return '♩ al compás';
   if (slot === 'dj.setrec') return 'grabar el set';
+  if (slot === 'dj.hpmix') return 'audífonos: cue ◄► máster';
   const m = /^dj\.d(\d+)\.(\w+)$/.exec(slot);
   if (!m) return null;
   const what = m[2];
   const band = (BANDS as string[]).find((b) => what.endsWith(b)) as EqBand | undefined;
-  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', ...Object.fromEntries(Array.from({ length: HOT_N }, (_, k) => [`hot${k + 1}`, `cue rápido ${k + 1}`])), loophalf: 'loop ÷2', loopdouble: 'loop ×2', roll: 'roll de ½ tiempo', pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí', echoout: 'eco out', brake: 'freno' };
+  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', ...Object.fromEntries(Array.from({ length: HOT_N }, (_, k) => [`hot${k + 1}`, `cue rápido ${k + 1}`])), loophalf: 'loop ÷2', loopdouble: 'loop ×2', roll: 'roll de ½ tiempo', pitchinv: 'tempo a mano (fader Pioneer)', loopexit: 'salir del loop', jog: 'jog (empujar)',
+    ...Object.fromEntries(BEAT_LOOP_SIZES.map((b) => [beatLoopSlot(b), `loop de ${b} ${b === 1 ? 'tiempo' : 'tiempos'}`])), pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí', echoout: 'eco out', brake: 'freno' };
   if (song[what]) return `deck ${m[1]} · ${song[what]}`;
   const label = what === 'gain' ? 'volumen' : what === 'filter' ? 'filtro' : what === 'cue' ? 'cue 🎧' : what === 'mute' ? 'mute' : what === 'solo' ? 'solo'
     : band && what.startsWith('eq') ? `EQ ${BAND_LABEL[band]}` : band && what.startsWith('kill') ? `kill ${BAND_LABEL[band]}` : what;

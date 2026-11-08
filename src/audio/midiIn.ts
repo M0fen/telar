@@ -1,3 +1,5 @@
+import { controllerFor } from '../lib/controllerMaps';
+import { toast } from '../store/useNotifyStore';
 import { useMidiStore } from '../store/useMidiStore';
 import { startMidiInput } from './engine';
 
@@ -152,6 +154,13 @@ export async function connectMidi(): Promise<string | null> {
     const err = 'No pude abrir el MIDI: acepta el permiso del navegador (Chrome/Edge) y vuelve a pulsar «Conectar MIDI».';
     st.setStatus({ err });
     return err;
+  }
+  // un controlador conocido (DDJ-FLX4…) sin la mesa asignada: queda mapeado solo
+  const known = controllerFor(list);
+  const map0 = useMidiStore.getState().map;
+  if (known && !Object.values(map0).some((v) => v.startsWith('dj.'))) {
+    useMidiStore.getState().assignMany(known.map, known.rel);
+    toast.ok(`${known.name}: listo, sin asignar nada (deck 1 = A, deck 2 = B; los pads en HOT CUE y BEAT LOOP).`);
   }
   st.setStatus({ on: true, inputs: list, err: '', learn: Object.keys(useMidiStore.getState().map).length === 0 });
   return null;

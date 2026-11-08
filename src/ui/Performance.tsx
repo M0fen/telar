@@ -12,6 +12,7 @@ import { FxReturnsPanel } from './FxReturnsPanel';
 import { RefTrack } from './RefTrack';
 import { Vu } from '../nodes/Vu';
 import { IR_SPACES, registerIrFiles } from '../audio/irReverb';
+import { setLiveFx } from '../audio/engine';
 import { useIrStore } from '../store/useIrStore';
 
 // Fila de FX de performance: loop roll, gate, reverse y throws de eco/reverb.
@@ -19,19 +20,27 @@ function PerfFxRow({ master, setMaster }: { master: MasterFx; setMaster: (p: Par
   // throws de eco/reverb: recuerdan el valor previo del knob para restaurarlo.
   const prevDelay = useRef(0);
   const prevRoom = useRef(0);
+  const dj = useGraphStore((s) => s.mode === 'dj');
+  const [busEcho, setBusEcho] = useState(false);
+  const [busWash, setBusWash] = useState(false);
   return (
     <div className="perf-fx-wrap">
       <div className="perf-fx-grp">
         <span className="perf-fx-tag">roll</span>
         {[2, 4, 8, 16].map((n) => (
-          <HoldFx key={n} label={`${n}`} title={`loop roll ×${n} (mantén)`} active={master.roll === n} onDown={() => setMaster({ roll: n })} onUp={() => setMaster({ roll: 0 })} />
+          <HoldFx key={n} label={`${n}`} title={`loop roll ×${n} (mantén) — en el DJ, también los temas que suenan`} active={master.roll === n} onDown={() => setMaster({ roll: n })} onUp={() => setMaster({ roll: 0 })} />
         ))}
       </div>
       <div className="perf-fx-grp">
-        <HoldFx label="gate" title="gate rítmico (mantén)" active={!!master.gate} onDown={() => setMaster({ gate: 8 })} onUp={() => setMaster({ gate: 0 })} />
-        <HoldFx label="rev" title="reverse throw (mantén)" active={!!master.rev} onDown={() => setMaster({ rev: true })} onUp={() => setMaster({ rev: false })} />
-        <HoldFx label="echo" title="echo throw (mantén)" active={(master.delay ?? 0) > 0.5} onDown={() => { prevDelay.current = master.delay ?? 0; setMaster({ delay: 0.7 }); }} onUp={() => setMaster({ delay: prevDelay.current })} />
-        <HoldFx label="wash" title="reverb wash (mantén)" active={(master.room ?? 0) > 0.5} onDown={() => { prevRoom.current = master.room ?? 0; setMaster({ room: 0.7 }); }} onUp={() => setMaster({ room: prevRoom.current })} />
+        <HoldFx label="gate" title="gate rítmico (mantén) — en el DJ, también los temas que suenan" active={!!master.gate} onDown={() => setMaster({ gate: 8 })} onUp={() => setMaster({ gate: 0 })} />
+        <HoldFx label="rev" title={dj ? 'reverse throw (mantén) — solo los patrones: un tema no se puede dar vuelta en vivo' : 'reverse throw (mantén)'} active={!!master.rev} onDown={() => setMaster({ rev: true })} onUp={() => setMaster({ rev: false })} />
+        {/* en el DJ, eco y wash van al BUS (como los pads de EN VIVO): suenan sobre todo, temas incluidos */}
+        <HoldFx label="echo" title={dj ? 'echo throw (mantén) — en el bus: todo, temas incluidos' : 'echo throw (mantén)'} active={dj ? busEcho : (master.delay ?? 0) > 0.5}
+          onDown={() => { if (dj) { setLiveFx('echo', true, useGraphStore.getState().cps); setBusEcho(true); return; } prevDelay.current = master.delay ?? 0; setMaster({ delay: 0.7 }); }}
+          onUp={() => { if (dj) { setLiveFx('echo', false); setBusEcho(false); return; } setMaster({ delay: prevDelay.current }); }} />
+        <HoldFx label="wash" title={dj ? 'reverb wash (mantén) — en el bus: todo, temas incluidos' : 'reverb wash (mantén)'} active={dj ? busWash : (master.room ?? 0) > 0.5}
+          onDown={() => { if (dj) { setLiveFx('wash', true); setBusWash(true); return; } prevRoom.current = master.room ?? 0; setMaster({ room: 0.7 }); }}
+          onUp={() => { if (dj) { setLiveFx('wash', false); setBusWash(false); return; } setMaster({ room: prevRoom.current }); }} />
       </div>
     </div>
   );

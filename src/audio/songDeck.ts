@@ -941,6 +941,57 @@ async function touchPlayed(trackId: string): Promise<void> {
 
 // ciclo de vida: ■ de la sesión o salir del modo DJ → los temas paran (en su sitio); un deck
 // borrado suelta su reproductor; el guardián corre mientras haya algo sonando
+// FX DEL MÁSTER SOBRE LOS TEMAS: los pads ROLL y GATE del máster actúan sobre el código de los
+// patrones, y el audio de los temas no pasa por ahí. Aquí los temas que suenan hacen lo mismo:
+// ROLL ×N → roll del deck (1/N de compás, con slip); GATE → el sonido seco del deck se abre y se
+// cierra al tempo (la cola del eco sigue)
+let mRoll = 0, mGate = 0, gateTimer = 0, gateUntil = 0;
+function masterFxOnTracks(roll: number, gate: number): void {
+  if (roll !== mRoll) {
+    const was = mRoll;
+    mRoll = roll;
+    for (const r of rts.values()) {
+      if (!r.playing || r.preview) continue;
+      if (roll > 0) { if (was > 0) void deckRoll(r.id, null).then(() => void deckRoll(r.id, beatsPerCycle() / roll)); else void deckRoll(r.id, beatsPerCycle() / roll); }
+      else void deckRoll(r.id, null);
+    }
+  }
+  if (gate !== mGate) {
+    mGate = gate;
+    window.clearInterval(gateTimer);
+    gateUntil = 0;
+    if (gate > 0) { scheduleGate(); gateTimer = window.setInterval(scheduleGate, 100); }
+    else {
+      const now = ctxNow();
+      for (const r of rts.values()) {
+        const g = r.fx?.dry.gain;
+        if (!g) continue;
+        try { g.cancelScheduledValues(now); g.setTargetAtTime(1, now, 0.005); } catch { /* */ }
+      }
+    }
+  }
+}
+function scheduleGate(): void {
+  const c = sessionClock();
+  if (!c || !mGate) return;
+  const now = ctxNow();
+  const horizon = now + 0.3;
+  const sub = 1 / mGate; // en ciclos (compases)
+  const cycAt = (t: number) => c.n0 + (t - c.s0 - c.lat) * c.cps;
+  const timeOf = (cy: number) => (cy - c.n0) / c.cps + c.s0 + c.lat;
+  for (let k = Math.ceil(cycAt(Math.max(now + 0.01, gateUntil)) / sub - 1e-6); ; k++) {
+    const t0 = timeOf(k * sub);
+    if (t0 > horizon) break;
+    const tMid = timeOf((k + 0.5) * sub);
+    for (const r of rts.values()) {
+      const g = r.fx?.dry.gain;
+      if (!g || !r.playing) continue;
+      try { g.setTargetAtTime(1, t0, 0.002); g.setTargetAtTime(0, tMid, 0.002); } catch { /* */ }
+    }
+    gateUntil = timeOf((k + 1) * sub);
+  }
+}
+
 let inited = false;
 export function initSongDecks(): void {
   if (inited) return;
@@ -949,6 +1000,7 @@ export function initSongDecks(): void {
   keeperTimer = window.setInterval(keeper, 100);
   useGraphStore.subscribe((s, p) => {
     if ((p.playing && !s.playing) || (p.mode === 'dj' && s.mode !== 'dj')) for (const r of rts.values()) if (r.playing) deckPause(r.id);
+    if (s.master !== p.master) masterFxOnTracks(Number(s.master?.roll) || 0, Number(s.master?.gate) || 0);
     if (s.nodes !== p.nodes) {
       for (const id of Array.from(rts.keys())) {
         if (!s.nodes.some((n) => n.id === id && n.data.djTrack)) {

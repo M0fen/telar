@@ -40,6 +40,7 @@ interface MidiStore {
   clearLit: () => void;
   note: (s: string) => void; // registra actividad del controlador (monitor)
   assign: (sig: string, slot: string) => void; // aprende: liga una firma a un slot
+  assignMany: (map: Record<string, string>, rel: Record<string, string>) => void; // un mapa listo (controlador)
   setRel: (sig: string, enc: string) => void;
   clearSlot: (slot: string) => void;
 }
@@ -72,6 +73,16 @@ export const useMidiStore = create<MidiStore>((set, get) => ({
     map[sig] = slot;
     save(KEY_MAP, map);
     set({ map, pick: null });
+  },
+  assignMany: (add, addRel) => {
+    const slots = new Set(Object.values(add));
+    const map: Record<string, string> = {};
+    for (const [k, v] of Object.entries(get().map)) if (!slots.has(v) && !(k in add)) map[k] = v;
+    Object.assign(map, add);
+    const rel = { ...get().rel, ...addRel };
+    save(KEY_MAP, map);
+    save(KEY_REL, rel);
+    set({ map, rel, pick: null });
   },
   setRel: (sig, enc) => {
     const rel = { ...get().rel, [sig]: enc };
