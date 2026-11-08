@@ -25,6 +25,7 @@ import { djLive } from '../lib/djLive';
 
 const gs = () => useGraphStore.getState();
 
+export const HOT_N = 8; // cues rápidos por tema
 export interface DeckUi { playing: boolean; loop: number | null; loading: boolean; missing: boolean; preview: boolean; nudging: number; since: number }
 const UI0: DeckUi = { playing: false, loop: null, loading: false, missing: false, preview: false, nudging: 0, since: 0 };
 export const useSongDecks = create<{ d: Record<string, DeckUi> }>(() => ({ d: {} }));
@@ -63,6 +64,7 @@ interface RT {
   preview: boolean; // CUE mantenido
   fx: DeckFx | null; // eco (DJ-4) entre el tema y la tira
   brake: { t0: number; D: number; rate: number; pos0: number; timer: number } | null; // freno en curso
+  slip: { m: PlayModel; lock: number } | null; // dentro de un loop con SLIP (o un roll): por dónde iría el tema
 }
 // EFECTOS DE DJ del deck (DJ-4): el tema pasa seco a la tira y, en paralelo, por un eco a tempo con
 // realimentación (cada repetición más oscura y más fina). «Eco out» abre el envío un tiempo y corta el
@@ -72,7 +74,7 @@ const rts = new Map<string, RT>();
 const rtOf = (id: string): RT => {
   let r = rts.get(id);
   if (!r) {
-    r = { id, out: null, node: null, ng: null, buf: null, bufId: null, wave: null, m: { t0: 0, pos0: 0, rate: 0, loop: null }, playing: false, lock: 0, nudge: 0, preview: false, fx: null, brake: null };
+    r = { id, out: null, node: null, ng: null, buf: null, bufId: null, wave: null, m: { t0: 0, pos0: 0, rate: 0, loop: null }, playing: false, lock: 0, nudge: 0, preview: false, fx: null, brake: null, slip: null };
     rts.set(id, r);
   }
   return r;
@@ -450,7 +452,7 @@ export async function deckHot(id: string, k: number, clear = false): Promise<voi
   const t = trackOf(id);
   if (!t) return;
   const hot = [...(t.hot ?? [])];
-  while (hot.length < 4) hot.push(null);
+  while (hot.length < HOT_N) hot.push(null);
   if (clear) { hot[k] = null; setTrack(id, { hot }); return; }
   const r = await ready(id);
   if (!r) return;
@@ -476,7 +478,7 @@ export async function deckJump(id: string, bars: number): Promise<void> {
 }
 
 // LOOP de N compases desde el tiempo donde suena (null o el mismo = salir del loop)
-export async function deckLoop(id: string, bars: number | null): Promise<void> {
+export async function deckLoop(id: string, bars: number | null, slip = false): Promise<void> {
   const r = await ready(id);
   const t = trackOf(id);
   if (!r || !t || !r.buf) return;
@@ -484,6 +486,18 @@ export async function deckLoop(id: string, bars: number | null): Promise<void> {
   const now = ctxNow();
   const cur = deckUi(id).loop;
   if (bars == null || cur === bars) {
+    // SLIP: vuelve a donde iría el tema si no hubiera entrado al loop (en fase: corrió a la misma velocidad)
+    if (r.slip && r.playing && !r.preview) {
+      const sh = r.slip;
+      r.slip = null;
+      const at = now + 0.02;
+      r.lock = sh.lock;
+      const p = posAt(sh.m, at, r.buf.duration);
+      if (p < r.buf.duration - 0.05) startNode(r, at, p, r.m.rate, null);
+      setUi(id, { loop: null });
+      return;
+    }
+    r.slip = null;
     // salir: el audio sigue de largo; el lock queda en la relación de ahora (el loop corrió el tema)
     if (r.node?.src) r.node.src.loop = false;
     const pos = posAt(r.m, now, r.buf.duration);
@@ -497,6 +511,8 @@ export async function deckLoop(id: string, bars: number | null): Promise<void> {
   const pos = r.playing ? posAt(r.m, now, r.buf.duration) : r.m.pos0;
   const L = loopFrom(g, pos, bars);
   if (L.b > r.buf.duration) return;
+  // el primer loop con SLIP guarda por dónde seguiría el tema (cambiar de tamaño no lo mueve)
+  if (r.playing && (slip || t.slip) && !r.slip && cur == null) r.slip = { m: { t0: now, pos0: pos, rate: r.m.rate, loop: null }, lock: r.lock };
   if (r.playing && r.node) {
     if (r.node.src) {
       r.node.src.loopStart = L.a;
@@ -508,6 +524,59 @@ export async function deckLoop(id: string, bars: number | null): Promise<void> {
   } else r.m = { ...r.m, loop: L };
   setUi(id, { loop: bars });
 }
+
+// LOOP ÷2 / ×2: mismo comienzo, la mitad o el doble de largo. Si el cabezal queda fuera del loop
+// nuevo, vuelve adentro un múltiplo de su largo (la fase no cambia)
+export async function deckLoopResize(id: string, factor: 0.5 | 2): Promise<void> {
+  const r = rts.get(id);
+  const t = trackOf(id);
+  const cur = deckUi(id).loop;
+  if (!r || !t || !r.buf || cur == null || !r.m.loop) return;
+  const bars = cur * factor;
+  if (bars < 1 / 32 || bars > 32) return;
+  const L0 = r.m.loop;
+  const len = (L0.b - L0.a) * factor;
+  const L = { a: L0.a, b: L0.a + len };
+  if (L.b > r.buf.duration) return;
+  const now = ctxNow();
+  if (r.playing && r.node && !r.preview) {
+    const at = now + 0.02;
+    const pos = posAt(r.m, at, r.buf.duration);
+    if (pos >= L.b) {
+      startNode(r, at, L.a + ((pos - L.a) % len), r.m.rate, L);
+    } else {
+      if (r.node.src) { r.node.src.loopEnd = L.b; r.node.src.loopStart = L.a; }
+      r.m = { t0: at, pos0: pos, rate: r.m.rate, loop: L };
+      voiceModel(r.node, r.m);
+    }
+  } else r.m = { ...r.m, loop: L };
+  setUi(id, { loop: bars });
+}
+
+// ROLL (mantenido): un loop corto desde el golpe que suena, con SLIP: al soltar, el tema sigue donde
+// iría. `beats` = largo en tiempos (½ = corcheas); null = soltar
+export async function deckRoll(id: string, beats: number | null): Promise<void> {
+  const t = trackOf(id);
+  if (!t) return;
+  if (beats == null) { if (deckUi(id).loop != null) await deckLoop(id, null); return; }
+  const r = rts.get(id);
+  if (!r || !r.playing || r.preview || !r.buf) return;
+  if (deckUi(id).loop != null) return; // ya hay un loop: el roll no lo pisa
+  const g = gridOf(t);
+  const now = ctxNow();
+  const pos = posAt(r.m, now, r.buf.duration);
+  const a = posOfBeat(g, Math.floor(beatAt(g, pos) / beats + 1e-6) * beats);
+  const L = { a, b: a + beats * beatLen(g) };
+  if (L.b > r.buf.duration || !r.node) return;
+  r.slip = { m: { t0: now, pos0: pos, rate: r.m.rate, loop: null }, lock: r.lock };
+  if (r.node.src) { r.node.src.loopStart = L.a; r.node.src.loopEnd = L.b; r.node.src.loop = true; }
+  r.m = { t0: now, pos0: pos, rate: r.m.rate, loop: L };
+  voiceModel(r.node, r.m);
+  setUi(id, { loop: beats / Math.max(1, g.beats) });
+}
+
+// SLIP encendido/apagado (por deck)
+export function deckSlip(id: string, on: boolean): void { setTrack(id, { slip: on }); }
 
 // SYNC: al encender, el tema toma el tempo de la sesión y su fase se corrige al tiempo más cercano
 export async function deckSync(id: string, on: boolean): Promise<void> {
@@ -786,7 +855,7 @@ function applyTrack(id: string, meta: TrackMeta, buf: AudioBuffer): void {
   window.setTimeout(() => computeWave(r), 0);
   releaseUnused();
   const prev = trackOf(id);
-  const hot = [0, 1, 2, 3].map((k) => meta.hot?.[k] ?? null);
+  const hot = Array.from({ length: HOT_N }, (_, k) => meta.hot?.[k] ?? null);
   const t: DjTrack = {
     id: meta.id, title: meta.title, bpm: meta.bpm, first: meta.first, beats: meta.beats, dur: meta.dur,
     key: meta.key, lufs: meta.lufs, cue, hot, sync: prev?.sync ?? true, pitch: prev?.pitch, keylock: prev?.keylock,
@@ -833,7 +902,7 @@ function newDeckExtras(): Partial<NodeData> {
   return { xfa: a <= b ? 'a' : 'b' };
 }
 
-const placeholderTrack = (title: string): DjTrack => ({ id: '', title, bpm: 120, first: 0, beats: 4, dur: 0, cue: 0, hot: [null, null, null, null], sync: true });
+const placeholderTrack = (title: string): DjTrack => ({ id: '', title, bpm: 120, first: 0, beats: 4, dur: 0, cue: 0, hot: Array(HOT_N).fill(null), sync: true });
 
 // DECK NUEVO con un tema (en pausa, en su cue: suena al darle ▶)
 export async function newSongDeck(file: Blob, name: string): Promise<string | null> {

@@ -3,7 +3,7 @@ import { useGraphStore } from '../store/useGraphStore';
 import { useMidiStore, midiKeyLabel } from '../store/useMidiStore';
 import { deckSlot } from '../audio/djMidi';
 import {
-  deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckNudge, deckPhase,
+  deckAlignBars, deckBars, deckCueDown, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopRegion, deckLoopResize, deckRoll, deckSlip, HOT_N, deckNudge, deckPhase,
   deckKeylock, deckMult, deckPitch, deckPos, deckPrepare, deckRate, deckSeek, deckSync, deckToggle, deckWave, PITCH_RANGE, sessionToTrack, useSongDecks, WAVE_RATE,
   deckBrake, deckEchoOut,
 } from '../audio/songDeck';
@@ -19,8 +19,10 @@ import type { NodeData } from '../graph/types';
 // «alinear» si los 1 no caen juntos) y el de FASE fina, el pitch a mano sin SYNC y la REJILLA a mano
 // (el 1 aquí, correr un tiempo o unos ms, ×2 ÷2, tempo escrito) para cuando el análisis se equivocó.
 
-export const HOT_COLORS = ['#e46a6a', '#e7b84a', '#3df0d0', '#b197fc'];
+export const HOT_COLORS = ['#e46a6a', '#e7b84a', '#3df0d0', '#b197fc', '#6aa7e4', '#e48ad8', '#9fe46a', '#e4a06a'];
 const ZOOM_BARS = 2; // la onda que corre muestra ±2 compases
+// largo de un loop en compases, en corto: ½, ¼, ⅛, 1/16…
+const fmtBars = (b: number) => (b >= 1 ? String(b) : b === 0.5 ? '½' : b === 0.25 ? '¼' : b === 0.125 ? '⅛' : `1/${Math.round(1 / b)}`);
 
 // etiqueta del control MIDI asignado a un slot (como en el resto de la mesa)
 function MK({ slot }: { slot: string }) {
@@ -187,7 +189,7 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
   const keylock = t.keylock !== false;
   // sin tono fijo, la velocidad mueve el tono: cuántos semitonos (para la mezcla armónica)
   const semis = keylock ? 0 : 12 * Math.log2(eff / (sync ? base : t.bpm));
-  const hot = [0, 1, 2, 3].map((k) => t.hot?.[k] ?? null);
+  const hot = Array.from({ length: HOT_N }, (_, k) => t.hot?.[k] ?? null);
   const ovClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     void deckSeek(id, ((e.clientX - r.left) / r.width) * t.dur);
@@ -210,10 +212,9 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
           <b>{eff.toFixed(1)}</b> <i>{t.bpm.toFixed(1)}{Math.abs(pct) > 0.05 ? ` ${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%` : ''}</i>
         </span>
         <span className="sd-time"><span ref={elRef}>0:00</span> <i ref={remRef}>−0:00</i></span>
-        {sync && (
-          <button className={`sd-btn sd-mult${mult !== 1 ? ' on' : ''}`} onClick={() => deckMult(id, mult === 1 ? 2 : mult === 2 ? 0.5 : 1)}
-            title={`SYNC a ${mult === 1 ? 'su tempo' : mult === 2 ? 'el doble' : 'la mitad'} (${base.toFixed(1)} BPM). Toca para probar ×2 / ½ / 1: un 70 junto a un 140, o un tema que el análisis leyó a la mitad`}>
-            {mult === 1 ? '1×' : mult === 2 ? '×2' : '½'}
+        {sync && mult !== 1 && (
+          <button className="sd-btn sd-mult on" onClick={() => deckMult(id, 1)} title={`SYNC al ${mult === 2 ? 'doble' : 'la mitad'} de su tempo (${base.toFixed(1)} BPM). Toca para volver a su tempo (en ⌗ se elige)`}>
+            {mult === 2 ? '×2' : '½'}
           </button>
         )}
         <button className={`sd-btn sd-sync${sync ? ' on' : ''}`} data-midi={slot('sync')} onClick={() => void deckSync(id, !sync)}
@@ -244,6 +245,12 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
           <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'half' })} title="la mitad del tempo">÷2</button>
           <button className="sd-btn" onClick={() => void deckGrid(id, { kind: 'x2' })} title="el doble del tempo">×2</button>
           <BpmField bpm={t.bpm} onSet={(v) => void deckGrid(id, { kind: 'bpm', bpm: v })} />
+          <span className="sd-grid-sep" title="SYNC a la mitad o al doble del tempo del tema (no cambia su rejilla): un 70 junto a un 140">sync a</span>
+          {([0.5, 1, 2] as const).map((v) => (
+            <button key={v} className={`sd-btn${mult === v ? ' on' : ''}`} onClick={() => deckMult(id, v)} title={`sincronizar a ${v === 1 ? 'su tempo' : v === 2 ? 'el doble' : 'la mitad'} (${(t.bpm * v).toFixed(1)} BPM)`}>
+              {v === 1 ? '1' : v === 2 ? '×2' : '½'}
+            </button>
+          ))}
         </div>
       )}
       <div className="sd-meter">
@@ -294,13 +301,20 @@ export function SongDeckBody({ id, data, index, color }: { id: string; data: Nod
           ))}
         </span>
         <span className="sd-loops" role="group" aria-label="loops">
+          <button className="sd-btn" data-midi={slot('loophalf')} disabled={ui?.loop == null} onClick={() => void deckLoopResize(id, 0.5)} title="loop a la mitad (mismo comienzo)">÷2<MK slot={slot('loophalf')} /></button>
           {[1, 2, 4, 8].map((b) => (
             <button key={b} className={`sd-btn${ui?.loop === b ? ' on' : ''}`} data-midi={b === 4 ? slot('loop') : undefined} onClick={() => void deckLoop(id, b)}
               title={ui?.loop === b ? 'salir del loop (sigue de largo)' : `loop de ${b} ${b === 1 ? 'compás' : 'compases'} desde el tiempo que suena`}>
               {b}
             </button>
           ))}
-          <span className="sd-loops-tag">loop</span>
+          <button className="sd-btn" data-midi={slot('loopdouble')} disabled={ui?.loop == null} onClick={() => void deckLoopResize(id, 2)} title="loop al doble (mismo comienzo)">×2<MK slot={slot('loopdouble')} /></button>
+          <span className={`sd-loops-tag${ui?.loop != null && ![1, 2, 4, 8].includes(ui.loop) ? ' on' : ''}`} title={ui?.loop != null ? 'clic: salir del loop' : undefined} onClick={() => { if (ui?.loop != null) void deckLoop(id, null); }}>
+            {ui?.loop != null && ![1, 2, 4, 8].includes(ui.loop) ? `loop ${fmtBars(ui.loop)}` : 'loop'}
+          </span>
+          <button className={`sd-btn${t.slip ? ' on' : ''}`} onClick={() => deckSlip(id, !t.slip)} title={t.slip ? 'SLIP: en un loop el tema sigue corriendo por debajo y al salir vuelve donde iba (toca para apagar)' : 'SLIP apagado: al salir de un loop, el tema sigue desde el loop'}>slip</button>
+          <button className="sd-btn" data-midi={slot('roll')} disabled={!playing} onPointerDown={() => void deckRoll(id, 0.5)} onPointerUp={() => void deckRoll(id, null)} onPointerLeave={(e) => { if (e.buttons) void deckRoll(id, null); }}
+            title="ROLL (mantener): repite el último medio tiempo; al soltar, el tema sigue donde iría">roll<MK slot={slot('roll')} /></button>
         </span>
         <span className="sd-fx" role="group" aria-label="efectos de DJ">
           <button className="sd-btn" data-midi={slot('echoout')} disabled={!playing} onClick={() => deckEchoOut(id)}

@@ -3403,3 +3403,7 @@ input:focus, textarea:focus, select:focus { box-shadow: 0 0 0 2px rgba(61, 240, 
 
 .sd-mult { min-width: 22px; }
 .sd-mult:not(.on) { opacity: 0.55; }
+
+.sd-loops-tag.on { color: var(--accent); cursor: pointer; }
+.sd-btn:disabled { opacity: 0.35; cursor: default; }
+.sd-grid-sep { font-family: var(--mono); font-size: 9px; color: var(--faint); margin-left: 6px; align-self: center; }

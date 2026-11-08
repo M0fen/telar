@@ -21,12 +21,13 @@ export interface DjTrack {
   key?: SongKey | null;
   lufs?: number | null;
   cue: number; // el CUE (segundos)
-  hot: (number | null)[]; // 4 cues rápidos
+  hot: (number | null)[]; // 8 cues rápidos (los temas viejos traen 4)
   sync?: boolean; // false = a su tempo (con `pitch`)
   pitch?: number; // −0,16…0,16 sin sync
   trim?: number; // dB a mano (si no, la ganancia automática por loudness)
   keylock?: boolean; // false = la velocidad cambia el tono (como un plato); por defecto, tono fijo
   mult?: number; // SYNC a la mitad (0,5) o al doble (2) del tempo del tema: un 70 en una sesión a 140
+  slip?: boolean; // SLIP: en un loop el tema sigue corriendo por debajo y al salir vuelve donde iba
 }
 // la rejilla CON LA QUE SINCRONIZA (con ½ / ×2); rawGridOf: la del análisis (la que se corrige a mano)
 export const gridOf = (t: { bpm: number; first: number; beats?: number; mult?: number }): Grid => ({ bpm: t.bpm * (t.mult === 0.5 || t.mult === 2 ? t.mult : 1), first: t.first, beats: t.beats || 4 });

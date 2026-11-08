@@ -6,7 +6,7 @@ import { useGraphStore } from '../store/useGraphStore';
 import { deckEq, eqFrom01, eqPatch, eqTo01, isDeck, killPatch, useDjStore, type EqBand } from './djMix';
 import type { NodeData } from '../graph/types';
 import { startSet, stopSet, useSetRec } from './setRecorder';
-import { deckAlignBars, deckBrake, deckCueDown, deckEchoOut, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckNudge, deckPitch, deckSync, deckToggle, PITCH_RANGE } from './songDeck';
+import { deckAlignBars, deckBrake, deckCueDown, deckEchoOut, deckCueUp, deckGrid, deckHot, deckJump, deckLoop, deckLoopResize, deckNudge, deckPitch, deckRoll, deckSync, deckToggle, HOT_N, PITCH_RANGE } from './songDeck';
 
 const gs = () => useGraphStore.getState();
 const BANDS: EqBand[] = ['high', 'mid', 'low'];
@@ -37,8 +37,11 @@ export function buildDjSlots(): Record<string, MidiSlot> {
       slots[deckSlot(i, 'play')] = { kind: 'tap', tap: () => deckToggle(id) };
       slots[deckSlot(i, 'cuebtn')] = { kind: 'pad', down: () => void deckCueDown(id), up: () => deckCueUp(id) };
       slots[deckSlot(i, 'sync')] = { kind: 'tap', tap: () => void deckSync(id, data().djTrack?.sync === false) };
-      for (let k = 0; k < 4; k++) slots[deckSlot(i, `hot${k + 1}`)] = { kind: 'tap', tap: () => void deckHot(id, k) };
+      for (let k = 0; k < HOT_N; k++) slots[deckSlot(i, `hot${k + 1}`)] = { kind: 'tap', tap: () => void deckHot(id, k) };
       slots[deckSlot(i, 'loop')] = { kind: 'tap', tap: () => void deckLoop(id, 4) };
+      slots[deckSlot(i, 'loophalf')] = { kind: 'tap', tap: () => void deckLoopResize(id, 0.5) };
+      slots[deckSlot(i, 'loopdouble')] = { kind: 'tap', tap: () => void deckLoopResize(id, 2) };
+      slots[deckSlot(i, 'roll')] = { kind: 'pad', down: () => void deckRoll(id, 0.5), up: () => void deckRoll(id, null) };
       slots[deckSlot(i, 'jumpb')] = { kind: 'tap', tap: () => void deckJump(id, -4) };
       slots[deckSlot(i, 'jumpf')] = { kind: 'tap', tap: () => void deckJump(id, 4) };
       slots[deckSlot(i, 'nudgeb')] = { kind: 'pad', down: () => deckNudge(id, -1), up: () => deckNudge(id, 0) };
@@ -66,7 +69,7 @@ export function djSlotName(slot: string): string | null {
   if (!m) return null;
   const what = m[2];
   const band = (BANDS as string[]).find((b) => what.endsWith(b)) as EqBand | undefined;
-  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', hot1: 'cue rápido 1', hot2: 'cue rápido 2', hot3: 'cue rápido 3', hot4: 'cue rápido 4', pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí', echoout: 'eco out', brake: 'freno' };
+  const song: Record<string, string> = { play: '▶/⏸', cuebtn: 'CUE', sync: 'SYNC', loop: 'loop de 4', jumpb: 'saltar −4', jumpf: 'saltar +4', nudgeb: 'empujar ‹', nudgef: 'empujar ›', ...Object.fromEntries(Array.from({ length: HOT_N }, (_, k) => [`hot${k + 1}`, `cue rápido ${k + 1}`])), loophalf: 'loop ÷2', loopdouble: 'loop ×2', roll: 'roll de ½ tiempo', pitch: 'tempo a mano', align: 'alinear compás', gridone: 'el 1 aquí', echoout: 'eco out', brake: 'freno' };
   if (song[what]) return `deck ${m[1]} · ${song[what]}`;
   const label = what === 'gain' ? 'volumen' : what === 'filter' ? 'filtro' : what === 'cue' ? 'cue 🎧' : what === 'mute' ? 'mute' : what === 'solo' ? 'solo'
     : band && what.startsWith('eq') ? `EQ ${BAND_LABEL[band]}` : band && what.startsWith('kill') ? `kill ${BAND_LABEL[band]}` : what;
