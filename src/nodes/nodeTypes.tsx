@@ -612,7 +612,9 @@ function WarpChip({ id, warp }: { id: string; warp: WarpInfo }) {
 function BrokenNote({ id }: { id: string }) {
   const msg = useGraphStore((s) => s.brokenMsgs[id]);
   const warn = useGraphStore((s) => s.warnMsgs[id]);
+  const pend = useGraphStore((s) => s.pendingMsgs[id]);
   if (msg) return <div className="tn-broken nodrag" role="status" title={msg}>⚠ silenciado: {msg}</div>;
+  if (pend) return <div className="tn-broken is-warn nodrag" role="status" title={pend}>⏸ sin aplicar: {pend} — suena lo último que funcionó</div>;
   if (warn) return <div className="tn-broken is-warn nodrag" role="status" title={warn}>⚠ {warn}</div>;
   return null;
 }

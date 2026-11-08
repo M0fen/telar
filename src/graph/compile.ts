@@ -65,6 +65,7 @@ export interface CompileResult {
   channelEqs: ChannelEqRoute[];
   dropped: string[]; // nombres de fuentes AISLADAS por código roto (ver sourceCompiles)
   exprs?: Record<string, string>; // con `withExprs`: la expresión compilada de cada nodo (para aislar errores)
+  pending?: string[]; // fuentes que suenan con su último código bueno (`fallback`): lo escrito aún no aplica
 }
 
 // Tokens que NO aparecen en la mini-notación de Strudel y sí en código roto/malicioso
@@ -714,6 +715,7 @@ export interface CompileOpts {
   // para que el resto del tema suene (useGraphStore las detecta con probeCode)
   broken?: ReadonlySet<string>;
   withExprs?: boolean; // devolver la expresión de cada nodo (probarlas por separado)
+  fallback?: ReadonlyMap<string, string>; // último código que sonó bien por fuente (mientras se escribe)
   // CANCIÓN HORNEADA (Fase 4.1): orbits FIJOS para todas las secciones — cada sección se compila
   // con la mezcla de su escena y todas deben mandar cada pista al MISMO bus (si no, el EQ por
   // canal y las colas de reverb cambiarían de pista al pasar de sección). Sin plan: como siempre.
@@ -805,6 +807,7 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
   const memo = new Map<string, Expr | null>();
   let firstError: string | null = null;
   const droppedSources: string[] = []; // fuentes aisladas por código roto (fix aislamiento)
+  const pendingSources: string[] = []; // ids que suenan con su código de respaldo (lo escrito aún no aplica)
 
   // Solo de mixer: si AL MENOS un source está en solo, los sources NO soloed se
   // silencian (clásico de mesa de mezclas / DJ). El solo "gana" al mute implícito.
@@ -942,14 +945,21 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
         // LANZADOR DE CLIPS (12.5): una pista lanzada toca ESE patrón en bucle en vez de su arreglo
         const launched = !trans && !preview && typeof opts.launch?.[id] === 'string' ? opts.launch[id] : null;
         const raw = (trans ?? (preview ? (node.data.seqPreviewCode as string) : launched ?? node.data.code ?? '')).trim();
-        const code = raw.replace(INLINE_VIZ_RE, '').trim();
+        const typed = raw.replace(INLINE_VIZ_RE, '').trim();
+        // MIENTRAS SE ESCRIBE: si lo escrito aún no compila (o falló al sonar) y hay un código
+        // que ya sonó bien (`fallback`), sigue sonando ese — no se calla la pista a mitad de tecleo.
+        const bad = !!typed && (!sourceCompiles(typed) || !!opts.broken?.has(id));
+        const fb = bad ? opts.fallback?.get(id)?.replace(INLINE_VIZ_RE, '').trim() : undefined;
+        const useFallback = !!fb && fb !== typed && sourceCompiles(fb);
+        const code = useFallback ? fb! : typed;
+        if (useFallback) pendingSources.push(id);
         if (!code) {
           firstError ??= 'Source vacío';
         } else if ((node.data.mute || (anySolo && !node.data.solo)) && !(busMix && eqOrbitBySource.has(id))) {
           // canal en mute, o hay solos activos y éste no es uno: no aporta al máster.
           // (modo DJ: el patrón sigue y el fader de su bus lo calla — así puede ENTRAR justo en el 1)
           expr = { text: 'silence', spans: [] };
-        } else if (!sourceCompiles(code) || opts.broken?.has(id)) {
+        } else if (bad && !useFallback) {
           // AÍSLA una fuente con código roto: suena `silence` en vez de tumbar el stack
           // ENTERO al evaluar. Se reporta (dropped) para avisar al usuario cuál falló; las
           // que fallaron AL EVALUAR (`broken`) las avisa el store, que las encontró.
@@ -959,7 +969,8 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
           // (código) — el código real arranca tras el "(" → offset 1.
           // Macros de canal (gain/filtro DJ) se añaden como sufijo: no desplazan
           // el span del código, que está al inicio.
-          const spans = [{ nodeId: id, start: 1, end: 1 + code.length }];
+          // (con el código de respaldo no hay resaltado: sus posiciones no son las del editor)
+          const spans = useFallback ? [] : [{ nodeId: id, start: 1, end: 1 + code.length }];
           // recorte del sample (.begin/.end): se inyecta JUSTO tras s("…"), antes
           // de loopAt/chop, para no romper el troceado. (el prefijo s("…") no se
           // desplaza, así el span del resaltado sigue siendo válido.)
@@ -1137,11 +1148,12 @@ export function compileGraph(nodes: N[], edges: Edge[], opts: CompileOpts = {}):
 
   const outExprs = outs.map((o) => resolve(o.id, new Set())).filter((x): x is Expr => !!x);
   const exprs = opts.withExprs ? Object.fromEntries([...memo].filter(([, e]) => !!e).map(([id, e]) => [id, e!.text])) : undefined;
-  if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs, dropped: droppedSources, exprs };
+  const pending = pendingSources.length ? pendingSources : undefined;
+  if (outExprs.length === 0) return { code: null, error: firstError ?? 'nada que sonar', spans: [], channelEqs, dropped: droppedSources, exprs, pending };
 
   const master = combine(outExprs);
   // automatización del MÁSTER que vive en el código (reverb/eco/crush, Fase 7.2): del primer Out
   const mAuto = masterAutomationSuffix(outs[0]?.data.auto, opts.songBars ?? 0);
-  if (mAuto) return { code: `(${master.text})${mAuto}`, error: null, spans: shift(master.spans, 1), channelEqs, dropped: droppedSources, exprs };
-  return { code: master.text, error: null, spans: master.spans, channelEqs, dropped: droppedSources, exprs };
+  if (mAuto) return { code: `(${master.text})${mAuto}`, error: null, spans: shift(master.spans, 1), channelEqs, dropped: droppedSources, exprs, pending };
+  return { code: master.text, error: null, spans: master.spans, channelEqs, dropped: droppedSources, exprs, pending };
 }

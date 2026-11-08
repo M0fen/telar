@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import type { NodeData, NodeKind } from '../graph/types';
 import { OPS_BY_ID, defaultParams } from '../graph/ops';
-import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, INLINE_VIZ_RE, type MasterFx, type CompileOpts } from '../graph/compile';
+import { compileGraph, applyGlobalMaster, applyTimeline, sanitizeMasterFx, releaseMomentary, INLINE_VIZ_RE, sourceCompiles, type MasterFx, type CompileOpts } from '../graph/compile';
 import { probeCode } from '../audio/patternPreview';
 import { toast } from './useNotifyStore';
 import { swapPattern, stopAudio, ensureEngine, ensureAudioReady, setCps, onEngineError, onEngineLogIssue, registerWavetables, registerUserWave, setMasterBus, setChannelEqs, isOfflineRendering, getScheduler } from '../audio/engine';
@@ -171,6 +171,7 @@ interface GraphState {
   lastCode: string | null;
   brokenMsgs: Record<string, string>; // nodos AISLADOS por un error al sonar → su motivo (se marcan en rojo)
   warnMsgs: Record<string, string>; // nodos con un aviso de Strudel que calla solo una parte (ámbar)
+  pendingMsgs: Record<string, string>; // fuentes que suenan con su último código bueno: lo escrito aún no aplica (motivo)
   // historial deshacer/rehacer (pilas de snapshots del grafo).
   past: HistoryEntry[];
   future: HistoryEntry[];
@@ -323,7 +324,19 @@ export const useGraphStore = create<GraphState>((set, get) => {
   // marca en rojo con el motivo y el resto sigue sonando; al cambiarlo se reintenta.
   const broken = new Map<string, { key: string; msg: string }>(); // id → (lo que falló, motivo)
   const brokenKey = (n: GNode): string => (n.data.kind === 'source' ? String(n.data.code ?? '') : JSON.stringify([n.data.opId ?? '', n.data.params ?? {}]));
-  const publishBroken = () => set({ brokenMsgs: Object.fromEntries([...broken].map(([id, b]) => [id, b.msg])) });
+  // MIENTRAS SE ESCRIBE: el último código de cada fuente que sonó bien (o, parado, que se pudo
+  // leer). Si lo escrito no compila o falla al sonar, el compilador toca este y el nodo queda
+  // «sin aplicar» (ámbar) en vez de callarse.
+  const lastGood = new Map<string, string>();
+  let pendingIds: string[] = [];
+  let publishedSig = '#';
+  const publishBroken = () => {
+    const pend = new Set(pendingIds);
+    set({
+      brokenMsgs: Object.fromEntries([...broken].filter(([id]) => !pend.has(id)).map(([id, b]) => [id, b.msg])),
+      pendingMsgs: Object.fromEntries(pendingIds.map((id) => [id, broken.get(id)?.msg ?? 'lo escrito todavía no se puede leer'])),
+    });
+  };
   let isolating = false;
   let noCulpritFor: string | null = null; // código ya revisado sin encontrar culpable (no repetir en cada tic)
   const isolateBroken = async (reason?: string) => {
@@ -365,9 +378,12 @@ export const useGraphStore = create<GraphState>((set, get) => {
         return;
       }
       for (const f of found) broken.set(f.id, { key: f.key, msg: f.msg });
-      publishBroken();
-      const names = found.map((f) => `«${f.name}»`).join(', ');
-      toast.warn(`Silencié ${names}: ${found[0].msg}. El resto sigue sonando; al corregirlo vuelve a sonar.`);
+      // las que tienen un código anterior que sonaba bien siguen con ese (quedan «sin aplicar»)
+      const silenced = found.filter((f) => { const g = lastGood.get(f.id); return !g || g === f.key; });
+      if (silenced.length) {
+        const names = silenced.map((f) => `«${f.name}»`).join(', ');
+        toast.warn(`Silencié ${names}: ${silenced[0].msg}. El resto sigue sonando; al corregirlo vuelve a sonar.`);
+      }
       get().recompile();
     } finally {
       isolating = false;
@@ -381,6 +397,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
       transpose, xfader, songBars: songTotal(useSongStore.getState().steps), keyRoot: songKey?.root ?? 0,
       only: useSongStore.getState().exportOnly, busMix: get().mode === 'dj',
       launch: Object.keys(launch).length ? launch : undefined, broken: broken.size ? new Set(broken.keys()) : undefined,
+      fallback: lastGood.size ? lastGood : undefined,
     };
   };
   // fallas al consultar mientras suena → aislar; sonidos que no existen → avisar una vez
@@ -415,14 +432,25 @@ export const useGraphStore = create<GraphState>((set, get) => {
 
   const recompile = () => {
     const { nodes, edges, cps, playing, master } = get();
-    let pruned = false;
-    for (const [id, b] of broken) { const n = nodes.find((x) => x.id === id); if (!n || brokenKey(n) !== b.key) { broken.delete(id); pruned = true; } }
-    if (pruned) publishBroken();
+    for (const [id, b] of broken) { const n = nodes.find((x) => x.id === id); if (!n || brokenKey(n) !== b.key) broken.delete(id); }
     let warnPruned = false;
     for (const [id, k] of warnKeys) { const n = nodes.find((x) => x.id === id); if (!n || brokenKey(n) !== k) { warnKeys.delete(id); warnPruned = true; } }
     if (warnPruned) { warnedMsgs.clear(); set({ warnMsgs: Object.fromEntries(Object.entries(get().warnMsgs).filter(([id]) => warnKeys.has(id))) }); }
     const songBars = songTotal(useSongStore.getState().steps);
-    const { code, error, spans, channelEqs, dropped } = compileGraph(nodes, edges, compileOptsNow());
+    const { code, error, spans, channelEqs, dropped, pending } = compileGraph(nodes, edges, compileOptsNow());
+    // lo que suena con su código de respaldo y lo aislado, a la vista en cada nodo
+    const pendingNow = pending ?? [];
+    const sig = `${pendingNow.join('|')}#${[...broken.keys()].join('|')}`;
+    if (sig !== publishedSig) { publishedSig = sig; pendingIds = pendingNow; publishBroken(); }
+    // códigos que van a sonar tal cual: si el swap sale bien (o si está parado), son el nuevo «último bueno»
+    const pendSet = new Set(pendingNow);
+    const usedCodes = new Map<string, string>();
+    for (const n of nodes) {
+      const c = n.data.code;
+      if (n.data.kind !== 'source' || typeof c !== 'string' || !c.trim() || pendSet.has(n.id) || broken.has(n.id) || n.data.mute) continue;
+      if (sourceCompiles(c.replace(INLINE_VIZ_RE, '').trim())) usedCodes.set(n.id, c);
+    }
+    if (!get().playing) for (const [id, c] of usedCodes) lastGood.set(id, c);
     setEngineAutomation(engineAutomation(nodes, songBars)); // curvas del motor (envíos, filtro DJ, drive, retornos: 7.2)
     setSpans(spans); // mapeo de eventos → editores para el resaltado
     const eqKey = JSON.stringify(channelEqs);
@@ -441,7 +469,10 @@ export const useGraphStore = create<GraphState>((set, get) => {
     const exporting = song.stopAt != null || song.exportOnly != null;
     if (playing && code) {
       void swapPattern(withMetronome(applyGlobalMaster(applyTimeline(code, song), master), { on: useMetroStore.getState().on && !exporting, beats: get().beatsPerCycle, countIn: exporting ? 0 : song.countIn }), cps)
-        .then((ok) => { if (!ok) void isolateBroken(); }, () => {});
+        .then((ok) => {
+          if (!ok) { void isolateBroken(); return; }
+          for (const [id, c] of usedCodes) lastGood.set(id, c);
+        }, () => {});
     }
   };
 
@@ -514,6 +545,7 @@ export const useGraphStore = create<GraphState>((set, get) => {
     lastCode: null,
     brokenMsgs: {},
     warnMsgs: {},
+    pendingMsgs: {},
     past: [],
     future: [],
     dragItem: null,
