@@ -3,6 +3,7 @@
 // del tema, su rejilla y sus cues). El id es la huella del archivo: el mismo tema no se guarda dos veces.
 // El análisis (tempo y rejilla, tonalidad, loudness, forma de onda resumida) se hace UNA vez.
 import { guess } from 'web-audio-beat-detector';
+import { isAiff, parseAiff } from '../lib/aiff';
 import { create } from 'zustand';
 import { getAudioCtx } from './engine';
 import { detectKey, phraseBass } from '../lib/keyDetect';
@@ -163,12 +164,34 @@ export async function analyzeTrack(buf: AudioBuffer, name: string): Promise<Omit
   };
 }
 
+// DECODIFICAR un tema: lo que entienda el navegador y, si no, AIFF a mano (Chrome y Edge no lo leen),
+// llevado a la frecuencia del contexto (como hace decodeAudioData)
+async function decodeAny(ab: ArrayBuffer): Promise<AudioBuffer> {
+  const ctx = getAudioCtx();
+  try {
+    return await ctx.decodeAudioData(ab.slice(0));
+  } catch (e) {
+    if (!isAiff(ab)) throw e;
+    const r = parseAiff(ab);
+    if (!r) throw e;
+    const src = new AudioBuffer({ length: Math.max(1, r.channels[0].length), numberOfChannels: r.channels.length, sampleRate: r.sampleRate });
+    r.channels.forEach((c, i) => src.copyToChannel(c as Float32Array<ArrayBuffer>, i));
+    if (r.sampleRate === ctx.sampleRate) return src;
+    // a la frecuencia del contexto con el remuestreo del navegador (en su hilo de audio: no traba)
+    const oc = new OfflineAudioContext(src.numberOfChannels, Math.ceil(src.duration * ctx.sampleRate), ctx.sampleRate);
+    const n = new AudioBufferSourceNode(oc, { buffer: src });
+    n.connect(oc.destination);
+    n.start();
+    return await oc.startRendering();
+  }
+}
+
 // GUARDAR UN TEMA (archivo soltado o elegido): huella, archivo y análisis. Si ya estaba, lo devuelve.
 export async function addTrack(file: Blob, name: string): Promise<{ meta: TrackMeta; buf: AudioBuffer } | null> {
   try {
     const ab = await file.arrayBuffer();
     const id = await hashOf(ab);
-    const buf = await getAudioCtx().decodeAudioData(ab.slice(0));
+    const buf = await decodeAny(ab);
     const have = await getMeta(id);
     if (have) return { meta: have, buf };
     const a = await analyzeTrack(buf, name);
@@ -189,7 +212,7 @@ export function loadBuffer(id: string): Promise<AudioBuffer | null> {
     p = (async () => {
       const blob = await getBlob(id);
       if (!blob) return null;
-      try { return await getAudioCtx().decodeAudioData(await blob.arrayBuffer()); } catch { return null; }
+      try { return await decodeAny(await blob.arrayBuffer()); } catch { return null; }
     })();
     decoded.set(id, p);
     void p.then((b) => { if (!b) decoded.delete(id); });
